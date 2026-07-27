@@ -82,3 +82,51 @@ def show_run(run_id: str) -> None:
             )
         total_wall = sum(r.wall_ms for r in rows)
         console.print(f"total wall {_fmt_ms(total_wall)} · local inference, no API cost\n")
+
+
+def show_loc_run(run_id: str) -> None:
+    """Localization report. Acc@k is strict: all ground-truth locations within top k."""
+    with session() as s:
+        run = s.scalars(select(Run).where(cast(Run.id, String).like(f"{run_id}%"))).first()
+        if not run:
+            console.print(f"[red]no run matching {run_id}[/]")
+            return
+        rows = s.scalars(
+            select(TaskResult).where(TaskResult.run_id == run.id).order_by(TaskResult.task_id)
+        ).all()
+
+        attempted = [r for r in rows if r.status != SKIPPED]
+        m = [r.metrics or {} for r in attempted]
+        file5 = sum(1 for x in m if x.get("file_acc_at_5"))
+        func10 = sum(1 for x in m if x.get("func_acc_at_10"))
+        anyhit = sum(1 for x in m if x.get("any_hit"))
+
+        console.print(
+            f"\n[bold]{run.suite}[/] · {run.scaffold} · commit {run.git_commit or 'n/a'} · "
+            f"run {str(run.id)[:8]}"
+        )
+        t = Table("task", "file@5", "func@10", "any", "gt", "symbols", "wall")
+        for r in rows:
+            x = r.metrics or {}
+            t.add_row(
+                r.task_id[:36],
+                "[green]Y[/]" if x.get("file_acc_at_5") else "·",
+                "[green]Y[/]" if x.get("func_acc_at_10") else "·",
+                "Y" if x.get("any_hit") else "·",
+                str(x.get("n_gt", "-")),
+                str((x.get("graph") or {}).get("symbols", "-")),
+                _fmt_ms(r.wall_ms),
+            )
+        console.print(t)
+
+        n = len(attempted) or 1
+        console.print(
+            f"\nfile-level Acc@5   [bold]{file5}/{len(attempted)}[/] ({100 * file5 / n:.1f}%)"
+        )
+        console.print(
+            f"function Acc@10    [bold]{func10}/{len(attempted)}[/] ({100 * func10 / n:.1f}%)"
+        )
+        console.print(f"any-hit (diag)     {anyhit}/{len(attempted)} ({100 * anyhit / n:.1f}%)")
+        if len(rows) != len(attempted):
+            console.print(f"[yellow]{len(rows) - len(attempted)} skipped[/]")
+        console.print("no inference — retrieval only, zero cost\n")

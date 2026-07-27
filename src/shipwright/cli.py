@@ -165,3 +165,53 @@ def bench_show(run_id: str) -> None:
 
 if __name__ == "__main__":
     app()
+
+
+loc = typer.Typer(help="Localization benchmark (Loc-Bench)", no_args_is_help=True)
+app.add_typer(loc, name="loc")
+
+
+@loc.command("fetch")
+def loc_fetch() -> None:
+    """Download and cache Loc-Bench."""
+    from .evals.locbench import fetch
+
+    tasks = fetch()
+    cats: dict[str, int] = {}
+    for t in tasks:
+        cats[t.category] = cats.get(t.category, 0) + 1
+    console.print(f"[green]{len(tasks)} tasks[/] with function-level ground truth")
+    for c, n in sorted(cats.items(), key=lambda kv: -kv[1]):
+        console.print(f"  {c or 'uncategorised'}: {n}")
+
+
+@loc.command("run")
+def loc_run(
+    n: int = typer.Option(10, help="how many tasks"),
+    mode: str = typer.Option("hybrid", help="bm25 | graph | hybrid"),
+    top_k: int = typer.Option(10, help="candidates returned"),
+    notes: str = "",
+) -> None:
+    """Score localization. No inference, no cost — pure retrieval."""
+    from .evals.locbench import fetch, run_locbench
+    from .evals.report import show_loc_run
+
+    tasks = fetch(limit=n)
+    console.print(f"localizing {len(tasks)} task(s) · mode={mode} · top_k={top_k}")
+    run_id = run_locbench(tasks, mode=mode, top_k=top_k, notes=notes)
+    show_loc_run(run_id[:8])
+
+
+@loc.command("ablate")
+def loc_ablate(
+    n: int = typer.Option(10, help="tasks per mode"), top_k: int = typer.Option(10)
+) -> None:
+    """Run every retrieval mode over the same tasks and print the comparison."""
+    from .evals.locbench import fetch, run_locbench
+    from .evals.report import show_loc_run
+
+    tasks = fetch(limit=n)
+    for mode in ("bm25", "graph", "hybrid"):
+        console.print(f"\n[bold]mode={mode}[/]")
+        run_id = run_locbench(tasks, mode=mode, top_k=top_k, notes=f"ablation {mode}")
+        show_loc_run(run_id[:8])

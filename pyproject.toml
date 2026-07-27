@@ -13,6 +13,9 @@ dependencies = [
     "rich>=13.9",
     "mini-swe-agent>=2.4",
     "datasets>=3.0",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-python>=0.25.0",
+    "rank-bm25>=0.2.2",
 ]
 
 [project.scripts]
