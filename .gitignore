@@ -1,0 +1,69 @@
+# Secrets — .env.example is the only env file that ships
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+.aws/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# uv — the lockfile IS committed for reproducibility
+.venv/
+venv/
+
+# Model weights and fine-tune artifacts (Phase C: multi-GB)
+/models/
+/checkpoints/
+/adapters/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+wandb/
+mlruns/
+
+# Hugging Face / dataset caches
+.cache/
+hf_cache/
+
+# Benchmark inputs and raw outputs. Curated reports under evals/**/reports/
+# ARE committed — they are the project's evidence.
+evals/**/data/
+evals/**/artifacts/
+evals/**/trajectories/
+
+# Sandbox and run scratch
+/runs/
+/workspaces/
+*.log
+
+# Frontend (Module 3)
+node_modules/
+.vite/
+.next/
+coverage/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Docs kept local, not pushed
+docs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

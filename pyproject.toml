@@ -1,0 +1,34 @@
+[project]
+name = "shipwright"
+version = "0.1.0"
+description = "Benchmarked AI software-engineering platform"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "typer>=0.15",
+    "httpx>=0.28",
+    "rich>=13.9",
+]
+
+[project.scripts]
+sw = "shipwright.cli:app"
+
+[dependency-groups]
+dev = ["ruff>=0.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shipwright"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

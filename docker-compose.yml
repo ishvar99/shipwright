@@ -1,0 +1,33 @@
+name: shipwright
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: shipwright
+      POSTGRES_PASSWORD: shipwright
+      POSTGRES_DB: shipwright
+    ports: ["55432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shipwright"]
+      interval: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 768M }
+
+  redis:
+    image: redis:8-alpine
+    command: redis-server --save "" --appendonly no
+    ports: ["56379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits: { memory: 256M }
+
+volumes:
+  pgdata:
