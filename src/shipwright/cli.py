@@ -73,8 +73,8 @@ def doctor() -> None:
         from .gateway.ollama import OllamaProvider
 
         p = OllamaProvider()
-        models = p.list_models()
-        if settings.local_model not in models:
+        models = {m.removesuffix(":latest") for m in p.list_models()}
+        if settings.local_model.removesuffix(":latest") not in models:
             ok = False
             table.add_row("ollama", "[yellow]missing model[/]", f"pull {settings.local_model}")
         else:
@@ -104,6 +104,63 @@ def db_init() -> None:
 
     init_schema()
     console.print("[green]schema created[/]")
+
+
+bench = typer.Typer(help="Benchmarks", no_args_is_help=True)
+app.add_typer(bench, name="bench")
+
+
+@bench.command("fetch")
+def bench_fetch(split: str = "lite") -> None:
+    """Download and cache a SWE-bench-Live split."""
+    from .evals.dataset import fetch
+
+    tasks = fetch(split)
+    console.print(f"[green]{len(tasks)} tasks[/] cached for split '{split}'")
+    console.print(f"example image: {tasks[0].image}")
+
+
+@bench.command("baseline")
+def bench_baseline(
+    n: int = typer.Option(2, help="how many tasks"),
+    split: str = "lite",
+    order: str = typer.Option("shuffle", help="shuffle (seeded, default) | easiest"),
+    steps: int = typer.Option(15, help="agent step limit"),
+    max_out: int = typer.Option(1024, help="cap output tokens per step"),
+    model: str = typer.Option("", help="ollama model; defaults to LOCAL_MODEL"),
+    notes: str = "",
+) -> None:
+    """Run the mini-swe-agent null hypothesis. Task images are amd64 (emulated here)."""
+    from .evals.baseline import run_baseline
+    from .evals.dataset import fetch, subset
+    from .evals.report import show_run
+
+    tasks = subset(fetch(split), n, order=order)
+    console.print(f"running {len(tasks)} task(s) · scaffold s2_minimal · steps<={steps}")
+    run_id = run_baseline(
+        tasks,
+        model_name=model or None,
+        step_limit=steps,
+        max_output_tokens=max_out,
+        notes=notes,
+    )
+    show_run(run_id[:8])
+
+
+@bench.command("runs")
+def bench_runs(limit: int = 20) -> None:
+    """List recorded runs."""
+    from .evals.report import list_runs
+
+    list_runs(limit)
+
+
+@bench.command("show")
+def bench_show(run_id: str) -> None:
+    """Show one run's results (accepts an id prefix)."""
+    from .evals.report import show_run
+
+    show_run(run_id)
 
 
 if __name__ == "__main__":

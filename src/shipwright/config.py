@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:56379/0"
 
     ollama_base_url: str = "http://localhost:11434"
-    local_model: str = "qwen2.5-coder:7b"
+    # 16k-context build (see infra/ollama/). Stock qwen2.5-coder:7b loads at 4096,
+    # which silently truncates agent history mid-run.
+    local_model: str = "qwen2.5-coder-7b-16k"
     # Fallback when the 7B contends with Docker for the 16GB budget.
     local_model_small: str = "qwen2.5-coder:3b"
 

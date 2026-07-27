@@ -1,0 +1,13 @@
+# Ollama defaults qwen2.5-coder:7b to a 4096-token window even though the model
+# supports 32768. Agent history passes 4096 within a few steps, after which Ollama
+# silently truncates the oldest tokens — including the task description — and the agent
+# flails without ever editing a file. See docs/FAILURES.md F5.
+#
+# 16384 is the compromise: ~0.9GB of KV cache on top of ~4.6GB of weights, which fits
+# the 16GB budget alongside a 4GB Colima VM. 32768 would roughly double the cache.
+#
+# Build: make model
+
+FROM qwen2.5-coder:7b
+PARAMETER num_ctx 16384
+PARAMETER temperature 0

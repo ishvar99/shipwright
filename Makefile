@@ -1,4 +1,4 @@
-.PHONY: bootstrap up down doctor db-init fmt logs nuke
+.PHONY: bootstrap up down doctor db-init model fmt logs nuke
 
 bootstrap:
 	uv sync
@@ -13,6 +13,10 @@ up:
 
 down:
 	docker compose down
+
+# Stock qwen2.5-coder:7b loads at a 4096 window; this rebuilds it at 16384.
+model:
+	ollama create qwen2.5-coder-7b-16k -f infra/ollama/qwen2.5-coder-7b-16k.Modelfile
 
 doctor:
 	uv run sw doctor
