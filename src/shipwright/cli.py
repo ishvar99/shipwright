@@ -188,7 +188,7 @@ def loc_fetch() -> None:
 @loc.command("run")
 def loc_run(
     n: int = typer.Option(10, help="how many tasks"),
-    mode: str = typer.Option("hybrid", help="bm25 | graph | hybrid"),
+    mode: str = typer.Option("hybrid", help="bm25|graph|hybrid|extract|rerank|extract_rerank"),
     top_k: int = typer.Option(10, help="candidates returned"),
     notes: str = "",
 ) -> None:
@@ -211,7 +211,16 @@ def loc_ablate(
     from .evals.report import show_loc_run
 
     tasks = fetch(limit=n)
-    for mode in ("bm25", "graph", "hybrid"):
+    modes = ("bm25", "graph", "hybrid", "extract", "rerank", "extract_rerank")
+    for mode in modes:
         console.print(f"\n[bold]mode={mode}[/]")
         run_id = run_locbench(tasks, mode=mode, top_k=top_k, notes=f"ablation {mode}")
         show_loc_run(run_id[:8])
+
+
+@loc.command("show")
+def loc_show(run_id: str) -> None:
+    """Show one localization run (accepts an id prefix)."""
+    from .evals.report import show_loc_run
+
+    show_loc_run(run_id)

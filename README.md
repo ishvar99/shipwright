@@ -33,9 +33,27 @@ honest number.
 
 ## Status
 
-Early. The infrastructure runs and the model responds. No benchmark results yet, and the
-results doc says "not run" everywhere on purpose. I'd rather have an empty table than a
-made-up one.
+Early, but there are real numbers now.
+
+Localization on Loc-Bench, 15 tasks, all six modes over the same task list, everything
+running locally on a 7B at zero cost:
+
+| mode | file@5 | func@10 |
+|---|---|---|
+| BM25 only | 60.0% | 20.0% |
+| hybrid (BM25 + code graph) | 60.0% | 26.7% |
+| + LLM extract & rerank | **73.3%** | **40.0%** |
+
+The two LLM steps fix different things: extracting symbol names from the issue finds the
+right file, reranking picks the right function inside it. Together they double plain BM25
+at function level.
+
+n=15, so one task is 6.7 points — the ordering across six modes convinces me more than any
+single gap, and I'll run the full 560 before claiming anything firmer. For scale, LocAgent
+reports 94.16% file / 77.37% function with a frontier model driving the traversal.
+
+Bug fixing is a different story: the local 7B resolves 0/2 SWE-bench-Live tasks so far, for
+reasons I understand and wrote down rather than hand-waved.
 
 ## Running it
 

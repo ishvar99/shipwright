@@ -129,4 +129,15 @@ def show_loc_run(run_id: str) -> None:
         console.print(f"any-hit (diag)     {anyhit}/{len(attempted)} ({100 * anyhit / n:.1f}%)")
         if len(rows) != len(attempted):
             console.print(f"[yellow]{len(rows) - len(attempted)} skipped[/]")
-        console.print("no inference — retrieval only, zero cost\n")
+
+        # Only claim zero cost when no model was actually invoked.
+        calls = sum(r.tool_calls for r in attempted)
+        if run.model == "none" or not calls:
+            console.print("retrieval only — no inference, zero cost\n")
+        else:
+            tin = sum(r.input_tokens for r in attempted)
+            tout = sum(r.output_tokens for r in attempted)
+            console.print(
+                f"{run.model} · {calls} calls · {tin:,} in / {tout:,} out tokens "
+                f"· local inference, no API cost\n"
+            )

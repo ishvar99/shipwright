@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..codegraph.assisted import localize_assisted
 from ..codegraph.build import build
 from ..codegraph.retrieve import Localizer
 from ..db import session
@@ -96,19 +97,36 @@ def _acc_at_k(predicted: list[str], truth: set[str], k: int) -> bool:
     return truth.issubset(set(predicted[:k])) if truth else False
 
 
+ASSISTED = ("extract", "rerank", "extract_rerank")
+
+
 def run_locbench(
-    tasks: list[LocTask], *, mode: str = "hybrid", top_k: int = 10, notes: str = ""
+    tasks: list[LocTask],
+    *,
+    mode: str = "hybrid",
+    top_k: int = 10,
+    model_name: str | None = None,
+    notes: str = "",
 ) -> str:
     commit = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
+
+    provider = None
+    model_id = "none"  # pure retrieval: no inference, no cost
+    if mode in ASSISTED:
+        from ..config import settings
+        from ..gateway.ollama import OllamaProvider
+
+        model_id = model_name or settings.local_model
+        provider = OllamaProvider(model=model_id)
 
     with session() as s:
         run = Run(
             suite="locbench",
             split="test",
             scaffold=f"retrieval_{mode}",
-            model="none",  # pure retrieval: no inference, no cost
+            model=model_id,
             model_tier="local",
             git_commit=commit,
             notes=notes,
@@ -136,7 +154,13 @@ def run_locbench(
                 raise RuntimeError("checkout failed")
 
             graph = build(repo)
-            ranked = Localizer(graph).localize(task.problem_statement, mode=mode, top_k=top_k)
+            usage = None
+            if provider is not None:
+                ranked, usage = localize_assisted(
+                    graph, task.problem_statement, mode=mode, model=provider, top_k=top_k
+                )
+            else:
+                ranked = Localizer(graph).localize(task.problem_statement, mode=mode, top_k=top_k)
             pred_funcs = [r.symbol_id for r in ranked]
             pred_files = list(dict.fromkeys(p.split(":", 1)[0] for p in pred_funcs))
 
@@ -146,6 +170,10 @@ def run_locbench(
 
             # Function-level Acc@10 is the headline metric, matching LocAgent.
             result.status = RESOLVED if func_10 else FAILED
+            if usage is not None:
+                result.input_tokens = usage.input_tokens
+                result.output_tokens = usage.output_tokens
+                result.tool_calls = usage.calls
             result.metrics = {
                 "evaluated": True,
                 "file_acc_at_5": file_5,
