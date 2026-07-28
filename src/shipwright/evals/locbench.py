@@ -85,7 +85,12 @@ def checkout(task: LocTask) -> Path | None:
         if not _run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)]):
             return None
 
-    if not _run(["git", "fetch", "--depth", "1", "origin", task.base_commit], cwd=dest):
+    # Skip the network entirely when the commit is already local — at hundreds of
+    # task-runs the redundant fetches dominate wall clock.
+    have = _run(["git", "cat-file", "-e", f"{task.base_commit}^{{commit}}"], cwd=dest)
+    if not have and not _run(
+        ["git", "fetch", "--depth", "1", "origin", task.base_commit], cwd=dest
+    ):
         return None
     if not _run(["git", "checkout", "--force", task.base_commit], cwd=dest):
         return None
@@ -118,7 +123,7 @@ def run_locbench(
         from ..config import settings
         from ..gateway.ollama import OllamaProvider
 
-        model_id = model_name or settings.local_model
+        model_id = model_name or settings.loc_model
         provider = OllamaProvider(model=model_id)
 
     with session() as s:

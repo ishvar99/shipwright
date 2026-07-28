@@ -141,3 +141,44 @@ def show_loc_run(run_id: str) -> None:
                 f"{run.model} · {calls} calls · {tin:,} in / {tout:,} out tokens "
                 f"· local inference, no API cost\n"
             )
+
+
+def _pct(metrics: list[dict], n: int, key: str) -> str:
+    return f"{100 * sum(1 for x in metrics if x.get(key)) / n:.1f}%"
+
+
+def compare_loc_runs(limit: int = 12) -> None:
+    """Ablation table straight from recorded rows — no log scraping, no hand-typed cells."""
+    with session() as s:
+        runs = s.scalars(
+            select(Run).where(Run.suite == "locbench").order_by(Run.started_at.desc()).limit(limit)
+        ).all()
+        if not runs:
+            console.print("[yellow]no locbench runs recorded[/]")
+            return
+
+        t = Table("run", "mode", "model", "n", "file@5", "func@10", "any-hit", "calls", "tok in")
+        for run in sorted(runs, key=lambda r: r.started_at):
+            rows = s.scalars(select(TaskResult).where(TaskResult.run_id == run.id)).all()
+            att = [r for r in rows if r.status != SKIPPED]
+            if not att:
+                continue
+            m = [r.metrics or {} for r in att]
+            n = len(att)
+            calls = sum(r.tool_calls for r in att)
+            t.add_row(
+                str(run.id)[:8],
+                run.scaffold.removeprefix("retrieval_"),
+                "—" if run.model == "none" else run.model.removesuffix(":latest"),
+                str(n) + (f" (+{len(rows) - n} skip)" if len(rows) != n else ""),
+                _pct(m, n, "file_acc_at_5"),
+                _pct(m, n, "func_acc_at_10"),
+                _pct(m, n, "any_hit"),
+                str(calls) if calls else "—",
+                f"{sum(r.input_tokens for r in att):,}" if calls else "—",
+            )
+        console.print(t)
+        console.print(
+            "[dim]Acc@k is strict: every ground-truth location inside top k. "
+            "any-hit is diagnostic only.[/]"
+        )

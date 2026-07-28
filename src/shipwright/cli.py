@@ -73,26 +73,45 @@ def doctor() -> None:
         from .gateway.ollama import OllamaProvider
 
         p = OllamaProvider()
-        models = {m.removesuffix(":latest") for m in p.list_models()}
-        if settings.local_model.removesuffix(":latest") not in models:
-            ok = False
-            table.add_row("ollama", "[yellow]missing model[/]", f"pull {settings.local_model}")
-        else:
+        available = {m.removesuffix(":latest") for m in p.list_models()}
+
+        # Both roles are checked: agent loops need the 16k build, localization the small
+        # one. Checking only one lets a half-built setup look healthy.
+        for role, name in (("agent", settings.local_model), ("localize", settings.loc_model)):
+            if name.removesuffix(":latest") not in available:
+                ok = False
+                table.add_row(f"ollama/{role}", "[yellow]missing[/]", f"make models  ({name})")
+                continue
             started = time.perf_counter()
-            r = p.generate(
+            r = OllamaProvider(model=name).generate(
                 [{"role": "user", "content": "Reply with the single word: ready"}], max_tokens=8
             )
             elapsed = int((time.perf_counter() - started) * 1000)
             table.add_row(
-                "ollama",
-                "[green]ok[/]",
-                f"{p.model} · {elapsed}ms · ttft {r.ttft_ms}ms · {r.output_tokens} out-tok",
+                f"ollama/{role}", "[green]ok[/]", f"{name} · {elapsed}ms · ttft {r.ttft_ms}ms"
+            )
+
+        if settings.embed_model.removesuffix(":latest") not in available:
+            table.add_row(
+                "ollama/embed", "[yellow]missing[/]", f"ollama pull {settings.embed_model}"
             )
     except Exception as e:
         ok = False
         table.add_row("ollama", "[red]fail[/]", str(e)[:90])
 
     console.print(table)
+
+    # 16GB is the binding constraint on this machine; surface it every time.
+    try:
+        import subprocess
+
+        swap = subprocess.run(
+            ["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        console.print(f"[dim]swap: {swap}[/]")
+    except Exception:
+        pass
+
     if not ok:
         raise typer.Exit(1)
 
@@ -190,15 +209,16 @@ def loc_run(
     n: int = typer.Option(10, help="how many tasks"),
     mode: str = typer.Option("hybrid", help="bm25|graph|hybrid|extract|rerank|extract_rerank"),
     top_k: int = typer.Option(10, help="candidates returned"),
+    model: str = typer.Option("", help="ollama model; defaults to LOC_MODEL"),
     notes: str = "",
 ) -> None:
-    """Score localization. No inference, no cost — pure retrieval."""
+    """Score localization. Retrieval modes cost nothing; assisted modes use LOC_MODEL."""
     from .evals.locbench import fetch, run_locbench
     from .evals.report import show_loc_run
 
     tasks = fetch(limit=n)
     console.print(f"localizing {len(tasks)} task(s) · mode={mode} · top_k={top_k}")
-    run_id = run_locbench(tasks, mode=mode, top_k=top_k, notes=notes)
+    run_id = run_locbench(tasks, mode=mode, top_k=top_k, model_name=model or None, notes=notes)
     show_loc_run(run_id[:8])
 
 
@@ -224,3 +244,11 @@ def loc_show(run_id: str) -> None:
     from .evals.report import show_loc_run
 
     show_loc_run(run_id)
+
+
+@loc.command("compare")
+def loc_compare(limit: int = 12) -> None:
+    """Ablation table across recorded localization runs."""
+    from .evals.report import compare_loc_runs
+
+    compare_loc_runs(limit)

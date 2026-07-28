@@ -30,6 +30,7 @@ class OllamaProvider:
             "model": self.model,
             "messages": messages,
             "stream": True,
+            "keep_alive": settings.keep_alive,
             "options": {"temperature": temperature},
         }
         if max_tokens:

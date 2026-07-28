@@ -1,0 +1,11 @@
+# Localization model. Extract and rerank prompts run ~1.7k tokens, so the 16k window the
+# agent needs (see docs/FAILURES.md F5) is wasted here — and on a 16GB machine that waste
+# is the difference between swapping and not.
+#
+# 3B at 4k: ~2.1GB resident vs ~5.0GB for the 7B at 16k.
+#
+# Build: make models
+
+FROM qwen2.5-coder:3b
+PARAMETER num_ctx 4096
+PARAMETER temperature 0
