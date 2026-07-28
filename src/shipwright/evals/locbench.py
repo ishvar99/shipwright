@@ -113,6 +113,7 @@ def run_locbench(
     top_k: int = 10,
     model_name: str | None = None,
     base_mode: str = "hybrid",
+    rerank_candidates: int = 30,
     notes: str = "",
 ) -> str:
     commit = subprocess.run(
@@ -144,7 +145,8 @@ def run_locbench(
         run = Run(
             suite="locbench",
             split="test",
-            scaffold=f"retrieval_{mode}" + (f"_{base_mode}" if mode in ASSISTED else ""),
+            scaffold=f"retrieval_{mode}"
+            + (f"_{base_mode}_p{rerank_candidates}" if mode in ASSISTED else ""),
             model=model_id,
             model_tier="local",
             git_commit=commit,
@@ -156,6 +158,7 @@ def run_locbench(
                 # Dense modes invoke the embedding model even when no LLM is called;
                 # recording it keeps the report from claiming "no inference" (F10).
                 "base_mode": base_mode if mode in ASSISTED else None,
+                "rerank_candidates": rerank_candidates if mode in ASSISTED else None,
                 "embed_model": settings_embed
                 if (mode in DENSE or (mode in ASSISTED and base_mode in DENSE))
                 else None,
@@ -194,6 +197,7 @@ def run_locbench(
                     top_k=top_k,
                     base_mode=base_mode,
                     dense=dense,
+                    rerank_candidates=rerank_candidates,
                 )
             else:
                 ranked = Localizer(graph, dense=dense).localize(

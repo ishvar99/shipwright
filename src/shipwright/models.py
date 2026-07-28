@@ -31,7 +31,9 @@ class Run(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     suite: Mapped[str] = mapped_column(String(64))  # locbench | swebench_live | webgen | smoke
     split: Mapped[str] = mapped_column(String(64), default="")
-    scaffold: Mapped[str] = mapped_column(String(32))  # s1_pipeline | s2_minimal | s3_graph
+    # Encodes mode + retrieval base + pool size, so two runs that differ in
+    # configuration cannot look identical in the results table.
+    scaffold: Mapped[str] = mapped_column(String(96))
     model: Mapped[str] = mapped_column(String(128))
     model_tier: Mapped[str] = mapped_column(String(16))  # local | cheap | frontier
     temperature: Mapped[float] = mapped_column(default=0.0)

@@ -214,6 +214,7 @@ def loc_run(
     top_k: int = typer.Option(10, help="candidates returned"),
     model: str = typer.Option("", help="ollama model; defaults to LOC_MODEL"),
     base: str = typer.Option("hybrid", help="retrieval channels under an assisted mode"),
+    pool: int = typer.Option(30, help="candidates shown to the reranker"),
     notes: str = "",
 ) -> None:
     """Score localization. Retrieval modes cost nothing; assisted modes use LOC_MODEL."""
@@ -221,13 +222,16 @@ def loc_run(
     from .evals.report import show_loc_run
 
     tasks = fetch(limit=n)
-    console.print(f"localizing {len(tasks)} task(s) · mode={mode} · base={base} · top_k={top_k}")
+    console.print(
+        f"localizing {len(tasks)} task(s) · mode={mode} · base={base} · pool={pool} · top_k={top_k}"
+    )
     run_id = run_locbench(
         tasks,
         mode=mode,
         top_k=top_k,
         model_name=model or None,
         base_mode=base,
+        rerank_candidates=pool,
         notes=notes,
     )
     show_loc_run(run_id[:8])
