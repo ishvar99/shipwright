@@ -103,6 +103,7 @@ def _acc_at_k(predicted: list[str], truth: set[str], k: int) -> bool:
 
 
 ASSISTED = ("extract", "rerank", "extract_rerank")
+DENSE = ("dense", "hybrid3", "hybrid4")
 
 
 def run_locbench(
@@ -111,14 +112,18 @@ def run_locbench(
     mode: str = "hybrid",
     top_k: int = 10,
     model_name: str | None = None,
+    base_mode: str = "hybrid",
     notes: str = "",
 ) -> str:
     commit = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
 
+    from ..config import settings as _s
+
+    settings_embed = _s.embed_model
     provider = None
-    model_id = "none"  # pure retrieval: no inference, no cost
+    model_id = "none"  # pure retrieval: no LLM
     if mode in ASSISTED:
         from ..config import settings
         from ..gateway.ollama import OllamaProvider
@@ -130,7 +135,7 @@ def run_locbench(
         run = Run(
             suite="locbench",
             split="test",
-            scaffold=f"retrieval_{mode}",
+            scaffold=f"retrieval_{mode}" + (f"_{base_mode}" if mode in ASSISTED else ""),
             model=model_id,
             model_tier="local",
             git_commit=commit,
@@ -139,6 +144,12 @@ def run_locbench(
                 "mode": mode,
                 "top_k": top_k,
                 "dataset": DATASET,
+                # Dense modes invoke the embedding model even when no LLM is called;
+                # recording it keeps the report from claiming "no inference" (F10).
+                "base_mode": base_mode if mode in ASSISTED else None,
+                "embed_model": settings_embed
+                if (mode in DENSE or (mode in ASSISTED and base_mode in DENSE))
+                else None,
                 "instance_ids": [t.instance_id for t in tasks],
             },
         )
@@ -159,13 +170,26 @@ def run_locbench(
                 raise RuntimeError("checkout failed")
 
             graph = build(repo)
+            dense = None
+            if mode in DENSE or (mode in ASSISTED and base_mode in DENSE):
+                from ..codegraph.embed import symbol_matrix
+
+                dense = symbol_matrix(graph, cache_key=f"{task.repo.replace('/', '__')}")
             usage = None
             if provider is not None:
                 ranked, usage = localize_assisted(
-                    graph, task.problem_statement, mode=mode, model=provider, top_k=top_k
+                    graph,
+                    task.problem_statement,
+                    mode=mode,
+                    model=provider,
+                    top_k=top_k,
+                    base_mode=base_mode,
+                    dense=dense,
                 )
             else:
-                ranked = Localizer(graph).localize(task.problem_statement, mode=mode, top_k=top_k)
+                ranked = Localizer(graph, dense=dense).localize(
+                    task.problem_statement, mode=mode, top_k=top_k
+                )
             pred_funcs = [r.symbol_id for r in ranked]
             pred_files = list(dict.fromkeys(p.split(":", 1)[0] for p in pred_funcs))
 

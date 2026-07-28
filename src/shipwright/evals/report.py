@@ -130,10 +130,15 @@ def show_loc_run(run_id: str) -> None:
         if len(rows) != len(attempted):
             console.print(f"[yellow]{len(rows) - len(attempted)} skipped[/]")
 
-        # Only claim zero cost when no model was actually invoked.
+        # Only claim zero inference when genuinely no model ran — dense modes invoke the
+        # embedder even with no LLM calls (F10).
         calls = sum(r.tool_calls for r in attempted)
+        embed = (run.config or {}).get("embed_model")
         if run.model == "none" or not calls:
-            console.print("retrieval only — no inference, zero cost\n")
+            if embed:
+                console.print(f"retrieval + {embed} embeddings · local, no API cost\n")
+            else:
+                console.print("retrieval only — no model invoked, zero cost\n")
         else:
             tin = sum(r.input_tokens for r in attempted)
             tout = sum(r.output_tokens for r in attempted)

@@ -207,9 +207,13 @@ def loc_fetch() -> None:
 @loc.command("run")
 def loc_run(
     n: int = typer.Option(10, help="how many tasks"),
-    mode: str = typer.Option("hybrid", help="bm25|graph|hybrid|extract|rerank|extract_rerank"),
+    mode: str = typer.Option(
+        "hybrid",
+        help="bm25|graph|dense|path|hybrid|hybrid3|hybrid_path|hybrid4|extract|rerank|extract_rerank",
+    ),
     top_k: int = typer.Option(10, help="candidates returned"),
     model: str = typer.Option("", help="ollama model; defaults to LOC_MODEL"),
+    base: str = typer.Option("hybrid", help="retrieval channels under an assisted mode"),
     notes: str = "",
 ) -> None:
     """Score localization. Retrieval modes cost nothing; assisted modes use LOC_MODEL."""

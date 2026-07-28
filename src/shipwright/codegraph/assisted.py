@@ -113,9 +113,12 @@ def localize_assisted(
     mode: str,
     model: ModelProvider,
     top_k: int = 10,
+    base_mode: str = "hybrid",
+    dense: tuple[list[str], object] | None = None,
 ) -> tuple[list[Ranked], Usage]:
-    """mode: extract | rerank | extract_rerank."""
-    loc = Localizer(graph)
+    """mode: extract | rerank | extract_rerank. `base_mode` picks the retrieval channels
+    underneath, so recall and ranking improvements can be varied independently."""
+    loc = Localizer(graph, dense=dense)
     usage = Usage()
 
     query = issue
@@ -125,7 +128,7 @@ def localize_assisted(
         query = f"{extracted} {issue[:500]}" if extracted else issue
 
     if mode in ("rerank", "extract_rerank"):
-        wide = loc.localize(query, mode="hybrid", top_k=RERANK_CANDIDATES)
+        wide = loc.localize(query, mode=base_mode, top_k=RERANK_CANDIDATES)
         return _rerank(model, issue, wide, graph, usage)[:top_k], usage
 
-    return loc.localize(query, mode="hybrid", top_k=top_k), usage
+    return loc.localize(query, mode=base_mode, top_k=top_k), usage
