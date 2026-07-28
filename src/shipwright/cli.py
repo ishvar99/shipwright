@@ -221,8 +221,15 @@ def loc_run(
     from .evals.report import show_loc_run
 
     tasks = fetch(limit=n)
-    console.print(f"localizing {len(tasks)} task(s) · mode={mode} · top_k={top_k}")
-    run_id = run_locbench(tasks, mode=mode, top_k=top_k, model_name=model or None, notes=notes)
+    console.print(f"localizing {len(tasks)} task(s) · mode={mode} · base={base} · top_k={top_k}")
+    run_id = run_locbench(
+        tasks,
+        mode=mode,
+        top_k=top_k,
+        model_name=model or None,
+        base_mode=base,
+        notes=notes,
+    )
     show_loc_run(run_id[:8])
 
 
@@ -256,3 +263,15 @@ def loc_compare(limit: int = 12) -> None:
     from .evals.report import compare_loc_runs
 
     compare_loc_runs(limit)
+
+
+@loc.command("diagnose")
+def loc_diagnose(
+    run_id: str,
+    limit: int = typer.Option(0, help="cap tasks examined"),
+    depth: int = typer.Option(0, help="also report ground-truth rank within this depth"),
+) -> None:
+    """Explain why a localization run's failures failed."""
+    from .evals.diagnose import diagnose
+
+    diagnose(run_id, limit=limit or None, depth=depth)
