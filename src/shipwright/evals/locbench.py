@@ -129,7 +129,16 @@ def run_locbench(
         from ..gateway.ollama import OllamaProvider
 
         model_id = model_name or settings.loc_model
-        provider = OllamaProvider(model=model_id)
+        if model_id.startswith("mlx:"):
+            # mlx:<hf-or-local-model>[+<adapter-dir>]
+            from ..gateway.mlx import MlxProvider
+
+            spec = model_id.removeprefix("mlx:")
+            base, _, adapter = spec.partition("+")
+            provider = MlxProvider(base, adapter_path=adapter or None)
+            model_id = provider.model
+        else:
+            provider = OllamaProvider(model=model_id)
 
     with session() as s:
         run = Run(
@@ -203,8 +212,10 @@ def run_locbench(
                 result.input_tokens = usage.input_tokens
                 result.output_tokens = usage.output_tokens
                 result.tool_calls = usage.calls
+                extra_metrics = {"parse_failures": usage.parse_failures}
             result.metrics = {
                 "evaluated": True,
+                **(extra_metrics if usage is not None else {}),
                 "file_acc_at_5": file_5,
                 "func_acc_at_10": func_10,
                 "any_hit": any_hit,

@@ -15,6 +15,7 @@ schema-constrained output fail far more visibly.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from ..gateway.base import ModelProvider
@@ -39,6 +40,30 @@ RERANK_SCHEMA = {
 
 MAX_ISSUE_CHARS = 3000
 RERANK_CANDIDATES = 30
+_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
+
+
+def _parse_json(text: str) -> dict | None:
+    """Models wrap JSON in markdown fences and trailing chat tokens. A bare json.loads
+    fails on that and the caller silently falls back to retrieval order — which would make
+    a fine-tune look like it changed nothing. Parse failures must be rare and visible."""
+    if not text:
+        return None
+    raw = text.strip()
+    for token in ("<|im_end|>", "<|endoftext|>", "</s>"):
+        raw = raw.replace(token, "")
+    m = _FENCE.search(raw)
+    if m:
+        raw = m.group(1).strip()
+    else:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end > start:
+            raw = raw[start : end + 1]
+    try:
+        out = json.loads(raw)
+        return out if isinstance(out, dict) else None
+    except json.JSONDecodeError:
+        return None
 
 
 @dataclass
@@ -46,6 +71,7 @@ class Usage:
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    parse_failures: int = 0  # silent degradation, made countable
 
     def add(self, r) -> None:
         self.calls += 1
@@ -63,9 +89,9 @@ def _extract_query(model: ModelProvider, issue: str, usage: Usage) -> str:
     )
     r = model.generate([{"role": "user", "content": prompt}], schema=EXTRACT_SCHEMA, max_tokens=300)
     usage.add(r)
-    try:
-        data = json.loads(r.text)
-    except (json.JSONDecodeError, TypeError):
+    data = _parse_json(r.text)
+    if data is None:
+        usage.parse_failures += 1
         return ""
     terms = list(data.get("symbols") or []) + list(data.get("keywords") or [])
     # Symbols repeated so they outweigh generic prose in BM25.
@@ -89,10 +115,11 @@ def _rerank(
     )
     r = model.generate([{"role": "user", "content": prompt}], schema=RERANK_SCHEMA, max_tokens=300)
     usage.add(r)
-    try:
-        order = json.loads(r.text).get("ranked") or []
-    except (json.JSONDecodeError, TypeError, AttributeError):
+    data = _parse_json(r.text)
+    if data is None:
+        usage.parse_failures += 1
         return candidates
+    order = data.get("ranked") or []
 
     picked: list[Ranked] = []
     seen: set[int] = set()

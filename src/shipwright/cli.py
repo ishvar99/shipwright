@@ -275,3 +275,38 @@ def loc_diagnose(
     from .evals.diagnose import diagnose
 
     diagnose(run_id, limit=limit or None, depth=depth)
+
+
+ft = typer.Typer(help="Local fine-tuning (MLX)", no_args_is_help=True)
+app.add_typer(ft, name="ft")
+
+
+@ft.command("data")
+def ft_data(
+    n: int = typer.Option(250, help="training tasks, taken after the eval holdout"),
+    base: str = typer.Option("hybrid", help="retrieval base for candidate generation"),
+) -> None:
+    """Build reranker training data from Loc-Bench ground truth (disjoint from eval)."""
+    from .finetune.data import build_dataset
+
+    stats = build_dataset(n_train=n, base_mode=base)
+    console.print(stats)
+
+
+@ft.command("train")
+def ft_train(
+    iters: int = typer.Option(400, help="training iterations"),
+    layers: int = typer.Option(8, help="LoRA layers (fewer = less memory)"),
+    model: str = typer.Option("", help="base model; defaults to Qwen2.5-Coder-1.5B 4bit"),
+) -> None:
+    """LoRA fine-tune the reranker locally with MLX."""
+    from .finetune.train import BASE_MODEL, train
+
+    meta = train(model=model or BASE_MODEL, iters=iters, num_layers=layers)
+    console.print(meta)
+    if meta["returncode"] == 0:
+        console.print(
+            "\n[green]adapter saved[/] — score it with:\n"
+            "  uv run sw loc run --n 100 --mode extract_rerank "
+            "--model mlx:mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit+evals/finetune/adapters"
+        )
