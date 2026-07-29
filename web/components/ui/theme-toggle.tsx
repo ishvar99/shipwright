@@ -1,21 +1,18 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
+/** The label is chosen by CSS, not by state: next-themes sets `.dark` on <html> in a
+ * blocking script, so the correct word is right on first paint with no mount gate.
+ * `resolvedTheme` is only read inside the handler, which cannot run before hydration. */
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // Theme is unknown until hydration; render a stable placeholder to avoid a flash.
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return <Button aria-hidden className="w-20 opacity-0" />;
-
-  const next = resolvedTheme === "dark" ? "light" : "dark";
   return (
-    <Button onClick={() => setTheme(next)} aria-label={`Switch to ${next} theme`}>
-      {resolvedTheme === "dark" ? "Light" : "Dark"}
+    <Button onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
+      <span className="sr-only">Switch to </span>
+      <span className="dark:hidden">Dark</span>
+      <span className="hidden dark:inline">Light</span>
     </Button>
   );
 }
