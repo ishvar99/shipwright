@@ -82,7 +82,10 @@ def checkout(task: LocTask) -> Path | None:
     url = f"https://github.com/{task.repo}.git"
 
     if not (dest / ".git").exists():
-        if not _run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)]):
+        # Full clone, not --filter=blob:none. A blobless clone is cheap once but re-fetches
+        # blobs from the network on every checkout of a different commit — and Loc-Bench has
+        # 35 django tasks at 35 different commits. Disk is free here (240GB+); network is not.
+        if not _run(["git", "clone", "--no-checkout", url, str(dest)], timeout=1800):
             return None
 
     # Skip the network entirely when the commit is already local — at hundreds of

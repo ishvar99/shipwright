@@ -81,11 +81,21 @@ def train(
     print(f"  {n_train} training examples · {model}", flush=True)
     print("  " + " ".join(cmd[2:]), flush=True)
 
-    proc = subprocess.run(cmd, text=True, capture_output=True, timeout=60 * 180)
-    out = (proc.stdout or "") + (proc.stderr or "")
-    print(out[-4000:], flush=True)
+    # Streamed, not captured: capture_output=True hid the whole loss trajectory, leaving
+    # only the endpoints. The validation curve is how overfitting is spotted, so it has to
+    # be visible while the run is in flight.
+    lines: list[str] = []
+    proc = subprocess.Popen(
+        cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        lines.append(line.rstrip())
+        if "Iter" in line or "Error" in line or "Trainable" in line:
+            print(f"  {line.rstrip()}", flush=True)
+    proc.wait(timeout=60 * 180)
 
-    losses = [line for line in out.splitlines() if "Iter" in line and ("loss" in line.lower())]
+    losses = [line for line in lines if "Iter" in line and ("loss" in line.lower())]
     meta = {
         "returncode": proc.returncode,
         "n_train": n_train,
@@ -96,6 +106,8 @@ def train(
         "learning_rate": learning_rate,
         "first_loss": losses[0] if losses else None,
         "last_loss": losses[-1] if losses else None,
+        # Full curve, so overfitting is inspectable after the fact.
+        "val_losses": [x for x in losses if "Val loss" in x],
     }
     (ADAPTERS / "shipwright_run.json").write_text(json.dumps(meta, indent=1))
     return meta
