@@ -27,6 +27,13 @@ class MlxProvider:
         self.model_id = model
         self.adapter_path = adapter_path
         self._model, self._tokenizer = load(model, adapter_path=adapter_path)
+        # Qwen chat models terminate on <|im_end|>, but mlx_lm only stops on the set in
+        # eos_token_ids ({151643} = <|endoftext|>), so generation ran past the end of the
+        # answer and roughly doubled tokens per call. Register the chat terminator too.
+        try:
+            self._tokenizer.add_eos_token("<|im_end|>")
+        except Exception:
+            pass
 
     @property
     def model(self) -> str:

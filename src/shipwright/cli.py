@@ -314,3 +314,12 @@ def ft_train(
             "  uv run sw loc run --n 100 --mode extract_rerank "
             "--model mlx:mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit+evals/finetune/adapters"
         )
+
+
+@loc.command("publish")
+def loc_publish() -> None:
+    """Generate the static evals page from recorded rows."""
+    from .evals.report_html import build
+
+    path = build()
+    console.print(f"[green]written[/] {path}")

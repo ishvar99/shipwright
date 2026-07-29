@@ -56,6 +56,36 @@ full traversal loop. This is a 7B on a laptop.
 Bug fixing is a different story: the local 7B resolves 0/2 SWE-bench-Live tasks so far, for
 reasons I understand and wrote down rather than hand-waved.
 
+### The fine-tune
+
+I trained a LoRA adapter on this laptop — 125 examples, 600 iterations, 3.9 GB peak, about
+fifteen minutes — and scored it on a held-out split that the training data never touched:
+
+| 1.5B model | file@5 | func@10 | malformed replies | output tokens |
+|---|---|---|---|---|
+| stock | 60.0% | 26.0% | 113/200 (57%) | 25,632 |
+| fine-tuned | 62.0% | 28.0% | **23/200 (12%)** | **11,222** |
+
+It learned the output format and it did not learn to rank better. Parse failures dropped
+4.6x; accuracy moved two tasks, which is inside noise. Both effects reproduced from an
+earlier 40-example run, so I believe them.
+
+The reason format compliance bought nothing is worth stating: when a reranking call fails to
+parse, the pipeline falls back to retrieval order, and retrieval order is already decent. So
+the stock model was earning most of its score by *failing*. The fine-tune answers properly
+far more often and its answers are no better than the fallback they replaced.
+
+What it did buy is cost — 2.3x fewer output tokens for equal-or-better accuracy, and roughly
+7x the throughput in practice.
+
+### Results page
+
+`make report` regenerates `evals/reports/index.html` from the database. Nothing on that page
+is typed by hand; every figure is computed from stored rows, and each row carries its model,
+scaffold, sample size, commit and date so two runs that differ in configuration cannot look
+identical. That last part is not paranoia — I once compared a configuration against itself
+for an hour and drew a confident conclusion from it.
+
 ## Running it
 
 Needs an Apple Silicon Mac, Docker (I use Colima), Ollama, and uv.
