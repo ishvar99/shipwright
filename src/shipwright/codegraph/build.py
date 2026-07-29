@@ -20,6 +20,9 @@ from tree_sitter import Language, Parser
 PY = Language(tree_sitter_python.language())
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "build", "dist", ".tox"}
 MAX_FILE_BYTES = 400_000
+# Names defined more often than this are generic (`forward`, `__init__`) and linking
+# them is both uninformative and quadratic. See docs/FAILURES.md F14.
+MAX_NAME_FANOUT = 25
 
 
 @dataclass
@@ -158,11 +161,16 @@ def build(root: Path, max_files: int = 4000) -> CodeGraph:
         if count >= max_files:
             break
 
-    # Resolve calls by name. Ambiguous names link to every match — recall over precision,
-    # since this feeds retrieval expansion rather than a correctness check.
+    # Resolve calls by name, skipping names that are too ambiguous to carry signal.
+    # Without the cap this is quadratic: transformers defines `forward` and `__init__` on
+    # ~1000 classes, so every call site linked to all ~1000 of them — one repo took over
+    # two hours and 3GB. A name shared by dozens of symbols localises nothing anyway.
     for sid, names in pending_calls.items():
         for name in names:
-            for target in by_name.get(name, ()):
+            targets = by_name.get(name, ())
+            if len(targets) > MAX_NAME_FANOUT:
+                continue
+            for target in targets:
                 if target != sid:
                     graph.calls[sid].add(target)
                     graph.called_by[target].add(sid)

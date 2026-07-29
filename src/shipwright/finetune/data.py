@@ -16,6 +16,7 @@ change with its own measurement — one variable at a time (see FAILURES.md F12)
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 
 from ..codegraph.assisted import MAX_ISSUE_CHARS, RERANK_CANDIDATES
@@ -60,7 +61,8 @@ def build_dataset(
     sink = raw.open("a")
 
     examples: list[dict[str, str]] = []
-    skipped = {"checkout": 0, "no_gt_in_candidates": 0, "cached": 0}
+    skipped = {"checkout": 0, "no_gt_in_graph": 0, "cached": 0}
+    injected = 0
 
     for i, task in enumerate(tasks, 1):
         if task.instance_id in seen:
@@ -75,11 +77,26 @@ def build_dataset(
             task.problem_statement, mode=base_mode, top_k=RERANK_CANDIDATES
         )
         candidates = [r.symbol_id for r in ranked]
+
+        # Positive injection. At pool=30 on a 20k-symbol repo, retrieval usually misses the
+        # ground truth entirely — so keeping only naturally-hit tasks would train the model
+        # exclusively on cases where retrieval already worked, i.e. the ones needing no help.
+        # Instead, ground truth present in the graph is injected at a deterministic position
+        # and the rest of the pool serves as hard negatives.
+        missing = [g for g in task.edit_functions if g not in candidates and g in graph.symbols]
+        if missing:
+            rng = random.Random(task.instance_id)  # deterministic per task, not per run
+            for g in missing:
+                candidates.insert(rng.randrange(len(candidates) + 1), g)
+            injected += len(missing)
+
         gt_idx = [candidates.index(g) for g in task.edit_functions if g in candidates]
         if not gt_idx:
-            # Nothing to learn: retrieval never surfaced a correct answer.
-            skipped["no_gt_in_candidates"] += 1
-            print(f"  [{i}/{len(tasks)}] {task.instance_id[:44]} skip (no gt in pool)", flush=True)
+            # Ground truth is not even in the graph — nothing to learn or inject.
+            skipped["no_gt_in_graph"] += 1
+            print(
+                f"  [{i}/{len(tasks)}] {task.instance_id[:44]} skip (gt not in graph)", flush=True
+            )
             continue
 
         row = {
@@ -102,4 +119,4 @@ def build_dataset(
             for row in rows:
                 f.write(json.dumps(row) + "\n")
 
-    return {"train": len(train), "valid": len(valid), **skipped}
+    return {"train": len(train), "valid": len(valid), "injected_positives": injected, **skipped}
