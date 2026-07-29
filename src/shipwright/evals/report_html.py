@@ -131,7 +131,8 @@ def build(out_dir: Path = OUT) -> Path:
 <div class="scroll"><table><tr><th>scaffold</th><th>model</th><th>n</th><th>resolved</th>
 <th>date</th></tr>{rows}</table></div>
 <p class="note">Unevaluated patches count as unresolved, never as unknown. The local 7B does
-not resolve these tasks; the characterised reasons are in <code>docs/FAILURES.md</code>.</p>"""
+not resolve these tasks, and the reasons are characterised rather than guessed: one task lost
+to context truncation, one to a greedy-decoding repetition loop.</p>"""
 
     page = f"""<!doctype html><meta charset="utf-8">
 <title>Shipwright — evaluation results</title>
@@ -160,8 +161,8 @@ are recorded because they are the portable measure of expense.</li>
 <li><strong>Provenance.</strong> Scaffold names encode mode, retrieval base and pool size, so
 two runs that differ in configuration cannot look identical.</li>
 </ul>
-<p class="note">Method, failure analyses and the decisions behind each number:
-<code>docs/EVALS.md</code>, <code>docs/FAILURES.md</code>, <code>docs/adr/</code>.</p>
+<p class="note">Method notes, failure analyses and the decision records behind each number are
+kept as local working documents and are not part of this repository.</p>
 """
     path = out_dir / "index.html"
     path.write_text(page)

@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --bg: oklch(98% 0.003 90);
+  --fg: oklch(21% 0.006 270);
+  --accent: #6553d9;
+  --muted: color-mix(in oklch, var(--fg) 68%, var(--bg));
+  --subtle: color-mix(in oklch, var(--fg) 48%, var(--bg));
+  --hairline: color-mix(in oklch, var(--fg) 13%, var(--bg));
+  --soft: color-mix(in oklch, var(--fg) 4%, var(--bg));
+  --accent-soft: color-mix(in oklch, var(--accent) 10%, var(--bg));
+  --grid-dot: color-mix(in oklch, var(--fg) 9%, var(--bg));
+  --glow: color-mix(in oklch, var(--accent) 7%, transparent);
+
+  /* Retrieval channels. Hue reinforces the glyph; it is never the only signal. */
+  --evidence-text: #2563eb;
+  --evidence-graph: #b45309;
+  --evidence-dense: #0d9488;
+  --evidence-path: #be123c;
+
+  /* Expressive register (landing). .register-dense overrides these four. */
+  --space-unit: 8px;
+  --text-ui: 1rem;
+  --radius: 0.75rem;
+  --surface-texture: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0a0a0f;
+  --fg: #ededf0;
+  --accent: #8b7cf6;
+  --muted: #a2a2ad;
+  --subtle: #71717c;
+  --hairline: color-mix(in oklch, var(--fg) 10%, var(--bg));
+  --soft: #141419;
+  --accent-soft: color-mix(in oklch, var(--accent) 15%, var(--bg));
+  --grid-dot: color-mix(in oklch, var(--fg) 7%, var(--bg));
+  --glow: color-mix(in oklch, var(--accent) 12%, transparent);
+
+  --evidence-text: #60a5fa;
+  --evidence-graph: #fbbf24;
+  --evidence-dense: #2dd4bf;
+  --evidence-path: #fb7185;
+}
+
+/* Workspace register: denser, flat. Texture competes with dense data. */
+.register-dense {
+  --space-unit: 4px;
+  --text-ui: 0.875rem;
+  --radius: 0.375rem;
+  --surface-texture: none;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-accent: var(--accent);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-hairline: var(--hairline);
+  --color-soft: var(--soft);
+  --color-accent-soft: var(--accent-soft);
+  --color-evidence-text: var(--evidence-text);
+  --color-evidence-graph: var(--evidence-graph);
+  --color-evidence-dense: var(--evidence-dense);
+  --color-evidence-path: var(--evidence-path);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+  --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
+}
+
+@theme {
+  --text-display: clamp(2.9rem, 1.1rem + 7.2vw, 5.5rem);
+  --text-display--line-height: 1.03;
+  --text-display--letter-spacing: -0.035em;
+  --text-title: clamp(1.7rem, 1.2rem + 1.9vw, 2.35rem);
+  --text-title--line-height: 1.15;
+  --text-title--letter-spacing: -0.02em;
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-swift: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--hairline);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    background-image: var(--surface-texture);
+    background-size: 28px 28px;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  code,
+  time,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

@@ -24,7 +24,7 @@ code { font-size:13px; background:rgba(127,127,127,.13); padding:.1rem .3rem; bo
 .scroll { overflow-x:auto; }
 </style>
 <h1>Shipwright — evaluation results</h1>
-<p class="sub">Generated 2026-07-29 11:05 UTC from
+<p class="sub">Generated 2026-07-29 19:40 UTC from
 35 recorded runs. Every figure is computed from stored rows, not transcribed.</p>
 <p class="sub">Best recorded localization configuration: <strong>extract_rerank</strong> — <strong>73.0%</strong> file-level Acc@5 and <strong>35.0%</strong> function-level Acc@10 over n=100 tasks.</p>
 
@@ -36,7 +36,8 @@ code { font-size:13px; background:rgba(127,127,127,.13); padding:.1rem .3rem; bo
 <div class="scroll"><table><tr><th>scaffold</th><th>model</th><th>n</th><th>resolved</th>
 <th>date</th></tr><tr><td>s2_minimal</td><td>qwen2.5-coder:7b</td><td class="n">1</td><td class="n">0/1</td><td class="n">2026-07-27</td></tr><tr><td>s2_minimal</td><td>qwen2.5-coder:7b</td><td class="n">1</td><td class="n">0/1</td><td class="n">2026-07-27</td></tr><tr><td>s2_minimal</td><td>qwen2.5-coder:7b</td><td class="n">1</td><td class="n">0/1</td><td class="n">2026-07-27</td></tr><tr><td>s2_minimal</td><td>qwen2.5-coder-7b-16k</td><td class="n">2</td><td class="n">0/2</td><td class="n">2026-07-27</td></tr></table></div>
 <p class="note">Unevaluated patches count as unresolved, never as unknown. The local 7B does
-not resolve these tasks; the characterised reasons are in <code>docs/FAILURES.md</code>.</p>
+not resolve these tasks, and the reasons are characterised rather than guessed: one task lost
+to context truncation, one to a greedy-decoding repetition loop.</p>
 
 <h2>How to read this</h2>
 <ul class="note">
@@ -51,5 +52,5 @@ are recorded because they are the portable measure of expense.</li>
 <li><strong>Provenance.</strong> Scaffold names encode mode, retrieval base and pool size, so
 two runs that differ in configuration cannot look identical.</li>
 </ul>
-<p class="note">Method, failure analyses and the decisions behind each number:
-<code>docs/EVALS.md</code>, <code>docs/FAILURES.md</code>, <code>docs/adr/</code>.</p>
+<p class="note">Method notes, failure analyses and the decision records behind each number are
+kept as local working documents and are not part of this repository.</p>
