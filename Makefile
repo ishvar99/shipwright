@@ -1,4 +1,4 @@
-.PHONY: bootstrap up down doctor db-init model models mem vm-light vm-agent preflight report fmt logs nuke
+.PHONY: bootstrap up down doctor db-init model models mem vm-light vm-agent preflight api web report fmt logs nuke
 
 bootstrap:
 	uv sync
@@ -49,6 +49,10 @@ preflight:
 	@ps -eo rss,comm | awk '{a[$$2]+=$$1} END {for (k in a) if (a[k]>300000) printf "  %5d MB  %s\n", a[k]/1024, k}' | sort -rn | head -5
 	@sysctl vm.swapusage | sed 's/vm.swapusage: /  swap: /'
 	@echo "  (localization needs ~5.4GB: model 5.0 + worker 0.4)"
+
+# API control plane (browser talks only to this).
+api:
+	uv run uvicorn shipwright.api.main:app --reload --port 8000
 
 # Static evals page, generated from the database.
 report:

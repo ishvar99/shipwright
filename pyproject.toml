@@ -16,6 +16,8 @@ dependencies = [
     "tree-sitter>=0.26.0",
     "tree-sitter-python>=0.25.0",
     "rank-bm25>=0.2.2",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
 ]
 
 [project.scripts]
