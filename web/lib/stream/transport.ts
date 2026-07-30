@@ -91,7 +91,6 @@ export type FixtureOptions = {
   speed?: number;
   /** Compress dead air without touching the numbers on screen. */
   maxGapMs?: number;
-  loop?: boolean;
 };
 
 export function fixtureEvents(
@@ -100,51 +99,48 @@ export function fixtureEvents(
   now: () => number,
   opts: FixtureOptions = {},
 ): JobStream {
-  const { speed = 1, maxGapMs = Infinity, loop = false } = opts;
-  const timers: ReturnType<typeof setTimeout>[] = [];
+  const { speed = 1, maxGapMs = Infinity } = opts;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
   let stopped = false;
+
+  // Cumulative capped gaps, so a 15s silence can be compressed for the demo without altering
+  // the durations the trace prints — those come from the frame data, not the replay clock.
+  let clock = 0;
+  let prev = frames[0]?.t ?? 0;
+  const schedule = frames.map((f) => {
+    clock += Math.min(maxGapMs, Math.max(0, f.t - prev)) / speed;
+    prev = f.t;
+    return { at: clock, raw: f.raw };
+  });
+  // A fixture always plays from the start: `from` is a network resume cursor and has no
+  // meaning for a recording. Defined as a named function so nothing depends on `this`.
+  const play = (_from: number, dispatch: (a: Action) => void): void => {
+    if (stopped) return;
+    dispatch({ kind: "open", historyOnly: false, at: now() });
+
+    const after = (ms: number, fn: () => void) => {
+      const t = setTimeout(() => {
+        timers.delete(t); // fired handles are dead weight; stop() only needs the pending ones
+        if (!stopped) fn();
+      }, ms);
+      timers.add(t);
+    };
+
+    for (const item of schedule) {
+      after(item.at, () => {
+        const { frames: parsed } = feed("", item.raw + "\n\n");
+        for (const frame of parsed) dispatch({ kind: "frame", frame, at: now() });
+      });
+    }
+  };
 
   return {
     origin,
     stop() {
       stopped = true;
       for (const t of timers) clearTimeout(t);
-      timers.length = 0;
+      timers.clear();
     },
-    run(from, dispatch) {
-      if (stopped) return;
-      dispatch({ kind: "open", historyOnly: false, at: now() });
-
-      // Schedule on cumulative capped gaps so a 15s silence can be compressed for the demo
-      // without altering the durations the trace prints.
-      let clock = 0;
-      let prev = frames[0]?.t ?? 0;
-      const schedule = frames.map((f) => {
-        clock += Math.min(maxGapMs, Math.max(0, f.t - prev)) / speed;
-        prev = f.t;
-        return { at: clock, raw: f.raw };
-      });
-
-      for (const item of schedule) {
-        timers.push(
-          setTimeout(() => {
-            if (stopped) return;
-            const { frames: parsed } = feed("", item.raw + "\n\n");
-            for (const frame of parsed) dispatch({ kind: "frame", frame, at: now() });
-          }, item.at),
-        );
-      }
-
-      if (loop) {
-        const total = schedule.at(-1)?.at ?? 0;
-        timers.push(
-          setTimeout(() => {
-            if (stopped) return;
-            dispatch({ kind: "reset" });
-            this.run(from, dispatch);
-          }, total + 2000),
-        );
-      }
-    },
+    run: play,
   };
 }

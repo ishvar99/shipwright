@@ -61,9 +61,16 @@ export type ActivityState = {
   graph?: { files: number; symbols: number; callEdges?: number; importEdges?: number };
   usage?: { calls: number; inputTokens: number; outputTokens: number; parseFailures: number };
   locationCount?: number;
+  /** Raw REST status. `outcome` only distinguishes terminal from pending, so queued vs running
+   * would otherwise be unreportable. */
+  restStatus?: Job["status"];
 
   stages: Record<StageKey, Stage>;
   outcome: { kind: "pending" | "done" | "failed"; wallMs?: number; error?: string };
+  /** Distinct from `outcome`, which REST can also set. Only a terminal EVENT means the
+   * timeline is finished — otherwise replaying a finished job would quarantine its own
+   * history and leave the trace empty. */
+  terminalEventSeen: boolean;
 
   seen: Set<number>;
   contiguousMax: number;
@@ -103,6 +110,7 @@ export function initialState(jobId: string, origin: StreamOrigin, now = 0): Acti
       results: { state: "pending" },
     },
     outcome: { kind: "pending" },
+    terminalEventSeen: false,
     seen: new Set(),
     contiguousMax: 0,
     duplicates: 0,
@@ -265,8 +273,16 @@ export function reduce(state: ActivityState, action: Action): { state: ActivityS
     case "reset":
       return { state: initialState(state.jobId, state.origin, state.now), effects: [] };
 
-    case "tick":
+    case "tick": {
+      // Returning the same reference stops useSyncExternalStore re-rendering once a second
+      // forever. Only suppress when nothing is being timed: a live stream still needs `now`
+      // for the quiet watchdog, and an open stage needs it for elapsed.
+      const settled =
+        activeStage(state) === null &&
+        (state.phase === "idle" || state.phase === "closed" || state.phase === "failed");
+      if (settled) return { state, effects: [] };
       return { state: { ...state, now: action.now }, effects: [] };
+    }
 
     case "dispose":
       if (state.phase === "closed") return { state, effects: [] };
@@ -310,6 +326,7 @@ export function reduce(state: ActivityState, action: Action): { state: ActivityS
       // No `repo` here: the Job record carries repo_id, not the slug. Only job.started has it.
       const next: ActivityState = {
         ...state,
+        restStatus: action.job.status,
         mode: state.mode ?? action.job.mode,
         base: state.base ?? action.job.base_mode,
         model: state.model ?? (action.job.model || undefined),
@@ -340,7 +357,7 @@ export function reduce(state: ActivityState, action: Action): { state: ActivityS
       if (s.seen.has(e.seq)) {
         return { state: { ...s, duplicates: s.duplicates + 1 }, effects: [] };
       }
-      if (isTerminal(s) || s.phase === "closed") {
+      if (s.terminalEventSeen || s.phase === "closed") {
         return {
           state: quarantine(s, { seq: e.seq, type: e.type, reason: "after terminal" }),
           effects: [],
@@ -355,7 +372,7 @@ export function reduce(state: ActivityState, action: Action): { state: ActivityS
       };
 
       if (TERMINAL_EVENTS.has(e.type)) {
-        next = { ...next, phase: "closed", closedReason: "terminal" };
+        next = { ...next, phase: "closed", closedReason: "terminal", terminalEventSeen: true };
         // Refetch only on job.done: localization.ready is emitted before the job's result is
         // committed, so refetching there can render "no locations" beside a full trace.
         const effects: Effect[] =
@@ -376,7 +393,7 @@ export function reduce(state: ActivityState, action: Action): { state: ActivityS
           state: {
             ...s,
             phase: "failed",
-            error: { kind: action.error.kind, message: action.error.message },
+            error: { kind: action.error.kind, message: redact(action.error.message) },
           },
           effects: [{ kind: "stop" }],
         };
@@ -453,26 +470,59 @@ export function elapsedInStageMs(s: ActivityState): number | undefined {
   return startedAt === undefined ? undefined : Math.max(0, s.now - startedAt);
 }
 
-/** A replayed stream can never be labelled live, whatever the phase says. Connectivity and
- * provenance are different axes. */
-export function streamLabel(s: ActivityState): { text: string; tone: "active" | "idle" | "good" | "warn" | "bad" } {
+export type Tone = "active" | "idle" | "good" | "warn" | "bad";
+export type Indicator = { text: string; tone: Tone; detail?: string };
+
+/** No bytes for this long on a live connection means it is probably half-open: the backend
+ * heartbeats every 400ms, so this is 25x the expected interval. */
+const QUIET_AFTER_MS = 10_000;
+
+export function quietMs(s: ActivityState): number | undefined {
+  if (s.phase !== "live" || s.lastByteAt === undefined) return undefined;
+  const gap = s.now - s.lastByteAt;
+  return gap >= QUIET_AFTER_MS ? gap : undefined;
+}
+
+/** What the JOB did. Vocabulary deliberately disjoint from streamLabel's — the two sit side by
+ * side in the status bar, and printing the same word in both would make them indistinguishable. */
+export function jobLabel(s: ActivityState): Indicator {
+  if (s.outcome.kind === "done") return { text: "complete", tone: "good" };
+  if (s.outcome.kind === "failed")
+    return { text: "failed", tone: "bad", detail: s.outcome.error };
+  if (s.restStatus === "queued") return { text: "queued", tone: "idle" };
+  // Any event at all means the worker picked the job up. Keying on an *active stage* instead
+  // would drop back to "no job" in the gaps between stages — graph.ready to retrieval.started,
+  // and localization.ready to job.done — which reads as the job vanishing mid-run.
+  if (s.restStatus === "running" || s.contiguousMax > 0 || activeStage(s) !== null)
+    return { text: "running", tone: "active" };
+  return { text: "no job", tone: "idle" };
+}
+
+/** Whether we are HEARING from the backend. A replayed stream can never be labelled live,
+ * whatever the phase says: connectivity and provenance are different axes. */
+export function streamLabel(s: ActivityState): Indicator {
   if (s.origin.mode === "replay") return { text: "replaying recorded run", tone: "idle" };
   switch (s.phase) {
     case "idle":
-      return { text: "idle", tone: "idle" };
+      return { text: "not connected", tone: "idle" };
     case "connecting":
       return { text: "connecting", tone: "idle" };
     case "replaying":
       return { text: "loading timeline", tone: "idle" };
-    case "live":
-      return { text: "live", tone: "active" };
+    case "live": {
+      const quiet = quietMs(s);
+      return quiet === undefined
+        ? { text: "live", tone: "active" }
+        : { text: `quiet ${Math.round(quiet / 1000)}s`, tone: "warn" };
+    }
     case "reconnecting":
       return { text: `reconnecting (${s.reconnects})`, tone: "warn" };
     case "failed":
-      return { text: s.error?.message ?? "stream failed", tone: "bad" };
+      // Fixed word, unbounded reason: the reason is backend-authored and belongs in a title.
+      return { text: "disconnected", tone: "bad", detail: s.error?.message };
     case "closed":
-      return s.outcome.kind === "failed"
-        ? { text: "failed", tone: "bad" }
-        : { text: "complete", tone: "good" };
+      return s.closedReason === "disposed"
+        ? { text: "stopped", tone: "idle" }
+        : { text: "stream closed", tone: "idle" };
   }
 }

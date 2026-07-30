@@ -3,10 +3,14 @@ import fixture from "@/fixtures/msal-extract-rerank.json";
 import { JobSchema, SourceSchema, type Job } from "@/lib/contracts";
 import { ApiError } from "@/lib/errors";
 import { createDecoder, feed } from "@/lib/stream/frames";
+import { redact } from "@/lib/stream/redact";
 import {
   MAX_RECONNECTS,
+  activeStage,
   backoffMs,
+  elapsedInStageMs,
   initialState,
+  jobLabel,
   parseFrame,
   reduce,
   resumeFrom,
@@ -261,6 +265,23 @@ describe("terminal state is monotone and absorbing", () => {
   });
 });
 
+// Opening a link to a job that finished hours ago: REST answers first and says "done", then
+// the stream replays the whole history. That history must still build the trace.
+describe("cold-loading an already-finished job", () => {
+  const s = fold(RAWS, reduce(opened(), { kind: "job", job: restJob({ status: "done" }) }).state);
+
+  it("folds the replayed history instead of quarantining it as post-terminal", () => {
+    expect(s.quarantined).toEqual([]);
+    expect(traceStages(s)).toHaveLength(3);
+    expect(traceStages(s).map((t) => t.state)).toEqual(["done", "done", "done"]);
+  });
+
+  it("still reports the real stage durations", () => {
+    const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
+    expect(Math.abs(total - fixture.job.wall_ms)).toBeLessThan(20);
+  });
+});
+
 describe("quarantine never wedges the stream", () => {
   it("advances the cursor past an unrecognised event type", () => {
     const s = fold([
@@ -305,6 +326,22 @@ describe("heartbeats", () => {
     expect(after.contiguousMax).toBe(before.contiguousMax);
     expect(after.seen).toEqual(before.seen);
     expect(after.stages).toEqual(before.stages);
+  });
+});
+
+describe("the clock only ticks when something is timing", () => {
+  it("returns the identical state when no stage is open, so nothing re-renders", () => {
+    const done = fold(RAWS);
+    const { state } = reduce(done, { kind: "tick", now: 999_999 });
+    expect(state).toBe(done); // reference equality is the point
+  });
+
+  it("advances elapsed time while a stage is open", () => {
+    const mid = fold(RAWS.slice(0, 5), opened(), () => 1000); // search stage is active
+    expect(activeStage(mid)).toBe("search");
+    const { state } = reduce(mid, { kind: "tick", now: 4000 });
+    expect(state).not.toBe(mid);
+    expect(elapsedInStageMs(state)).toBe(3000);
   });
 });
 
@@ -372,8 +409,137 @@ describe("provenance is independent of connectivity", () => {
     expect(streamLabel(s).text).not.toMatch(/live/i);
   });
 
-  it("labels a real finished stream complete", () => {
-    expect(streamLabel(fold(RAWS)).text).toBe("complete");
+  it("describes the connection, not the job, when a real stream ends", () => {
+    const s = fold(RAWS);
+    expect(streamLabel(s).text).toBe("stream closed");
+    expect(jobLabel(s).text).toBe("complete");
+  });
+});
+
+// M4 puts these two side by side in the status bar. If they can print the same word they are
+// not "visibly separate", so the vocabularies are asserted disjoint rather than eyeballed.
+describe("the job and stream axes never share vocabulary", () => {
+  const job = restJob;
+  const jobStates: ActivityState[] = [
+    initialState("j", { mode: "network" }),
+    reduce(opened(), { kind: "job", job: job({ status: "queued" }) }).state,
+    reduce(opened(), { kind: "job", job: job({ status: "running" }) }).state,
+    fold(RAWS),
+    fold([
+      frame(1, "job.started", { repo: "r", mode: "m", base: "b" }, TS),
+      frame(2, "job.failed", { error: "boom" }, TS),
+    ]),
+  ];
+  const streamStates: ActivityState[] = [
+    initialState("j", { mode: "network" }),
+    reduce(initialState("j", { mode: "network" }), { kind: "opening", from: 0 }).state,
+    opened(),
+    reduce(opened(), { kind: "ended", at: 1 }).state,
+    reduce(opened(), {
+      kind: "failure",
+      error: new ApiError("not_found", "job not found"),
+      retryable: false,
+      at: 1,
+    }).state,
+    reduce(opened(), { kind: "dispose" }).state,
+    fold(RAWS),
+    fold(RAWS.slice(0, 5), opened({ mode: "replay", capturedAt: "x" })),
+  ];
+
+  it("produces two disjoint sets of words", () => {
+    const jobWords = new Set(jobStates.map((s) => jobLabel(s).text));
+    const streamWords = new Set(streamStates.map((s) => streamLabel(s).text));
+    expect([...jobWords].filter((w) => streamWords.has(w))).toEqual([]);
+  });
+
+  it("keeps an unbounded backend message out of the label itself", () => {
+    const s = reduce(opened(), {
+      kind: "failure",
+      error: new ApiError("backend_error", "x".repeat(400)),
+      retryable: true,
+      at: 1,
+    }).state;
+    const failed = reduce(
+      { ...s, reconnects: MAX_RECONNECTS },
+      { kind: "failure", error: new ApiError("backend_error", "y".repeat(400)), retryable: true, at: 2 },
+    ).state;
+    expect(streamLabel(failed).text.length).toBeLessThan(24);
+    expect(streamLabel(failed).detail).toBeTruthy();
+  });
+
+  it("never regresses to 'no job' once the job has started", () => {
+    let s = opened();
+    const labels: string[] = [];
+    for (const raw of RAWS) {
+      const { frames } = feed("", raw + "\n\n");
+      for (const f of frames) s = reduce(s, { kind: "frame", frame: f, at: 0 }).state;
+      labels.push(jobLabel(s).text);
+    }
+    // The gaps between stages (graph.ready -> retrieval.started, localization.ready ->
+    // job.done) must not read as the job disappearing.
+    expect(labels).toEqual([
+      "running",
+      "running",
+      "running",
+      "running",
+      "running",
+      "running",
+      "running",
+      "complete",
+    ]);
+  });
+
+  it("reports a job as queued from the REST record", () => {
+    const s = reduce(opened(), { kind: "job", job: restJob({ status: "queued" }) }).state;
+    expect(jobLabel(s).text).toBe("queued");
+  });
+});
+
+describe("a half-open connection is not reported as live", () => {
+  it("degrades to quiet once bytes stop arriving", () => {
+    const s = fold(RAWS.slice(0, 5), opened(), () => 1000);
+    expect(streamLabel(s).text).toBe("live");
+    const later = reduce(s, { kind: "tick", now: 1000 + 11_000 }).state;
+    expect(streamLabel(later).text).toBe("quiet 11s");
+    expect(streamLabel(later).tone).toBe("warn");
+  });
+
+  it("stays live while heartbeats keep arriving", () => {
+    let s = fold(RAWS.slice(0, 5), opened(), () => 1000);
+    const [hb] = feed("", ":\n\n").frames;
+    s = reduce(s, { kind: "frame", frame: hb, at: 11_000 }).state;
+    s = reduce(s, { kind: "tick", now: 12_000 }).state;
+    expect(streamLabel(s).text).toBe("live");
+  });
+});
+
+describe("redaction covers the shapes that actually reach the UI", () => {
+  const cases: [string, string, string][] = [
+    ["provider key", "AuthenticationError: {'x-api-key': 'sk-ant-api03-AbCdEfGhIjKlMnOp'}", "sk-ant"],
+    ["github token", "fatal: could not read Password for ghp_AbCdEfGhIjKlMnOpQrSt", "ghp_"],
+    ["bearer header", "401 with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9", "eyJhbGci"],
+    ["password containing @", "postgresql://user:p@ssw0rd@db.internal/shipwright", "ssw0rd"],
+    ["nested bound parameters", "[parameters: ('a', [1, 2], 'hunter2')]", "hunter2"],
+    ["home directory", "File \"/Users/somebody/projects/app/db.py\", line 3", "somebody"],
+  ];
+
+  for (const [name, input, leak] of cases) {
+    it(`removes the ${name}`, () => {
+      expect(redact(input)).not.toContain(leak);
+    });
+  }
+
+  it("redacts a stream failure message, not just job.failed", () => {
+    const s = reduce(
+      { ...opened(), reconnects: MAX_RECONNECTS },
+      {
+        kind: "failure",
+        error: new ApiError("not_found", "boom at /Users/somebody/app/x.py"),
+        retryable: false,
+        at: 1,
+      },
+    ).state;
+    expect(s.error?.message).not.toContain("/Users/");
   });
 });
 

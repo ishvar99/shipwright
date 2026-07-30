@@ -20,6 +20,8 @@ export type Controller = {
   getState: () => ActivityState;
   subscribe: (listener: () => void) => () => void;
   start: () => void;
+  /** The one recovery action a failed stream offers. Keeps the timeline already folded. */
+  retry: () => void;
   dispose: () => void;
 };
 
@@ -27,19 +29,29 @@ export type Controller = {
  * Performs the effects `reduce` returns. Plain TypeScript on purpose: keeping the imperative
  * half outside React means no reducer runs twice under StrictMode and no mutable state hides
  * in a ref.
+ *
+ * Takes a stream FACTORY, not an instance. Both transports latch `stopped` on stop(), so a
+ * reused instance can never reopen — and StrictMode runs start -> dispose -> start on the very
+ * same controller, which would otherwise leave the stream permanently closed in development.
  */
-export function createController(jobId: string, stream: JobStream, now = () => Date.now()): Controller {
+export function createController(
+  jobId: string,
+  makeStream: () => JobStream,
+  now = () => Date.now(),
+): Controller {
+  let stream = makeStream();
   let state = initialState(jobId, stream.origin, now());
-  let disposed = false;
+  let active = false;
   const listeners = new Set<() => void>();
-  const timers = new Set<ReturnType<typeof setInterval>>();
+  let tick: ReturnType<typeof setInterval> | null = null;
+  const waits = new Set<ReturnType<typeof setTimeout>>();
 
   const notify = () => {
     for (const listener of listeners) listener();
   };
 
   const dispatch = (action: Action): void => {
-    if (disposed) return;
+    if (!active) return;
     const { state: next, effects } = reduce(state, action);
     const changed = next !== state;
     state = next;
@@ -48,17 +60,17 @@ export function createController(jobId: string, stream: JobStream, now = () => D
   };
 
   const perform = (effect: Effect): void => {
-    if (disposed) return;
+    if (!active) return;
     switch (effect.kind) {
       case "connect":
         stream.run(effect.from, dispatch);
         break;
       case "wait": {
         const t = setTimeout(() => {
-          timers.delete(t);
+          waits.delete(t);
           dispatch({ kind: "opening", from: resumeFrom(state) });
         }, jitter(effect.ms));
-        timers.add(t);
+        waits.add(t);
         break;
       }
       case "fetchJob":
@@ -66,6 +78,10 @@ export function createController(jobId: string, stream: JobStream, now = () => D
         break;
       case "stop":
         stream.stop();
+        if (tick) {
+          clearInterval(tick); // nothing left to time; do not hold a 1Hz timer forever
+          tick = null;
+        }
         break;
     }
   };
@@ -81,6 +97,14 @@ export function createController(jobId: string, stream: JobStream, now = () => D
     }
   };
 
+  const open = () => {
+    // Not sequenced behind REST: a replay has no backend to ask, and a slow one would hold
+    // the stream at `idle` for the whole fetch timeout.
+    if (stream.origin.mode === "network") void fetchJob();
+    dispatch({ kind: "opening", from: resumeFrom(state) });
+    if (!tick) tick = setInterval(() => dispatch({ kind: "tick", now: now() }), TICK_MS);
+  };
+
   return {
     getState: () => state,
     subscribe(listener) {
@@ -88,24 +112,28 @@ export function createController(jobId: string, stream: JobStream, now = () => D
       return () => listeners.delete(listener);
     },
     start() {
-      // Ask REST first, so `queued` and an already-finished job come from the record rather
-      // than being guessed from how densely events arrive.
-      void fetchJob().then(() => {
-        if (!disposed) dispatch({ kind: "opening", from: resumeFrom(state) });
-      });
-      const tick = setInterval(() => dispatch({ kind: "tick", now: now() }), TICK_MS);
-      timers.add(tick);
+      if (active) return;
+      active = true;
+      open();
+    },
+    retry() {
+      if (!active) return;
+      stream = makeStream(); // the old one latched `stopped` and can never reopen
+      open();
     },
     dispose() {
-      if (disposed) return;
+      if (!active) return;
       const { state: next } = reduce(state, { kind: "dispose" });
       state = next;
-      disposed = true;
-      for (const t of timers) clearTimeout(t as ReturnType<typeof setTimeout>);
-      timers.clear();
+      active = false;
+      if (tick) clearInterval(tick);
+      tick = null;
+      for (const t of waits) clearTimeout(t);
+      waits.clear();
       stream.stop();
+      stream = makeStream(); // ready for a StrictMode re-start on this same instance
+      // Listeners belong to React's subscription lifecycle, not ours: it unsubscribes itself.
       notify();
-      listeners.clear();
     },
   };
 }

@@ -69,6 +69,12 @@
   --color-evidence-dense: var(--evidence-dense);
   --color-evidence-path: var(--evidence-path);
 
+  /* Gives --space-unit a consumer. Without this the density register is inert: every Tailwind
+     spacing utility reads Tailwind's own --spacing, so `p-gutter`/`gap-gutter` are the only way
+     the 8px/4px difference reaches the page. Repointing --spacing itself is wrong — it would
+     also resize the evidence glyphs, the score bar and the status dots. */
+  --spacing-gutter: var(--space-unit);
+
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
   --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
@@ -123,6 +129,151 @@
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Workspace shell. Pane widths are percentages on <html>, written by the splitter and
+     restored before first paint; defaults live only in the var() fallbacks below, because a
+     declaration here would beat the inherited value and restore would silently never work. */
+  .workspace {
+    display: grid;
+    /* minmax(0,1fr), not 1fr: `1fr` means minmax(auto,1fr), so a long list would size the row
+       to its content, the document would scroll, and no pane would ever be height-constrained
+       enough for its own scroller to engage. */
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100dvh;
+    overflow: clip;
+    /* body's dot lattice reaches the canvas; the workspace register drops texture on purpose. */
+    background: var(--bg);
+  }
+
+  .workspace-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: calc(var(--space-unit) * 2);
+    white-space: nowrap;
+    overflow: clip;
+    border-bottom: 1px solid var(--hairline);
+    padding: calc(var(--space-unit) * 1.5) calc(var(--space-unit) * 3);
+    font-size: var(--text-ui);
+  }
+
+  .workspace-panes {
+    --sw-sep: calc(var(--space-unit) * 2);
+    display: grid;
+    grid-template-columns:
+      clamp(14%, var(--sw-left, 20%), 26%) var(--sw-sep)
+      minmax(0, 1fr) var(--sw-sep)
+      clamp(24%, var(--sw-right, 32%), 36%);
+    gap: 0; /* the separator tracks ARE the gutters; a gap would break the arithmetic */
+    min-inline-size: 0;
+    overflow: clip;
+  }
+
+  /* minmax(0,1fr) fixes the TRACK minimum; min-inline-size fixes the ITEM's min-content
+     contribution. Both are needed — with only one, a wide row still overflows, and because the
+     root is `overflow: clip` the symptom is a silently cut-off pane rather than a scrollbar. */
+  .workspace-pane {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: clip;
+  }
+
+  .workspace-centre {
+    border-inline: 1px solid var(--hairline);
+  }
+
+  .workspace-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: clip;
+    overscroll-behavior: contain;
+    /* Reserve the gutter: on classic scrollbars the content box would otherwise narrow as rows
+       stream in and re-ellipsise every truncated path at once. */
+    scrollbar-gutter: stable;
+    font-size: var(--text-ui);
+  }
+
+  /* 1px line, 8px grab target, no extra element. */
+  .workspace-sep {
+    background: var(--hairline);
+    background-clip: content-box;
+    padding-inline: calc((var(--sw-sep) - 1px) / 2);
+    cursor: col-resize;
+    touch-action: none; /* or the UA claims the gesture and fires pointercancel mid-drag */
+    user-select: none;
+  }
+
+  .workspace-sep:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  /* cursor resolves from the element under the pointer, not the capture target, and an
+     inherited user-select loses to any pane that declares its own. */
+  :root[data-sw-resizing] * {
+    cursor: col-resize !important;
+    user-select: none !important;
+  }
+
+  .workspace-trace {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--hairline);
+    padding: var(--space-unit) calc(var(--space-unit) * 3);
+    font-size: var(--text-ui);
+    overflow: clip;
+  }
+
+  .workspace-trace-detail {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: calc(var(--space-unit) * 2);
+    overflow-x: auto;
+    padding-top: var(--space-unit);
+    font-size: 11px;
+    color: var(--subtle);
+    white-space: nowrap;
+  }
+
+  /* Match the value, not the bare attribute: clearing via dataset leaves an empty one behind.
+     display:none also removes it from tab order, which a height:0 animation would not. */
+  :root[data-trace="collapsed"] .workspace-trace-detail {
+    display: none;
+  }
+
+  /* WCAG 1.4.10 reflow, not mobile mode: 1280px at 400% zoom is the same CSS-pixel axis as a
+     phone. Without this the demo link is visibly broken until M9. */
+  @media (width < 64rem) {
+    .workspace {
+      height: auto;
+      min-height: 100dvh;
+      overflow: visible;
+    }
+    .workspace-panes {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .workspace-sep {
+      display: none;
+    }
+    .workspace-pane {
+      overflow: visible;
+      border-inline: 0;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .workspace-scroll {
+      overflow: visible;
+    }
+    .workspace-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--bg);
     }
   }
 }
