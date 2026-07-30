@@ -206,10 +206,32 @@ async def jobs_events(job_id: str, request: Request) -> StreamingResponse:
                     .where(Event.job_id == real_id, Event.seq > cursor)
                     .order_by(Event.seq)
                 ).all()
-                batch = [(e.seq, e.type, e.payload or {}) for e in rows]
-            for seq, type_, payload in batch:
+                batch = [(e.seq, e.type, e.payload or {}, e.created_at) for e in rows]
+                last_type = (
+                    None
+                    if batch
+                    else s.scalar(
+                        select(Event.type)
+                        .where(Event.job_id == real_id)
+                        .order_by(Event.seq.desc())
+                        .limit(1)
+                    )
+                )
+            if not batch:
+                # Caught up. A reconnect resumes from past the terminal event, so on a
+                # finished job nothing more is coming: close instead of polling forever.
+                if last_type in terminal:
+                    return
+                # Bare comment frame: proves liveness through a long silent graph build,
+                # and keeps the connection off undici's 300s body-inactivity timeout.
+                # No id:, or it would clobber the client's Last-Event-ID.
+                yield ":\n\n"
+                await asyncio.sleep(0.4)
+                continue
+            for seq, type_, payload, created in batch:
                 cursor = seq
-                data = json.dumps({"seq": seq, "type": type_, **payload})
+                # Envelope keys last: a payload key must never shadow the discriminators.
+                data = json.dumps({**payload, "seq": seq, "type": type_, "ts": created.isoformat()})
                 yield f"id: {seq}\nevent: {type_}\ndata: {data}\n\n"
                 if type_ in terminal:
                     return

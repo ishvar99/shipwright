@@ -88,6 +88,56 @@ export const AnalyticsSchema = z.object({
 export const RepoListSchema = z.array(RepoSchema);
 export const JobListSchema = z.array(JobSchema);
 
+// --- Activity stream -------------------------------------------------------
+// The backend flattens {seq, type, ts, ...payload} into one object per frame. `ts` is the
+// server clock; without it every duration would be an artifact of the 0.4s poll.
+
+const envelope = { seq: z.number(), ts: z.string().optional() };
+
+export const EVENT_TYPES = [
+  "job.started",
+  "graph.building",
+  "graph.ready",
+  "model.selected",
+  "retrieval.started",
+  "model.finished",
+  "localization.ready",
+  "job.done",
+  "job.failed",
+] as const;
+export type EventType = (typeof EVENT_TYPES)[number];
+
+export const JobEventSchema = z.discriminatedUnion("type", [
+  z.object({ ...envelope, type: z.literal("job.started"), repo: z.string(), mode: z.string(), base: z.string() }),
+  z.object({ ...envelope, type: z.literal("graph.building") }),
+  z.object({
+    ...envelope,
+    type: z.literal("graph.ready"),
+    files: z.number(),
+    symbols: z.number(),
+    call_edges: z.number().optional(),
+    import_edges: z.number().optional(),
+  }),
+  z.object({ ...envelope, type: z.literal("model.selected"), model: z.string(), reason: z.string() }),
+  // `channels` is the mode name ("hybrid", "bm25"), not a channel list. Typing it as
+  // Channel[] would make isChannel silently drop it.
+  z.object({ ...envelope, type: z.literal("retrieval.started"), channels: z.string() }),
+  z.object({
+    ...envelope,
+    type: z.literal("model.finished"),
+    calls: z.number(),
+    input_tokens: z.number(),
+    output_tokens: z.number(),
+    parse_failures: z.number(),
+  }),
+  z.object({ ...envelope, type: z.literal("localization.ready"), count: z.number() }),
+  z.object({ ...envelope, type: z.literal("job.done"), wall_ms: z.number(), locations: z.number() }),
+  z.object({ ...envelope, type: z.literal("job.failed"), error: z.string() }),
+]);
+
+export type JobEvent = z.infer<typeof JobEventSchema>;
+export const TERMINAL_EVENTS: ReadonlySet<string> = new Set(["job.done", "job.failed"]);
+
 export type Repo = z.infer<typeof RepoSchema>;
 export type Location = z.infer<typeof LocationSchema>;
 export type Job = z.infer<typeof JobSchema>;

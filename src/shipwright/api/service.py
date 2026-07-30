@@ -90,7 +90,9 @@ def run_localize(job_id) -> None:
     try:
         emit(job_id, "job.started", repo=repo_slug, mode=mode, base=base_mode)
 
-        emit(job_id, "graph.building", path=repo_path)
+        # No path: it is an absolute host path, it persists in the event row, and it is
+        # re-served on every reconnect. The UI already has the repo slug from job.started.
+        emit(job_id, "graph.building")
         graph = build(Path(repo_path))
         stats = graph.stats()
         emit(job_id, "graph.ready", **stats)

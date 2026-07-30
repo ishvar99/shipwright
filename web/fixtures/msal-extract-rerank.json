@@ -1,0 +1,352 @@
+{
+ "meta": {
+  "fixtureVersion": 1,
+  "capturedAt": "2026-07-29T21:33:07.398Z",
+  "repo": "local:AzureAD__microsoft-authentication-library-for-python",
+  "ref": "66a1c5a",
+  "mode": "extract_rerank",
+  "baseMode": "hybrid",
+  "model": "qwen2.5-coder-7b-16k",
+  "wallMs": 11275,
+  "backendCommit": "fe645bb",
+  "timingSource": "server-ts",
+  "heartbeatsExcluded": true
+ },
+ "issue": "Instance metadata caching\n\nAuthority validation performs a network call on every token acquisition. MSAL .NET 4.1 made\ngetAccounts and acquireTokenSilent less network chatty by caching the instance discovery\nresponse. We should do the same: cache the validated authority instance so repeated silent\ntoken acquisition does not re-hit the discovery endpoint.",
+ "frames": [
+  {
+   "t": 0,
+   "raw": "id: 1\nevent: job.started\ndata: {\"base\": \"hybrid\", \"mode\": \"extract_rerank\", \"repo\": \"local:AzureAD__microsoft-authentication-library-for-python\", \"seq\": 1, \"type\": \"job.started\", \"ts\": \"2026-07-29T21:32:55.928320\"}"
+  },
+  {
+   "t": 3,
+   "raw": "id: 2\nevent: graph.building\ndata: {\"seq\": 2, \"type\": \"graph.building\", \"ts\": \"2026-07-29T21:32:55.931191\"}"
+  },
+  {
+   "t": 84,
+   "raw": "id: 3\nevent: graph.ready\ndata: {\"files\": 33, \"symbols\": 463, \"call_edges\": 2308, \"import_edges\": 246, \"seq\": 3, \"type\": \"graph.ready\", \"ts\": \"2026-07-29T21:32:56.012634\"}"
+  },
+  {
+   "t": 86,
+   "raw": "id: 4\nevent: model.selected\ndata: {\"model\": \"qwen2.5-coder-7b-16k\", \"reason\": \"assisted mode\", \"seq\": 4, \"type\": \"model.selected\", \"ts\": \"2026-07-29T21:32:56.014869\"}"
+  },
+  {
+   "t": 88,
+   "raw": "id: 5\nevent: retrieval.started\ndata: {\"channels\": \"hybrid\", \"seq\": 5, \"type\": \"retrieval.started\", \"ts\": \"2026-07-29T21:32:56.016661\"}"
+  },
+  {
+   "t": 11261,
+   "raw": "id: 6\nevent: model.finished\ndata: {\"calls\": 2, \"input_tokens\": 1123, \"output_tokens\": 141, \"parse_failures\": 0, \"seq\": 6, \"type\": \"model.finished\", \"ts\": \"2026-07-29T21:33:07.189952\"}"
+  },
+  {
+   "t": 11268,
+   "raw": "id: 7\nevent: localization.ready\ndata: {\"count\": 10, \"seq\": 7, \"type\": \"localization.ready\", \"ts\": \"2026-07-29T21:33:07.196751\"}"
+  },
+  {
+   "t": 11279,
+   "raw": "id: 8\nevent: job.done\ndata: {\"wall_ms\": 11275, \"locations\": 10, \"seq\": 8, \"type\": \"job.done\", \"ts\": \"2026-07-29T21:33:07.207329\"}"
+  }
+ ],
+ "job": {
+  "id": "c834f654-0f50-4b52-8b88-cae8cd48654a",
+  "repo_id": "2455b4e0-61d3-49a0-860f-e0207c0cb2e6",
+  "kind": "localize",
+  "status": "done",
+  "mode": "extract_rerank",
+  "base_mode": "hybrid",
+  "model": "qwen2.5-coder-7b-16k",
+  "issue": "Instance metadata caching\n\nAuthority validation performs a network call on every token acquisition. MSAL .NET 4.1 made\ngetAccounts and acquireTokenSilent less network chatty by caching the instance discovery\nresponse. We should do the same: cache the validated authority instance so repeated silent\ntoken acquisition does not re-hit the discovery endpoint.",
+  "result": {
+   "graph": {
+    "files": 33,
+    "symbols": 463,
+    "call_edges": 2308,
+    "import_edges": 246
+   },
+   "locations": [
+    {
+     "kind": "function",
+     "name": "instance_discovery",
+     "path": "msal/authority.py",
+     "rank": 1,
+     "score": 0.026667,
+     "symbol": "msal/authority.py:instance_discovery",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 161,
+     "signature": "def instance_discovery(url, http_client, **kwargs):",
+     "start_line": 152
+    },
+    {
+     "kind": "function",
+     "name": "tenant_discovery",
+     "path": "msal/authority.py",
+     "rank": 2,
+     "score": 0.028543,
+     "symbol": "msal/authority.py:tenant_discovery",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 181,
+     "signature": "def tenant_discovery(tenant_discovery_endpoint, http_client, **kwargs):",
+     "start_line": 163
+    },
+    {
+     "kind": "function",
+     "name": "_acquire_token_silent_by_finding_rt_belongs_to_me_or_my_family",
+     "path": "msal/application.py",
+     "rank": 3,
+     "score": 0.025942,
+     "symbol": "msal/application.py:ClientApplication._acquire_token_silent_by_finding_rt_belongs_to_me_or_my_family",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 1264,
+     "signature": "def _acquire_token_silent_by_finding_rt_belongs_to_me_or_my_family(",
+     "start_line": 1228
+    },
+    {
+     "kind": "function",
+     "name": "__init__",
+     "path": "msal/authority.py",
+     "rank": 4,
+     "score": 0.027493,
+     "symbol": "msal/authority.py:Authority.__init__",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 120,
+     "signature": "def __init__(self, authority_url, http_client, validate_authority=True):",
+     "start_line": 66
+    },
+    {
+     "kind": "function",
+     "name": "acquire_token_silent",
+     "path": "msal/application.py",
+     "rank": 5,
+     "score": 0.024585,
+     "symbol": "msal/application.py:ClientApplication.acquire_token_silent",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 1081,
+     "signature": "def acquire_token_silent(",
+     "start_line": 1045
+    },
+    {
+     "kind": "function",
+     "name": "_acquire_token_silent_from_cache_and_possibly_refresh_it",
+     "path": "msal/application.py",
+     "rank": 6,
+     "score": 0.023755,
+     "symbol": "msal/application.py:ClientApplication._acquire_token_silent_from_cache_and_possibly_refresh_it",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 1226,
+     "signature": "def _acquire_token_silent_from_cache_and_possibly_refresh_it(",
+     "start_line": 1171
+    },
+    {
+     "kind": "class",
+     "name": "PublicClientApplication",
+     "path": "msal/application.py",
+     "rank": 7,
+     "score": 0.022054,
+     "symbol": "msal/application.py:PublicClientApplication",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 1636,
+     "signature": "class PublicClientApplication(ClientApplication):  # browser app or mobile app",
+     "start_line": 1474
+    },
+    {
+     "kind": "class",
+     "name": "TestClientApplicationAcquireTokenSilentErrorBehaviors",
+     "path": "tests/test_application.py",
+     "rank": 8,
+     "score": 0.021937,
+     "symbol": "tests/test_application.py:TestClientApplicationAcquireTokenSilentErrorBehaviors",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 109,
+     "signature": "class TestClientApplicationAcquireTokenSilentErrorBehaviors(unittest.TestCase):",
+     "start_line": 52
+    },
+    {
+     "kind": "function",
+     "name": "test_lessknown_host_will_return_a_set_of_v1_endpoints",
+     "path": "tests/test_authority.py",
+     "rank": 9,
+     "score": 0.021277,
+     "symbol": "tests/test_authority.py:TestAuthority.test_lessknown_host_will_return_a_set_of_v1_endpoints",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 52,
+     "signature": "def test_lessknown_host_will_return_a_set_of_v1_endpoints(self):",
+     "start_line": 44
+    },
+    {
+     "kind": "function",
+     "name": "assertCacheWorksForUser",
+     "path": "tests/test_e2e.py",
+     "rank": 10,
+     "score": 0.02091,
+     "symbol": "tests/test_e2e.py:E2eTestCase.assertCacheWorksForUser",
+     "channels": [
+      "bm25",
+      "graph"
+     ],
+     "end_line": 121,
+     "signature": "def assertCacheWorksForUser(",
+     "start_line": 76
+    }
+   ]
+  },
+  "error": "",
+  "input_tokens": 1123,
+  "output_tokens": 141,
+  "wall_ms": 11275,
+  "created_at": "2026-07-29T21:32:55.921978"
+ },
+ "sources": {
+  "msal/authority.py:152": {
+   "path": "msal/authority.py",
+   "start": 144,
+   "lines": [
+    "        raise ValueError(",
+    "            \"Your given address (%s) should consist of \"",
+    "            \"an https url with a minimum of one segment in a path: e.g. \"",
+    "            \"https://login.microsoftonline.com/<tenant> \"",
+    "            \"or https://<tenant_name>.b2clogin.com/<tenant_name>.onmicrosoft.com/policy\"",
+    "            % authority_url)",
+    "    return authority, authority.hostname, parts[1]",
+    "",
+    "def instance_discovery(url, http_client, **kwargs):",
+    "    resp = http_client.get(  # Note: This URL seemingly returns V1 endpoint only",
+    "        'https://{}/common/discovery/instance'.format(",
+    "            WORLD_WIDE  # Historically using WORLD_WIDE. Could use self.instance too",
+    "                # See https://github.com/AzureAD/microsoft-authentication-library-for-dotnet/blob/4.0.0/src/Microsoft.Identity.Client/Instance/AadInstanceDiscovery.cs#L101-L103",
+    "                # and https://github.com/AzureAD/microsoft-authentication-library-for-dotnet/blob/4.0.0/src/Microsoft.Identity.Client/Instance/AadAuthority.cs#L19-L33",
+    "            ),",
+    "        params={'authorization_endpoint': url, 'api-version': '1.0'},",
+    "        **kwargs)",
+    "    return json.loads(resp.text)",
+    "",
+    "def tenant_discovery(tenant_discovery_endpoint, http_client, **kwargs):",
+    "    # Returns Openid Configuration",
+    "    resp = http_client.get(tenant_discovery_endpoint, **kwargs)",
+    "    if resp.status_code == 200:",
+    "        payload = json.loads(resp.text)  # It could raise ValueError",
+    "        if 'authorization_endpoint' in payload and 'token_endpoint' in payload:",
+    "            return payload  # Happy path"
+   ]
+  },
+  "msal/authority.py:163": {
+   "path": "msal/authority.py",
+   "start": 155,
+   "lines": [
+    "            WORLD_WIDE  # Historically using WORLD_WIDE. Could use self.instance too",
+    "                # See https://github.com/AzureAD/microsoft-authentication-library-for-dotnet/blob/4.0.0/src/Microsoft.Identity.Client/Instance/AadInstanceDiscovery.cs#L101-L103",
+    "                # and https://github.com/AzureAD/microsoft-authentication-library-for-dotnet/blob/4.0.0/src/Microsoft.Identity.Client/Instance/AadAuthority.cs#L19-L33",
+    "            ),",
+    "        params={'authorization_endpoint': url, 'api-version': '1.0'},",
+    "        **kwargs)",
+    "    return json.loads(resp.text)",
+    "",
+    "def tenant_discovery(tenant_discovery_endpoint, http_client, **kwargs):",
+    "    # Returns Openid Configuration",
+    "    resp = http_client.get(tenant_discovery_endpoint, **kwargs)",
+    "    if resp.status_code == 200:",
+    "        payload = json.loads(resp.text)  # It could raise ValueError",
+    "        if 'authorization_endpoint' in payload and 'token_endpoint' in payload:",
+    "            return payload  # Happy path",
+    "        raise ValueError(\"OIDC Discovery does not provide enough information\")",
+    "    if 400 <= resp.status_code < 500:",
+    "        # Nonexist tenant would hit this path",
+    "        # e.g. https://login.microsoftonline.com/nonexist_tenant/v2.0/.well-known/openid-configuration",
+    "        raise ValueError(",
+    "            \"OIDC Discovery endpoint rejects our request. Error: {}\".format(",
+    "                resp.text  # Expose it as-is b/c OIDC defines no error response format",
+    "            ))",
+    "    # Transient network error would hit this path",
+    "    resp.raise_for_status()",
+    "    raise RuntimeError(  # A fallback here, in case resp.raise_for_status() is no-op",
+    "        \"Unable to complete OIDC Discovery: %d, %s\" % (resp.status_code, resp.text))",
+    ""
+   ]
+  },
+  "msal/application.py:1228": {
+   "path": "msal/application.py",
+   "start": 1220,
+   "lines": [
+    "            if (result and \"error\" not in result) or (not access_token_from_cache):",
+    "                return result",
+    "        except:  # The exact HTTP exception is transportation-layer dependent",
+    "            # Typically network error. Potential AAD outage?",
+    "            if not access_token_from_cache:  # It means there is no fall back option",
+    "                raise  # We choose to bubble up the exception",
+    "        return access_token_from_cache",
+    "",
+    "    def _acquire_token_silent_by_finding_rt_belongs_to_me_or_my_family(",
+    "            self, authority, scopes, account, **kwargs):",
+    "        query = {",
+    "            \"environment\": authority.instance,",
+    "            \"home_account_id\": (account or {}).get(\"home_account_id\"),",
+    "            # \"realm\": authority.tenant,  # AAD RTs are tenant-independent",
+    "            }",
+    "        app_metadata = self._get_app_metadata(authority.instance)",
+    "        if not app_metadata:  # Meaning this app is now used for the first time.",
+    "            # When/if we have a way to directly detect current app's family,",
+    "            # we'll rewrite this block, to support multiple families.",
+    "            # For now, we try existing RTs (*). If it works, we are in that family.",
+    "            # (*) RTs of a different app/family are not supposed to be",
+    "            # shared with or accessible by us in the first place.",
+    "            at = self._acquire_token_silent_by_finding_specific_refresh_token(",
+    "                authority, scopes,",
+    "                dict(query, family_id=\"1\"),  # A hack, we have only 1 family for now",
+    "                rt_remover=lambda rt_item: None,  # NO-OP b/c RTs are likely not mine",
+    "                break_condition=lambda response:  # Break loop when app not in family",
+    "                    # Based on an AAD-only behavior mentioned in internal doc here",
+    "                    # https://msazure.visualstudio.com/One/_git/ESTS-Docs/pullrequest/1138595",
+    "                    \"client_mismatch\" in response.get(\"error_additional_info\", []),",
+    "                **kwargs)",
+    "            if at and \"error\" not in at:",
+    "                return at",
+    "        last_resp = None",
+    "        if app_metadata.get(\"family_id\"):  # Meaning this app belongs to this family",
+    "            last_resp = at = self._acquire_token_silent_by_finding_specific_refresh_token(",
+    "                authority, scopes, dict(query, family_id=app_metadata[\"family_id\"]),",
+    "                **kwargs)",
+    "            if at and \"error\" not in at:",
+    "                return at",
+    "        # Either this app is an orphan, so we will naturally use its own RT;",
+    "        # or all attempts above have failed, so we fall back to non-foci behavior.",
+    "        return self._acquire_token_silent_by_finding_specific_refresh_token(",
+    "            authority, scopes, dict(query, client_id=self.client_id),",
+    "            **kwargs) or last_resp",
+    "",
+    "    def _get_app_metadata(self, environment):",
+    "        apps = self.token_cache.find(  # Use find(), rather than token_cache.get(...)",
+    "            TokenCache.CredentialType.APP_METADATA, query={",
+    "                \"environment\": environment, \"client_id\": self.client_id})",
+    "        return apps[0] if apps else {}",
+    "",
+    "    def _acquire_token_silent_by_finding_specific_refresh_token("
+   ]
+  }
+ }
+}

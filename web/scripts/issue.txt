@@ -1,0 +1,6 @@
+Instance metadata caching
+
+Authority validation performs a network call on every token acquisition. MSAL .NET 4.1 made
+getAccounts and acquireTokenSilent less network chatty by caching the instance discovery
+response. We should do the same: cache the validated authority instance so repeated silent
+token acquisition does not re-hit the discovery endpoint.

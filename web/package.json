@@ -7,7 +7,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "capture": "node scripts/capture-fixture.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
