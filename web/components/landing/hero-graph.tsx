@@ -4,20 +4,57 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 /**
- * The hero visual IS the product: a code graph — functions as nodes, calls as edges — acting
- * out a session on loop. A search pulse sweeps the constellation lighting nodes in the four
- * evidence hues, the candidates hold while the rest recede, and one node locks on with the
- * accent glow. The recorded demo below then shows the real thing.
+ * The hero visual IS the product: a code graph acting out a session on loop — a search pulse
+ * sweeps the modules lighting nodes in the four evidence hues, ten candidates hold while the
+ * rest recede, one function locks on. The recorded demo below then shows the real thing.
  *
- * Discipline: colours come from the live CSS tokens (theme-aware, re-reads on toggle); the
- * loop pauses off-screen and in hidden tabs; reduced motion gets one static frame; no WebGL
- * renders nothing and the CSS glow carries the hero alone.
+ * Craft notes, because the obvious implementation looks cheap:
+ * - Nodes are drawn by a small shader, not textured sprites. Sprites with soft radial falloff
+ *   read as out-of-focus dust; a procedural disc stays crisp at any size or DPR, and a shader
+ *   affords per-node size so hub functions are visibly bigger.
+ * - Topology is modules with hubs — satellites calling into a hub, plus sparse hub-to-hub
+ *   imports. That is what a call graph looks like; nearest-neighbour wiring looks like lint.
+ * - Composition: modules sit on an elliptical ring so the centre of frame is deliberately
+ *   empty for the headline, instead of fogging it evenly.
+ *
+ * The hero panel carries its own `.dark` scope, so blending is always additive.
  */
 
-const CYCLE_S = 9;
-const SCAN_END = 3.2;
-const NARROW_END = 5.2;
-const LOCK_END = 7.4;
+const CYCLE_S = 10;
+const SCAN_END = 3.4;
+const HOLD_END = 5.6;
+const LOCK_END = 8.0;
+
+// smoothstep() is undefined for edge0 >= edge1, so every falloff is written ascending and
+// inverted. It renders fine on some GPUs either way, which is exactly why it is a trap.
+const VERT = /* glsl */ `
+  attribute vec3 aColor;
+  attribute float aSize;
+  attribute float aAlpha;
+  uniform float uPixelRatio;
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    vColor = aColor;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float near = 1.0 - smoothstep(10.0, 38.0, -mv.z);
+    vAlpha = aAlpha * mix(0.30, 1.0, near);
+    gl_PointSize = aSize * uPixelRatio * (14.0 / -mv.z);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const FRAG = /* glsl */ `
+  varying vec3 vColor;
+  varying float vAlpha;
+  void main() {
+    float d = length(gl_PointCoord - vec2(0.5));
+    if (d > 0.5) discard;
+    float core = 1.0 - smoothstep(0.28, 0.44, d);
+    float halo = (1.0 - smoothstep(0.10, 0.5, d)) * 0.28;
+    gl_FragColor = vec4(vColor, (core + halo) * vAlpha);
+  }
+`;
 
 type Palette = { base: THREE.Color; evidence: THREE.Color[]; accent: THREE.Color };
 
@@ -29,10 +66,10 @@ function seeded(seed: number) {
   };
 }
 
-function readPalette(): Palette {
-  const css = getComputedStyle(document.documentElement);
+function readPalette(host: HTMLElement): Palette {
+  const css = getComputedStyle(host);
   const probe = document.createElement("span");
-  document.body.appendChild(probe);
+  host.appendChild(probe);
   const resolve = (variable: string) => {
     // color-mix()/oklch() need the browser to resolve to a computed rgb.
     probe.style.color = css.getPropertyValue(variable).trim() || "#888";
@@ -47,23 +84,6 @@ function readPalette(): Palette {
   return palette;
 }
 
-/** Soft round sprite so points render as glows, not squares. */
-function dotTexture(): THREE.Texture {
-  const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const g = canvas.getContext("2d")!;
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, "rgba(255,255,255,1)");
-  grad.addColorStop(0.4, "rgba(255,255,255,0.6)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, size, size);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
 export default function HeroGraph() {
   const host = useRef<HTMLDivElement>(null);
 
@@ -71,142 +91,233 @@ export default function HeroGraph() {
     const el = host.current;
     if (!el) return;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const narrow = matchMedia("(max-width: 760px)").matches;
 
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "low-power" });
     } catch {
-      return; // no WebGL: the CSS glow carries the hero
+      return; // no WebGL: the panel's own gradient carries the hero
     }
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     el.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
-    camera.position.z = 15;
+    const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 120);
+    camera.position.z = 20;
 
-    // --- the graph: clustered nodes, edges to near neighbours -----------------------------
-    const rand = seeded(7);
-    const small = matchMedia("(max-width: 700px)").matches;
-    const COUNT = small ? 240 : 420;
-    const positions = new Float32Array(COUNT * 3);
-    const nodes: THREE.Vector3[] = [];
-    const clusters = Array.from({ length: 7 }, () =>
-      new THREE.Vector3((rand() - 0.5) * 14, (rand() - 0.5) * 8, (rand() - 0.5) * 8),
-    );
-    for (let i = 0; i < COUNT; i += 1) {
-      const c = clusters[Math.floor(rand() * clusters.length)];
-      const v = new THREE.Vector3(
-        c.x + (rand() + rand() - 1) * 3.4,
-        c.y + (rand() + rand() - 1) * 2.6,
-        c.z + (rand() + rand() - 1) * 3.0,
+    // ---- topology: modules on a ring, each a hub with satellites ---------------------------
+    const rand = seeded(11);
+    const MODULES = narrow ? 7 : 11;
+    const CLEAR = narrow ? 6 : 9;
+    // The headline occupies a wide, short box mid-frame. Exclude a slightly larger box, so
+    // "outside the exclusion" implies "outside the headline" by containment — an elliptical
+    // boundary cuts through the box's diagonals and leaks nodes into the text.
+    // Displacement follows the axis with room to spare: sideways in landscape (dense left and
+    // right, clear middle), vertically in portrait (bands above and below).
+    const BX = narrow ? 6.6 : 9.0;
+    const BY = narrow ? 5.2 : 4.0;
+    const XMUL = narrow ? 0.85 : 1.4;
+    const YMUL = narrow ? 1.25 : 0.5;
+
+    const clearCentre = (v: THREE.Vector3) => {
+      if (Math.abs(v.x) > BX || Math.abs(v.y) > BY) return v;
+      if (narrow) v.y = (v.y >= 0 ? 1 : -1) * BY * (1.02 + rand() * 0.6);
+      else v.x = (v.x >= 0 ? 1 : -1) * BX * (1.02 + rand() * 0.55);
+      return v;
+    };
+
+    type Node = { p: THREE.Vector3; module: number; hub: boolean; evidence: number; size: number };
+    const nodes: Node[] = [];
+    const hubIndex: number[] = [];
+
+    for (let m = 0; m < MODULES; m += 1) {
+      // Golden-angle placement keeps the ring irregular rather than a clock face.
+      const angle = m * 2.399 + rand() * 0.4;
+      const spread = CLEAR + rand() * 5;
+      const centre = clearCentre(
+        new THREE.Vector3(
+          Math.cos(angle) * spread * XMUL,
+          Math.sin(angle) * spread * YMUL,
+          (rand() - 0.5) * 14,
+        ),
       );
-      nodes.push(v);
-      positions.set([v.x, v.y, v.z], i * 3);
+      hubIndex.push(nodes.length);
+      nodes.push({ p: centre, module: m, hub: true, evidence: Math.floor(rand() * 4), size: 18 });
+
+      const satellites = narrow ? 12 + Math.floor(rand() * 8) : 18 + Math.floor(rand() * 14);
+      for (let i = 0; i < satellites; i += 1) {
+        // Shell distribution: satellites orbit the hub instead of clumping on top of it.
+        const r = 1.1 + rand() * 2.1;
+        const t = rand() * Math.PI * 2;
+        const u = rand() * 2 - 1;
+        const ring = Math.sqrt(1 - u * u);
+        nodes.push({
+          p: clearCentre(
+            new THREE.Vector3(
+              centre.x + r * ring * Math.cos(t) * 1.15,
+              centre.y + r * ring * Math.sin(t),
+              centre.z + r * u,
+            ),
+          ),
+          module: m,
+          hub: false,
+          evidence: Math.floor(rand() * 4),
+          size: 7 + rand() * 4,
+        });
+      }
     }
-    const evidenceOf = new Uint8Array(COUNT).map(() => Math.floor(rand() * 4));
-    const radius = nodes.map((v) => v.length());
-    const maxR = Math.max(...radius);
 
-    // Candidates and the target: a believable "top ten", biased toward one cluster.
-    const target = nodes.reduce((best, v, i) => (v.distanceTo(clusters[2]) < nodes[best].distanceTo(clusters[2]) ? i : best), 0);
-    const candidates = new Set<number>([target]);
-    const byDist = [...nodes.keys()].sort(
-      (a, b) => nodes[a].distanceTo(nodes[target]) - nodes[b].distanceTo(nodes[target]),
-    );
-    for (const i of byDist.slice(1, 24)) if (candidates.size < 10 && rand() > 0.4) candidates.add(i);
-
+    const COUNT = nodes.length;
+    const positions = new Float32Array(COUNT * 3);
     const colors = new Float32Array(COUNT * 3);
+    const sizes = new Float32Array(COUNT);
+    const alphas = new Float32Array(COUNT);
+    nodes.forEach((n, i) => {
+      positions.set([n.p.x, n.p.y, n.p.z], i * 3);
+      sizes[i] = n.size;
+      alphas[i] = 1;
+    });
+
+    // Edges: satellites call into their hub; hubs import from two other modules.
+    const edgePairs: [number, number][] = [];
+    nodes.forEach((n, i) => {
+      if (!n.hub) edgePairs.push([i, hubIndex[n.module]]);
+    });
+    for (let m = 0; m < MODULES; m += 1) {
+      for (const other of [(m + 1) % MODULES, (m + 4) % MODULES]) {
+        if (other !== m) edgePairs.push([hubIndex[m], hubIndex[other]]);
+      }
+    }
+
+    // The session: one target function and the shortlist around it.
+    const focusModule = 2 % MODULES;
+    const inFocus = nodes.map((n, i) => (n.module === focusModule && !n.hub ? i : -1)).filter((i) => i >= 0);
+    const target = inFocus[Math.floor(inFocus.length / 2)] ?? hubIndex[focusModule];
+    const candidates = new Set<number>([target, hubIndex[focusModule]]);
+    for (const i of inFocus) if (candidates.size < 10) candidates.add(i);
+
+    const radius = nodes.map((n) => n.p.length());
+    const maxR = Math.max(...radius);
+    const baseSize = Float32Array.from(sizes);
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    const material = new THREE.PointsMaterial({
-      size: small ? 0.34 : 0.3,
-      map: dotTexture(),
-      vertexColors: true,
+    geometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
+
+    // Own attribute names, not three's `color` + vertexColors: no reliance on which
+    // declarations the library happens to inject into a ShaderMaterial.
+    const material = new THREE.ShaderMaterial({
+      vertexShader: VERT,
+      fragmentShader: FRAG,
+      uniforms: { uPixelRatio: { value: renderer.getPixelRatio() } },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
     scene.add(new THREE.Points(geometry, material));
 
-    // Edges: each node to its two nearest neighbours, drawn once, breathing via opacity.
-    const edgePositions: number[] = [];
-    for (let i = 0; i < COUNT; i += 1) {
-      const near = [...nodes.keys()]
-        .filter((j) => j !== i)
-        .sort((a, b) => nodes[a].distanceTo(nodes[i]) - nodes[b].distanceTo(nodes[i]))
-        .slice(0, 2);
-      for (const j of near) {
-        if (j > i) edgePositions.push(...nodes[i].toArray(), ...nodes[j].toArray());
-      }
-    }
+    // Edges carry per-vertex colour, so a lit node visibly lights its calls.
+    const edgePositions = new Float32Array(edgePairs.length * 6);
+    const edgeColors = new Float32Array(edgePairs.length * 6);
+    edgePairs.forEach(([a, b], i) => {
+      edgePositions.set([...nodes[a].p.toArray(), ...nodes[b].p.toArray()], i * 6);
+    });
     const edgeGeometry = new THREE.BufferGeometry();
-    edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
+    edgeGeometry.setAttribute("position", new THREE.BufferAttribute(edgePositions, 3));
+    edgeGeometry.setAttribute("color", new THREE.BufferAttribute(edgeColors, 3));
     const edgeMaterial = new THREE.LineBasicMaterial({
+      vertexColors: true,
       transparent: true,
-      opacity: 0.1,
+      opacity: 0.6,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
     scene.add(new THREE.LineSegments(edgeGeometry, edgeMaterial));
 
-    // The locked node: a sprite that swells with the accent when the search lands.
-    const targetSprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: dotTexture(),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        opacity: 0,
-      }),
-    );
-    targetSprite.position.copy(nodes[target]);
-    scene.add(targetSprite);
-
-    let palette = readPalette();
+    let palette = readPalette(el);
     const applyTheme = () => {
-      palette = readPalette();
-      edgeMaterial.color.copy(palette.base);
-      targetSprite.material.color.copy(palette.accent);
-      if (reduced) paint(SCAN_END * 0.6); // keep the static frame in the new theme
+      palette = readPalette(el);
+      paint(reduced ? SCAN_END * 0.55 : elapsed);
     };
 
+    // ---- the loop --------------------------------------------------------------------------
     const scratch = new THREE.Color();
+
     function paint(t: number) {
       const phase = t % CYCLE_S;
+      const wave = (phase / SCAN_END) * maxR * 1.15;
+
       for (let i = 0; i < COUNT; i += 1) {
+        const isCandidate = candidates.has(i);
+        let alpha = nodes[i].hub ? 0.9 : 0.5;
         scratch.copy(palette.base).multiplyScalar(0.5);
+        sizes[i] = baseSize[i];
+
         if (phase < SCAN_END) {
-          // The pulse: an expanding shell that flashes each node's evidence hue as it passes.
-          const wave = (phase / SCAN_END) * maxR * 1.2;
-          const hit = Math.exp(-((wave - radius[i]) ** 2) / 0.5);
-          scratch.lerp(palette.evidence[evidenceOf[i]], Math.min(1, hit));
+          // A shell expanding from the centre; nodes flare in their evidence hue as it passes.
+          const hit = Math.exp(-((wave - radius[i]) ** 2) / 1.4);
+          scratch.lerp(palette.evidence[nodes[i].evidence], Math.min(1, hit * 1.4));
+          alpha += hit;
         } else if (phase < LOCK_END) {
-          // Narrow: candidates hold their evidence colour, the rest recede.
-          const settle = Math.min(1, (phase - SCAN_END) / 0.8);
-          if (candidates.has(i)) scratch.lerp(palette.evidence[evidenceOf[i]], 0.85);
-          else scratch.multiplyScalar(1 - 0.45 * settle);
+          const settle = Math.min(1, (phase - SCAN_END) / 0.7);
+          if (isCandidate) {
+            scratch.lerp(palette.evidence[nodes[i].evidence], 0.95);
+            alpha = 1.15;
+          } else {
+            // The rest genuinely recede, so the shortlist is unmistakable.
+            alpha *= 1 - 0.72 * settle;
+            scratch.multiplyScalar(1 - 0.3 * settle);
+          }
         } else {
           const release = (phase - LOCK_END) / (CYCLE_S - LOCK_END);
-          if (candidates.has(i)) scratch.lerp(palette.evidence[evidenceOf[i]], 0.85 * (1 - release));
+          if (isCandidate) {
+            scratch.lerp(palette.evidence[nodes[i].evidence], 0.95 * (1 - release));
+            alpha = 1.15 - 0.3 * release;
+          } else {
+            alpha *= 0.28 + 0.72 * release;
+          }
         }
+
+        if (i === target) {
+          const lock =
+            phase < HOLD_END
+              ? 0
+              : phase < LOCK_END
+                ? Math.min(1, (phase - HOLD_END) / 0.6)
+                : Math.max(0, 1 - (phase - LOCK_END) / 1.4);
+          scratch.lerp(palette.accent, lock);
+          alpha = Math.max(alpha, lock * 1.4);
+          sizes[i] = baseSize[i] + lock * (20 + 4 * Math.sin(t * 5));
+        }
+
         colors.set([scratch.r, scratch.g, scratch.b], i * 3);
+        alphas[i] = Math.min(1.6, alpha);
       }
-      geometry.getAttribute("color").needsUpdate = true;
 
-      // Lock-on: the accent swell during the third beat.
-      const lock =
-        phase < NARROW_END ? 0 : phase < LOCK_END ? Math.min(1, (phase - NARROW_END) / 0.7) : Math.max(0, 1 - (phase - LOCK_END) / 1.2);
-      targetSprite.material.opacity = lock;
-      const swell = 1 + 0.25 * Math.sin(t * 4);
-      targetSprite.scale.setScalar(1.6 * lock * swell + 0.001);
-      edgeMaterial.opacity = 0.08 + 0.06 * lock;
+      // Edges inherit a dimmed blend of their endpoints.
+      for (let e = 0; e < edgePairs.length; e += 1) {
+        const [a, b] = edgePairs[e];
+        for (let slot = 0; slot < 2; slot += 1) {
+          const n = slot === 0 ? a : b;
+          const o = e * 6 + slot * 3;
+          const f = 0.3 * Math.min(1, alphas[n]);
+          edgeColors[o] = colors[n * 3] * f;
+          edgeColors[o + 1] = colors[n * 3 + 1] * f;
+          edgeColors[o + 2] = colors[n * 3 + 2] * f;
+        }
+      }
 
+      geometry.getAttribute("aColor").needsUpdate = true;
+      geometry.getAttribute("aSize").needsUpdate = true;
+      geometry.getAttribute("aAlpha").needsUpdate = true;
+      edgeGeometry.getAttribute("color").needsUpdate = true;
       renderer.render(scene, camera);
     }
 
-    // --- lifecycle -------------------------------------------------------------------------
+    // ---- lifecycle -------------------------------------------------------------------------
     const pointer = { x: 0, y: 0 };
     const onPointer = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
@@ -219,9 +330,10 @@ export default function HeroGraph() {
     const clock = new THREE.Clock();
     let elapsed = 0;
     const loop = () => {
-      elapsed += clock.getDelta();
-      scene.rotation.y = elapsed * 0.04 + pointer.x * 0.08;
-      scene.rotation.x = pointer.y * 0.05;
+      elapsed += Math.min(clock.getDelta(), 0.05);
+      // Sway, not spin: a full rotation would drag modules across the headline.
+      scene.rotation.y = Math.sin(elapsed * 0.05) * 0.2 + pointer.x * 0.05;
+      scene.rotation.x = Math.sin(elapsed * 0.037) * 0.07 + pointer.y * 0.035;
       paint(elapsed);
       raf = requestAnimationFrame(loop);
     };
@@ -239,10 +351,14 @@ export default function HeroGraph() {
 
     const resize = new ResizeObserver(() => {
       const { width, height } = el.getBoundingClientRect();
+      if (!width || !height) return;
       renderer.setSize(width, height, false);
-      camera.aspect = width / Math.max(1, height);
+      material.uniforms.uPixelRatio.value = renderer.getPixelRatio();
+      camera.aspect = width / height;
+      // Pull back when the frame is tall, so the ring still frames the copy.
+      camera.position.z = camera.aspect < 1.1 ? 27 : 20;
       camera.updateProjectionMatrix();
-      if (reduced) paint(SCAN_END * 0.6);
+      if (!running) paint(reduced ? SCAN_END * 0.55 : elapsed);
     });
     resize.observe(el);
 
@@ -254,8 +370,7 @@ export default function HeroGraph() {
 
     const themeWatch = new MutationObserver(applyTheme);
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    applyTheme();
-    if (reduced) paint(SCAN_END * 0.6); // one still frame, mid-scan: alive but motionless
+    applyTheme(); // also paints, so the first frame is never empty
 
     return () => {
       stop();
@@ -266,11 +381,8 @@ export default function HeroGraph() {
       window.removeEventListener("pointermove", onPointer);
       geometry.dispose();
       edgeGeometry.dispose();
-      material.map?.dispose();
       material.dispose();
       edgeMaterial.dispose();
-      targetSprite.material.map?.dispose();
-      targetSprite.material.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };

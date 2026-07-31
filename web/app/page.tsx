@@ -50,49 +50,93 @@ export default function Home() {
   const best = runs.filter((r) => r.n >= 100).sort((a, b) => b.file5 - a.file5)[0];
 
   return (
-    <main className="mx-auto max-w-5xl px-6 pb-24">
-      {/* Hero: the promise, then proof you can watch. */}
-      <section className="sw-hero sw-glow py-24 text-center">
+    <main>
+      {/* Hero: committed dark — the constellation's habitat — with the brand on a real nav.
+          The nested .dark class re-scopes every token, whatever the site theme. */}
+      <section className="dark sw-hero text-center">
         <HeroVisual />
-        {/* Radial veil: the constellation stays atmosphere, the words stay readable. */}
         <div aria-hidden className="sw-hero-veil" />
-        <div className="sw-hero-copy">
-        <p className="inline-flex items-center gap-2 font-mono text-[length:var(--text-ui)] text-subtle">
-          <Icon name="crosshair" size={16} className="text-accent" />
-          Shipwright
-        </p>
-        <h1 className="mx-auto mt-4 max-w-[18ch] text-display font-display text-fg">
-          Describe the bug. Ship the fix.
-        </h1>
-        <p className="mx-auto mt-6 max-w-[52ch] text-lg text-muted">
-          Shipwright reads your repository, pinpoints the code that needs to change, writes the
-          fix, and proves it with your own tests — from a plain-language description.
-        </p>
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/app"
-            className="inline-flex h-11 items-center gap-2 rounded-[var(--radius)] bg-accent px-6 font-medium text-bg shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
-          >
-            Open the workspace
-            <Icon name="send" size={16} />
+
+        <nav className="sw-hero-nav" aria-label="Primary">
+          <Link href="/" className="flex items-center gap-2.5">
+            <span className="grid size-9 place-items-center rounded-[10px] bg-accent text-bg shadow-sm">
+              <Icon name="crosshair" size={20} />
+            </span>
+            <span className="text-lg font-semibold tracking-tight text-fg">Shipwright</span>
           </Link>
-          <a href="#demo" className="text-muted underline underline-offset-4 hover:text-fg">
-            Watch a session
-          </a>
+          <div className="flex items-center gap-6">
+            <a href="#demo" className="hidden text-muted transition-colors hover:text-fg sm:inline">
+              Product
+            </a>
+            <Link href="/evals" className="hidden text-muted transition-colors hover:text-fg sm:inline">
+              Benchmarks
+            </Link>
+            <Link
+              href="/app"
+              className="inline-flex h-9 items-center rounded-[var(--radius)] bg-accent px-4 font-medium text-bg transition-colors hover:bg-[var(--accent-hover)]"
+            >
+              Open the workspace
+            </Link>
+          </div>
+        </nav>
+
+        <div className="sw-hero-copy mx-auto max-w-4xl px-6">
+          <h1 className="mx-auto max-w-[18ch] text-display font-display text-fg">
+            Describe the bug.{" "}
+            <span className="sw-gradient-text">Ship the fix.</span>
+          </h1>
+          <p className="mx-auto mt-6 max-w-[52ch] text-lg text-muted">
+            Shipwright reads your repository, pinpoints the code that needs to change, writes
+            the fix, and proves it with your own tests — from a plain-language description.
+          </p>
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+            <Link
+              href="/app"
+              className="inline-flex h-12 items-center gap-2 rounded-[var(--radius)] bg-accent px-7 text-base font-medium text-bg shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
+            >
+              Open the workspace
+              <Icon name="send" size={16} />
+            </Link>
+            <a
+              href="#demo"
+              className="inline-flex h-12 items-center rounded-[var(--radius)] border border-hairline px-7 text-base font-medium text-fg transition-colors hover:border-accent"
+            >
+              Watch a session
+            </a>
+          </div>
         </div>
-        <p className="mt-8 text-subtle">
-          Finds the right file in its top five suggestions {best.file5.toFixed(0)}% of the time,
-          measured on {best.n} real GitHub issues.{" "}
-          <Link href="/evals" className="underline underline-offset-4 hover:text-fg">
-            See every benchmark
-          </Link>
-        </p>
-        </div>
+
+        {/* The proof strip anchors the fold: three claims, all of them checkable. */}
+        <dl className="sw-hero-stats">
+          <div>
+            <dt className="text-subtle">Right file, top five</dt>
+            <dd className="font-mono text-2xl font-medium tabular-nums text-fg">
+              {best.file5.toFixed(0)}%
+            </dd>
+            <dd className="text-subtle">
+              on {best.n} real GitHub issues ·{" "}
+              <Link href="/evals" className="underline underline-offset-4 hover:text-fg">
+                benchmarks
+              </Link>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-subtle">Every fix</dt>
+            <dd className="text-2xl font-medium text-fg">Verified</dd>
+            <dd className="text-subtle">applied to a branch, proven by your tests</dd>
+          </div>
+          <div>
+            <dt className="text-subtle">Your code</dt>
+            <dd className="text-2xl font-medium text-fg">Stays local</dd>
+            <dd className="text-subtle">nothing uploaded, nothing to pay for</dd>
+          </div>
+        </dl>
       </section>
 
-      {/* The demo: a real recorded session, playing itself. */}
-      <Reveal className="py-12">
-        <div id="demo" className="mx-auto max-w-3xl">
+      {/* The demo: a real recorded session, playing itself, on its own band. */}
+      <section className="sw-band">
+        <Reveal className="mx-auto max-w-4xl px-6 py-20">
+          <div id="demo">
           <h2 className="text-title text-fg">Watch a session</h2>
           <p className="mt-2 max-w-[58ch] text-muted">
             A real run, replayed with the same components the product uses: located, fixed,
@@ -101,13 +145,14 @@ export default function Home() {
           <div className="mt-6">
             <Replay />
           </div>
-        </div>
-      </Reveal>
+          </div>
+        </Reveal>
+      </section>
 
       {/* What you get. */}
-      <Reveal className="py-12">
+      <Reveal className="mx-auto max-w-7xl px-6 py-20">
         <h2 className="text-title text-fg">Built for the whole fix, not just the search</h2>
-        <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <li key={f.title} className="sw-card sw-lift p-5">
               <span className="inline-grid size-9 place-items-center rounded-[var(--radius)] bg-accent-soft text-accent">
@@ -121,9 +166,10 @@ export default function Home() {
       </Reveal>
 
       {/* How it works. */}
-      <Reveal className="py-12">
+      <section className="sw-band">
+        <Reveal className="mx-auto max-w-6xl px-6 py-20">
         <h2 className="text-title text-fg">Three steps to a verified fix</h2>
-        <ol className="mt-8 grid gap-4 sm:grid-cols-3">
+        <ol className="mt-8 grid gap-5 sm:grid-cols-3">
           {STEPS.map((s) => (
             <li key={s.n} className="rounded-[var(--radius)] border border-hairline p-5">
               <span className="font-mono text-title text-accent">{s.n}</span>
@@ -140,9 +186,10 @@ export default function Home() {
             Try it now
           </Link>
         </div>
-      </Reveal>
+        </Reveal>
+      </section>
 
-      <footer className="border-t border-hairline pt-8 text-subtle">
+      <footer className="mx-auto max-w-7xl border-t border-hairline px-6 py-10 text-subtle">
         <p>
           Every number Shipwright claims is measured and published on the{" "}
           <Link href="/evals" className="underline underline-offset-4 hover:text-fg">
