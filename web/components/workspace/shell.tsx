@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { CodePane } from "@/components/workspace/code-pane";
+import { FixCard } from "@/components/workspace/fix-card";
 import { Composer } from "@/components/workspace/composer";
 import { RepositoriesView } from "@/components/workspace/repositories-view";
 import { ResultsList } from "@/components/workspace/results-list";
@@ -12,7 +13,7 @@ import { Splitter } from "@/components/workspace/splitter";
 import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { useJobResult } from "@/lib/client/use-job-result";
 import { useRepos } from "@/lib/client/use-repos";
-import { JobListSchema, JobSchema, type Job, type Location, type Repo } from "@/lib/contracts";
+import { JobListSchema, JobSchema, type Fix, type Job, type Location, type Repo } from "@/lib/contracts";
 import { demoJob, demoRun } from "@/lib/fixtures";
 import { SelectionProvider, useSelection } from "@/lib/results/selection";
 import { sessionTitle } from "@/lib/sessions";
@@ -39,7 +40,7 @@ export function WorkspaceShell({ live }: { live: boolean }) {
   const refreshSessions = useCallback(() => {
     if (!live) return;
     void apiGet(JobListSchema, "/api/jobs?limit=25")
-      .then(setSessions)
+      .then((all) => setSessions(all.filter((j) => j.kind === "localize")))
       .catch(() => undefined); // the sidebar list is never worth an error banner
   }, [live]);
 
@@ -149,9 +150,21 @@ function SessionView({ jobId, live, session }: { jobId: string; live: boolean; s
   );
   const { state, retry } = useJobStream(jobId, makeStream);
 
+  const [actions, setActions] = useState<{ id: string; kind: string }[]>([]);
+  const [nonce, setNonce] = useState(0);
+  // Demo outcomes are revealed by the replayed actions, not shown upfront.
+  const [demoStage, setDemoStage] = useState<"proposed" | "applied" | "tested">("proposed");
   const terminal = state.outcome.kind !== "pending";
-  const { job } = useJobResult(jobId, terminal, live ? null : demoJob);
-  const locations = state.outcome.kind === "done" ? (job?.result.locations ?? []) : [];
+  const { job } = useJobResult(jobId, terminal, null, nonce);
+  const shown = live ? job : demoJob;
+  const fix = live
+    ? (job?.result.fix ?? null)
+    : demoJob.result.fix && {
+        ...demoJob.result.fix,
+        applied_branch: demoStage === "proposed" ? undefined : demoJob.result.fix.applied_branch,
+        tests: demoStage === "tested" ? demoJob.result.fix.tests : undefined,
+      };
+  const locations = state.outcome.kind === "done" ? (shown?.result.locations ?? []) : [];
   const title = sessionTitle(session?.issue ?? (live ? "" : demoRun.issue)) || "Session";
   const repoName = (state.repo ?? "").replace(/^local:/, "").split("__").pop() ?? "";
 
@@ -163,12 +176,73 @@ function SessionView({ jobId, live, session }: { jobId: string; live: boolean; s
         state={state}
         onRetry={retry}
         locations={locations}
-        mode={job?.mode ?? state.mode ?? ""}
+        mode={shown?.mode ?? state.mode ?? ""}
         jobId={jobId}
         live={live}
+        fix={fix ?? null}
+        actions={actions}
+        onAction={(kind: ActionKind, symbol?: string) => {
+          if (!live) {
+            setActions((prev) => [...prev, { id: `demo-${kind}-${prev.length}`, kind }]);
+            return;
+          }
+          void (async () => {
+            try {
+              const created = await apiPost(
+                JobSchema,
+                `/api/jobs/${encodeURIComponent(jobId)}/actions`,
+                { kind, symbol: symbol ?? "" },
+              );
+              setActions((prev) => [...prev, { id: created.id, kind }]);
+            } catch {
+              // surfaced by the action feed when it mounts; a failed POST simply does not mount
+            }
+          })();
+        }}
+        onActionFinished={(kind: string) => {
+          if (!live) {
+            setDemoStage((s0) => (kind === "apply" && s0 === "proposed" ? "applied" : kind === "test" ? "tested" : s0));
+            return;
+          }
+          setNonce((n) => n + 1);
+        }}
       />
     </SelectionProvider>
   );
+}
+
+type ActionKind = "apply" | "test" | "fix_retry";
+
+function ActionFeed({
+  id,
+  live,
+  kind,
+  onFinished,
+}: {
+  id: string;
+  live: boolean;
+  kind: string;
+  onFinished: (kind: string) => void;
+}) {
+  const makeStream = useCallback(
+    () =>
+      live
+        ? networkEvents(id, () => Date.now())
+        : fixtureEvents(
+            (demoRun.actions as Record<string, { t: number; raw: string }[]>)[kind] ?? [],
+            { mode: "replay", capturedAt: demoRun.meta.capturedAt },
+            () => Date.now(),
+            { maxGapMs: 1500 },
+          ),
+    [live, id, kind],
+  );
+  const { state } = useJobStream(id, makeStream);
+  const done = state.outcome.kind !== "pending";
+  useEffect(() => {
+    if (done) onFinished(kind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [done]);
+  return <ActivityFeed state={state} summary={false} />;
 }
 
 function SessionBody({
@@ -180,6 +254,10 @@ function SessionBody({
   mode,
   jobId,
   live,
+  fix,
+  actions,
+  onAction,
+  onActionFinished,
 }: {
   title: string;
   repoName: string;
@@ -189,8 +267,16 @@ function SessionBody({
   mode: string;
   jobId: string;
   live: boolean;
+  fix: Fix | null;
+  actions: { id: string; kind: string }[];
+  onAction: (kind: ActionKind, symbol?: string) => void;
+  onActionFinished: (kind: string) => void;
 }) {
   const { location, clear } = useSelection();
+  const busy = actions.length > 0 && state.outcome.kind === "pending";
+  const writing = state.timeline.some((t) => t.type === "fix.started") &&
+    !state.timeline.some((t) => ["fix.ready", "fix.failed"].includes(t.type));
+  const actionBusy = busy; // an action feed reaching terminal bumps the parent nonce
 
   return (
     <div className="sw-session" data-code={location ? "open" : undefined}>
@@ -211,6 +297,23 @@ function SessionBody({
             Queued — your analysis will start in a moment.
           </p>
         )}
+
+        {(writing || Boolean(fix?.patch)) && (
+          <FixCard
+            fix={fix}
+            fixText={state.fixText}
+            writing={writing}
+            busy={actionBusy}
+            live={live}
+            onApply={() => onAction("apply")}
+            onTest={() => onAction("test")}
+            onRetry={() => onAction("fix_retry")}
+          />
+        )}
+
+        {actions.map((a) => (
+          <ActionFeed key={a.id} id={a.id} kind={a.kind} live={live} onFinished={onActionFinished} />
+        ))}
 
         {state.outcome.kind === "done" && locations.length === 0 && (
           <p className="text-subtle" role="status">

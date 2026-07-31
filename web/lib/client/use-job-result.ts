@@ -13,6 +13,7 @@ export function useJobResult(
   jobId: string,
   terminal: boolean,
   replayJob: Job | null,
+  nonce = 0,
 ): { job: Job | null; error: string | null } {
   const [job, setJob] = useState<Job | null>(replayJob);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export function useJobResult(
     return () => {
       cancelled = true;
     };
-  }, [jobId, terminal, replayJob]);
+  }, [jobId, terminal, replayJob, nonce]);
 
   return { job, error };
 }

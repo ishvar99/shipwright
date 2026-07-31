@@ -78,6 +78,8 @@ export type ActivityState = {
 
   /** Every accepted event in arrival order — the narrative feed renders from this. */
   timeline: TimelineEntry[];
+  /** The fix rewrite as it streams in. Reset per attempt. */
+  fixText: string;
   /** The engine ran. Replaces the model name, which no longer travels to the client. */
   assisted: boolean;
   stages: Record<StageKey, Stage>;
@@ -126,6 +128,7 @@ export function initialState(jobId: string, origin: StreamOrigin, now = 0): Acti
     },
     outcome: { kind: "pending" },
     timeline: [],
+    fixText: "",
     assisted: false,
     terminalEventSeen: false,
     seen: new Set(),
@@ -250,7 +253,21 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
       });
     case "understand.done":
     case "rank.started":
+    case "fix.ready":
+    case "fix.failed":
+    case "fix.skipped":
+    case "apply.started":
+    case "apply.done":
+    case "env.started":
+    case "env.ready":
+    case "test.started":
+    case "test.output":
+    case "test.done":
       return s;
+    case "fix.started":
+      return { ...s, fixText: "" };
+    case "fix.delta":
+      return { ...s, fixText: s.fixText + e.text };
     case "candidates.found":
       return { ...s, candidateCount: e.count };
     case "search.started":

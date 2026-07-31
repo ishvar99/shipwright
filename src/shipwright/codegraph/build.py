@@ -131,6 +131,10 @@ def build(root: Path, max_files: int = 4000) -> CodeGraph:
 
     count = 0
     for file in sorted(root.rglob("*.py")):
+        # Hidden directories are never product code: .shipwright-venv, .git, .tox and
+        # friends would otherwise swamp the graph with site-packages.
+        if any(part.startswith(".") for part in file.relative_to(root).parts[:-1]):
+            continue
         if any(part in SKIP_DIRS for part in file.parts):
             continue
         try:
