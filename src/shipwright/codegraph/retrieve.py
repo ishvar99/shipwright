@@ -35,6 +35,9 @@ class Ranked:
     symbol_id: str
     score: float
     channels: tuple[str, ...]
+    # 1-based position in the retrieval ranking this list came from. No default: a missed
+    # construction site must be a TypeError, not a fabricated 0 that renders as a promotion.
+    base_rank: int
 
 
 class Localizer:
@@ -90,15 +93,24 @@ class Localizer:
         """mode: bm25 | graph | dense | path | hybrid | hybrid3 | hybrid_path | hybrid4."""
         seeds = self._bm25_rank(query, limit=max(top_k * 5, 50))
         if mode == "bm25":
-            return [Ranked(s, 1 / (RRF_K + i + 1), ("bm25",)) for i, s in enumerate(seeds[:top_k])]
+            return [
+                Ranked(s, 1 / (RRF_K + i + 1), ("bm25",), i + 1)
+                for i, s in enumerate(seeds[:top_k])
+            ]
 
         if mode == "path":
             paths = self._path_rank(query, seeds)
-            return [Ranked(s, 1 / (RRF_K + i + 1), ("path",)) for i, s in enumerate(paths[:top_k])]
+            return [
+                Ranked(s, 1 / (RRF_K + i + 1), ("path",), i + 1)
+                for i, s in enumerate(paths[:top_k])
+            ]
 
         if mode == "dense":
             dense = self._dense_rank(query)
-            return [Ranked(s, 1 / (RRF_K + i + 1), ("dense",)) for i, s in enumerate(dense[:top_k])]
+            return [
+                Ranked(s, 1 / (RRF_K + i + 1), ("dense",), i + 1)
+                for i, s in enumerate(dense[:top_k])
+            ]
 
         # Graph channel: rank seed neighbours by how many seeds reach them, so a function
         # touched by several suspicious callers rises even if it never matched the text.
@@ -110,7 +122,8 @@ class Localizer:
 
         if mode == "graph":
             return [
-                Ranked(s, 1 / (RRF_K + i + 1), ("graph",)) for i, s in enumerate(graph_rank[:top_k])
+                Ranked(s, 1 / (RRF_K + i + 1), ("graph",), i + 1)
+                for i, s in enumerate(graph_rank[:top_k])
             ]
 
         rankings = [("bm25", seeds), ("graph", graph_rank)]
@@ -128,4 +141,4 @@ class Localizer:
                 channels.setdefault(sid, set()).add(name)
 
         best = sorted(fused.items(), key=lambda kv: -kv[1])[:top_k]
-        return [Ranked(s, sc, tuple(sorted(channels[s]))) for s, sc in best]
+        return [Ranked(s, sc, tuple(sorted(channels[s])), i + 1) for i, (s, sc) in enumerate(best)]

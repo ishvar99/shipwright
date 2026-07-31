@@ -127,6 +127,10 @@ def run_localize(job_id) -> None:
             results.append(
                 {
                     "rank": i,
+                    # Where retrieval put it before the model reordered. Without this, rank
+                    # movement can only be reconstructed within the rows shown, which is a
+                    # permutation and so can never show net gain.
+                    "base_rank": r.base_rank,
                     "symbol": r.symbol_id,
                     "path": sym.path if sym else r.symbol_id.split(":")[0],
                     "name": sym.name if sym else "",
@@ -166,10 +170,17 @@ def read_symbol(repo_path: str, path: str, start: int, end: int, pad: int = 8) -
     """Source for the detail pane. Bounded, and refuses to escape the repo."""
     root = Path(repo_path).resolve()
     target = (root / path).resolve()
-    if not str(target).startswith(str(root)):
-        raise ValueError("path escapes repository")
-    if not target.exists() or target.stat().st_size > 2_000_000:
-        raise ValueError("file missing or too large")
+    try:
+        # relative_to, not a string prefix: a sibling directory named "<root>-x" passes
+        # startswith while living outside the repo.
+        target.relative_to(root)
+    except ValueError as e:
+        raise ValueError("path escapes repository") from e
+    # An empty path resolves to the root directory, which read_text would raise on.
+    if not target.is_file():
+        raise ValueError("not a file")
+    if target.stat().st_size > 2_000_000:
+        raise ValueError("file too large")
 
     lines = target.read_text(errors="replace").splitlines()
     lo = max(0, (start or 1) - 1 - pad)

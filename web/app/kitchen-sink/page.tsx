@@ -10,17 +10,19 @@ import { Trace, type TraceStage } from "@/components/ui/trace";
 
 type Row = { sym: string; ch: Channel[]; r: number; f: number; s: number };
 
-// Shapes mirror a real job on the msal repo so the gallery reflects production data.
+// Real rows from the committed capture: 1-based positions, and scores that are NOT monotonic
+// with rank, because `score` is the retrieval score the reranker overrode. r=0 shows the
+// "retrieval position not recorded" state.
 const ROWS: Row[] = [
-  { sym: "msal/authority.py:Authority", ch: ["bm25", "graph"], r: 3, f: 0, s: 0.0163 },
-  { sym: "msal/application.py:ClientApplication", ch: ["bm25"], r: 1, f: 1, s: 0.0159 },
-  { sym: "msal/oauth2cli/oidc.py:Client", ch: ["graph", "dense"], r: 8, f: 2, s: 0.0154 },
+  { sym: "msal/authority.py:instance_discovery", ch: ["bm25", "graph"], r: 7, f: 1, s: 0.026491 },
+  { sym: "msal/authority.py:Authority.__init__", ch: ["bm25", "graph"], r: 4, f: 5, s: 0.027493 },
+  { sym: "msal/authority.py:Authority", ch: ["bm25", "graph"], r: 1, f: 6, s: 0.031099 },
   {
     sym: "msal/token_cache.py:TokenCache.add",
     ch: ["bm25", "graph", "dense", "path"],
-    r: -1,
-    f: 3,
-    s: 0.0151,
+    r: 0,
+    f: 9,
+    s: 0.026748,
   },
 ];
 
@@ -38,7 +40,9 @@ const POINTS = [
 ];
 
 function Register({ dense }: { dense: boolean }) {
-  const top = ROWS[0].s;
+  // max, not ROWS[0]: the first row is the reranked pick, and `score` is the retrieval score,
+  // so the top-ranked row often is not the highest-scoring one.
+  const top = Math.max(...ROWS.map((r) => r.s));
   return (
     <div className={dense ? "register-dense" : undefined}>
       <h2 className="mb-3 text-xs uppercase tracking-wide text-subtle">
@@ -76,7 +80,7 @@ function Register({ dense }: { dense: boolean }) {
               const [path, symbol] = r.sym.split(":");
               return (
                 <li key={r.sym} className="flex items-center gap-3 px-3 py-2">
-                  <RankDelta retrievalIndex={r.r} finalIndex={r.f} />
+                  <RankDelta basePosition={r.r} finalPosition={r.f} />
                   <EvidenceStrip channels={r.ch} />
                   <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-ui)]">
                     <span className="text-subtle">{path}:</span>

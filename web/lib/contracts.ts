@@ -21,6 +21,9 @@ export const RepoSchema = z.object({
 
 export const LocationSchema = z.object({
   rank: z.number(),
+  // 1-based retrieval position before reranking. Optional: rows captured before the backend
+  // recorded it still parse, and basisFor() downgrades the labels when it is missing.
+  base_rank: z.number().int().positive().optional(),
   symbol: z.string(),
   path: z.string(),
   name: z.string(),

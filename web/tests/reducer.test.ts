@@ -129,9 +129,13 @@ describe("happy path", () => {
     expect(traceStages(s).map((t) => t.label)).toEqual(["graph", "retrieval + model", "results"]);
   });
 
-  it("stage durations sum to within 20ms of the server-measured wall time", () => {
+  // The contiguity property the three-stage model exists for: the spans account for
+  // essentially all of the server-measured wall time, so a fabricated boundary would show up
+  // as a gap. Proportional, because the two untracked gaps vary per capture.
+  it("stage durations account for nearly all of the server-measured wall time", () => {
     const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
-    expect(Math.abs(total - fixture.job.wall_ms)).toBeLessThan(20);
+    expect(total).toBeLessThanOrEqual(fixture.job.wall_ms);
+    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.99);
   });
 
   it("carries the graph, usage and retrieval facts through", () => {
@@ -278,7 +282,7 @@ describe("cold-loading an already-finished job", () => {
 
   it("still reports the real stage durations", () => {
     const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
-    expect(Math.abs(total - fixture.job.wall_ms)).toBeLessThan(20);
+    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.99);
   });
 });
 

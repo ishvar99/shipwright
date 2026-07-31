@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -44,7 +45,9 @@ class ImportRepo(BaseModel):
 
 
 class CreateJob(BaseModel):
-    repo_id: str
+    # min_length: an empty id makes the prefix match below LIKE '%', which silently selects an
+    # arbitrary repo and returns confident results for one the user never chose.
+    repo_id: str = Field(min_length=8)
     issue: str = Field(min_length=8, max_length=20000)
     mode: str = "extract_rerank"
     base_mode: str = "hybrid"
@@ -100,6 +103,11 @@ def repos_import(body: ImportRepo, background: BackgroundTasks) -> dict[str, Any
             raise HTTPException(400, "only github.com URLs are supported")
         slug, source, url, path = clean.split("github.com/", 1)[1], "github", clean, ""
     else:
+        # read_symbol's sandbox root is this path, so "/" or $HOME would make the whole disk
+        # readable through the source endpoint. A 400 now beats a failed row 30s later.
+        dest = Path(body.path).expanduser().resolve()
+        if dest == Path("/") or dest == Path.home() or not dest.is_dir():
+            raise HTTPException(400, "refusing to index that path")
         slug, source, url, path = (
             f"local:{body.path.rstrip('/').split('/')[-1]}",
             "local",
