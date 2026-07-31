@@ -570,6 +570,51 @@
     isolation: isolate;
   }
 
+  /* Hero constellation. The canvas is atmosphere: behind everything, never interactive. */
+  .sw-hero {
+    overflow: clip;
+    border-radius: var(--radius-card, 16px);
+  }
+
+  .sw-hero-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+  }
+
+  .sw-hero-canvas canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Readability veil: strongest behind the headline, open at the edges so the graph shows. */
+  .sw-hero-veil {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(
+      55% 60% at 50% 42%,
+      color-mix(in oklch, var(--bg) 82%, transparent),
+      color-mix(in oklch, var(--bg) 30%, transparent) 70%,
+      transparent
+    );
+    pointer-events: none;
+  }
+
+  .sw-hero-copy {
+    position: relative;
+  }
+
+  .sw-lift {
+    transition: transform 200ms var(--ease-out-quart), box-shadow 200ms var(--ease-out-quart);
+  }
+
+  .sw-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-2);
+  }
+
   .sw-glow::before {
     content: "";
     position: absolute;

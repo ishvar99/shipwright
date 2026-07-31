@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon, type IconName } from "@/components/ui/icon";
+import { HeroVisual } from "@/components/landing/hero-visual";
 import { Reveal } from "@/components/landing/reveal";
 import { Replay } from "@/components/landing/replay";
 import { AnalyticsSchema, parseOrThrow } from "@/lib/contracts";
@@ -51,7 +52,11 @@ export default function Home() {
   return (
     <main className="mx-auto max-w-5xl px-6 pb-24">
       {/* Hero: the promise, then proof you can watch. */}
-      <section className="sw-glow py-24 text-center">
+      <section className="sw-hero sw-glow py-24 text-center">
+        <HeroVisual />
+        {/* Radial veil: the constellation stays atmosphere, the words stay readable. */}
+        <div aria-hidden className="sw-hero-veil" />
+        <div className="sw-hero-copy">
         <p className="inline-flex items-center gap-2 font-mono text-[length:var(--text-ui)] text-subtle">
           <Icon name="crosshair" size={16} className="text-accent" />
           Shipwright
@@ -82,6 +87,7 @@ export default function Home() {
             See every benchmark
           </Link>
         </p>
+        </div>
       </section>
 
       {/* The demo: a real recorded session, playing itself. */}
@@ -103,7 +109,7 @@ export default function Home() {
         <h2 className="text-title text-fg">Built for the whole fix, not just the search</h2>
         <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
-            <li key={f.title} className="sw-card p-5">
+            <li key={f.title} className="sw-card sw-lift p-5">
               <span className="inline-grid size-9 place-items-center rounded-[var(--radius)] bg-accent-soft text-accent">
                 <Icon name={f.icon} size={18} />
               </span>
