@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "capture": "node scripts/capture-fixture.mjs"
+    "capture": "node scripts/capture-fixture.mjs",
+    "capture:evals": "node scripts/capture-analytics.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

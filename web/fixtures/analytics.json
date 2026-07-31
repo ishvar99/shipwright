@@ -1,0 +1,350 @@
+{
+ "meta": {
+  "capturedAt": "2026-07-31T12:04:34.098Z",
+  "snapshotCommit": "f392620"
+ },
+ "runs": [
+  {
+   "run": "2f324a23",
+   "scaffold": "hybrid",
+   "model": "—",
+   "n": 353,
+   "file5": 59.8,
+   "func10": 28.6,
+   "parse_failures": 0,
+   "commit": "ab14a53",
+   "date": "2026-07-29"
+  },
+  {
+   "run": "ea737fb8",
+   "scaffold": "extract_rerank",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 100,
+   "file5": 73,
+   "func10": 35,
+   "parse_failures": 0,
+   "commit": "9968d0b",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "81612989",
+   "scaffold": "extract_rerank_hybrid_p30",
+   "model": "adapters",
+   "n": 100,
+   "file5": 62,
+   "func10": 28,
+   "parse_failures": 23,
+   "commit": "ab14a53",
+   "date": "2026-07-29"
+  },
+  {
+   "run": "250ce9d1",
+   "scaffold": "extract_rerank_hybrid_p30",
+   "model": "Qwen2.5-Coder-1.5B-Instruct-4b",
+   "n": 100,
+   "file5": 60,
+   "func10": 26,
+   "parse_failures": 113,
+   "commit": "ab14a53",
+   "date": "2026-07-29"
+  },
+  {
+   "run": "070be7ed",
+   "scaffold": "hybrid",
+   "model": "—",
+   "n": 100,
+   "file5": 62,
+   "func10": 25,
+   "parse_failures": 0,
+   "commit": "9968d0b",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "c8436b38",
+   "scaffold": "extract_rerank",
+   "model": "qwen2.5-coder-3b-loc",
+   "n": 100,
+   "file5": 64,
+   "func10": 25,
+   "parse_failures": 0,
+   "commit": "9968d0b",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "c074a23b",
+   "scaffold": "extract_rerank_hybrid",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 30,
+   "file5": 73.3,
+   "func10": 36.7,
+   "parse_failures": 0,
+   "commit": "4e19548",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "2e4f808b",
+   "scaffold": "extract_rerank_hybrid4",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 30,
+   "file5": 70,
+   "func10": 33.3,
+   "parse_failures": 0,
+   "commit": "4e19548",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "90ed6623",
+   "scaffold": "extract_rerank_hybrid_p30",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 30,
+   "file5": 76.7,
+   "func10": 30,
+   "parse_failures": 0,
+   "commit": "7f5f0bd",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "24e8c53c",
+   "scaffold": "extract_rerank_hybrid_p200",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 30,
+   "file5": 70,
+   "func10": 30,
+   "parse_failures": 6,
+   "commit": "7f5f0bd",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "4f38704b",
+   "scaffold": "extract_rerank_hybrid_p100",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 30,
+   "file5": 70,
+   "func10": 26.7,
+   "parse_failures": 12,
+   "commit": "7f5f0bd",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "b5b0e04b",
+   "scaffold": "hybrid",
+   "model": "—",
+   "n": 30,
+   "file5": 56.7,
+   "func10": 23.3,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "6654a6c8",
+   "scaffold": "path",
+   "model": "—",
+   "n": 30,
+   "file5": 26.7,
+   "func10": 23.3,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "a116214d",
+   "scaffold": "hybrid_path",
+   "model": "—",
+   "n": 30,
+   "file5": 63.3,
+   "func10": 23.3,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "623cf5d0",
+   "scaffold": "hybrid4",
+   "model": "—",
+   "n": 30,
+   "file5": 70,
+   "func10": 23.3,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "18ef3965",
+   "scaffold": "extract_rerank_hybrid",
+   "model": "Qwen2.5-Coder-1.5B-Instruct-4b",
+   "n": 30,
+   "file5": 60,
+   "func10": 23.3,
+   "parse_failures": 32,
+   "commit": "eb8371c",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "12ff971d",
+   "scaffold": "dense",
+   "model": "—",
+   "n": 30,
+   "file5": 46.7,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "4b7b9811",
+   "scaffold": "hybrid3",
+   "model": "—",
+   "n": 30,
+   "file5": 66.7,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "5d45c34d",
+   "scaffold": "bm25",
+   "model": "—",
+   "n": 30,
+   "file5": 50,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "77f5c43d",
+   "scaffold": "hybrid",
+   "model": "—",
+   "n": 30,
+   "file5": 60,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "61fef687",
+   "scaffold": "extract_rerank_hybrid",
+   "model": "adapters",
+   "n": 30,
+   "file5": 63.3,
+   "func10": 20,
+   "parse_failures": 13,
+   "commit": "eb8371c",
+   "date": "2026-07-28"
+  },
+  {
+   "run": "41291a83",
+   "scaffold": "extract_rerank",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 15,
+   "file5": 73.3,
+   "func10": 40,
+   "parse_failures": 0,
+   "commit": "9107eef",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "7e79b2da",
+   "scaffold": "rerank",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 15,
+   "file5": 73.3,
+   "func10": 33.3,
+   "parse_failures": 0,
+   "commit": "9107eef",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "71a90919",
+   "scaffold": "hybrid",
+   "model": "—",
+   "n": 15,
+   "file5": 60,
+   "func10": 26.7,
+   "parse_failures": 0,
+   "commit": "3945e1b",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "82ae2d35",
+   "scaffold": "hybrid",
+   "model": "—",
+   "n": 15,
+   "file5": 60,
+   "func10": 26.7,
+   "parse_failures": 0,
+   "commit": "9107eef",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "5689b20c",
+   "scaffold": "bm25",
+   "model": "—",
+   "n": 15,
+   "file5": 60,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "3945e1b",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "be6074bb",
+   "scaffold": "bm25",
+   "model": "—",
+   "n": 15,
+   "file5": 60,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "9107eef",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "5088309a",
+   "scaffold": "extract",
+   "model": "qwen2.5-coder-7b-16k",
+   "n": 15,
+   "file5": 73.3,
+   "func10": 20,
+   "parse_failures": 0,
+   "commit": "9107eef",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "e3e7e20d",
+   "scaffold": "graph",
+   "model": "—",
+   "n": 15,
+   "file5": 33.3,
+   "func10": 6.7,
+   "parse_failures": 0,
+   "commit": "3945e1b",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "b95f0d8d",
+   "scaffold": "graph",
+   "model": "—",
+   "n": 15,
+   "file5": 33.3,
+   "func10": 6.7,
+   "parse_failures": 0,
+   "commit": "9107eef",
+   "date": "2026-07-27"
+  },
+  {
+   "run": "1933f74b",
+   "scaffold": "dense",
+   "model": "—",
+   "n": 3,
+   "file5": 33.3,
+   "func10": 0,
+   "parse_failures": 0,
+   "commit": "a71be05",
+   "date": "2026-07-28"
+  }
+ ],
+ "noise_floor_pp": 3.3
+}

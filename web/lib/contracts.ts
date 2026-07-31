@@ -79,6 +79,8 @@ export const AnalyticsRunSchema = z.object({
   n: z.number(),
   file5: z.number(),
   func10: z.number(),
+  // Summed across the run's tasks. The fine-tune's headline was parse failures, not accuracy.
+  parse_failures: z.number().default(0),
   commit: z.string(),
   date: z.string(),
 });

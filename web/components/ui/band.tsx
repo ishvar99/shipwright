@@ -1,7 +1,8 @@
 import { bandPp, isWithinBand } from "@/lib/evals/band";
 import { cn } from "@/lib/cn";
 
-export type BandPoint = { id: string; label: string; deltaPp: number };
+/** `n` is the PAIRWISE effective sample size for this point against the reference. */
+export type BandPoint = { id: string; label: string; deltaPp: number; n?: number };
 
 /** Plots deltas against a reference, shading the range the sample size cannot resolve. */
 export function Band({
@@ -29,7 +30,9 @@ export function Band({
         />
         <div aria-hidden className="absolute inset-y-0 left-1/2 w-px bg-hairline" />
         {points.map((p) => {
-          const inconclusive = isWithinBand(p.deltaPp, n);
+          // Judged on its own pairwise n, which is never finer than the shaded band, so a
+          // hollow point always sits inside the shading.
+          const inconclusive = isWithinBand(p.deltaPp, p.n ?? n);
           return (
             <span
               key={p.id}
@@ -46,7 +49,7 @@ export function Band({
         })}
       </div>
       <p className="mt-1 font-mono text-[11px] tabular-nums text-subtle">
-        {`n=${n} · unresolvable below ±${half.toFixed(1)}pp · hollow points are inconclusive`}
+        {`shaded = what the reference (n=${n}) cannot resolve, ±${half.toFixed(1)}pp · scale ±${scalePp}pp · hollow points are inconclusive at their own comparison's sample size, which may be coarser`}
       </p>
     </div>
   );
