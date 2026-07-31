@@ -11,7 +11,7 @@ async function call<T>(schema: z.ZodType<T>, path: string, init?: RequestInit): 
   try {
     res = await fetch(path, { cache: "no-store", ...init });
   } catch {
-    throw new ApiError("backend_unreachable", "Cannot reach the server");
+    throw new ApiError("backend_unreachable", "Can't reach Shipwright. Check that the local server is running.");
   }
 
   if (!res.ok) {
@@ -22,7 +22,7 @@ async function call<T>(schema: z.ZodType<T>, path: string, init?: RequestInit): 
         : undefined;
     throw new ApiError(
       (read("kind") ?? "backend_error") as ErrorKind,
-      read("message") ?? `Request failed (${res.status})`,
+      read("message") ?? "Something went wrong. Please try again.",
       read("detail"),
     );
   }

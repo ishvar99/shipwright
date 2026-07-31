@@ -57,9 +57,13 @@ for (const loc of finished.result.locations.slice(0, SOURCES_TO_CAPTURE)) {
   sources[`${loc.path}:${loc.start_line}`] = await get(`/api/jobs/${job.id}/source?${q}`);
 }
 
+// The engine is an implementation detail: the published bundle carries no usage numbers.
+finished.input_tokens = 0;
+finished.output_tokens = 0;
+
 const bundle = {
   meta: {
-    fixtureVersion: 1,
+    fixtureVersion: 2,
     capturedAt: new Date().toISOString(),
     repo: repo.slug,
     ref: repo.ref,
@@ -164,7 +168,7 @@ function gitCommit() {
  * new leak was introduced upstream. */
 function assertClean(bundle) {
   const text = JSON.stringify(bundle);
-  const leaks = [/\/Users\//, /\/home\/[a-z]/, /\/\/[^/\s:@]+:[^/\s@]+@/];
+  const leaks = [/\/Users\//, /\/home\/[a-z]/, /\/\/[^/\s:@]+:[^/\s@]+@/, /qwen|ollama|coder-\d+b/i];
   for (const re of leaks) {
     const hit = text.match(re);
     if (hit) throw new Error(`refusing to write: fixture contains ${hit[0]}`);

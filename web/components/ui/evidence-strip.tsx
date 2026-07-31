@@ -2,48 +2,33 @@ import { cn } from "@/lib/cn";
 
 export type Channel = "bm25" | "graph" | "dense" | "path";
 
-// Order is fixed so the eye reads columns down a list of results.
-const SLOTS: { channel: Channel; glyph: string; name: string; color: string }[] = [
-  { channel: "bm25", glyph: "T", name: "text match", color: "text-evidence-text" },
-  { channel: "graph", glyph: "G", name: "call graph", color: "text-evidence-graph" },
-  { channel: "dense", glyph: "D", name: "embedding", color: "text-evidence-dense" },
-  { channel: "path", glyph: "P", name: "path in issue", color: "text-evidence-path" },
+/** Customer words for the four retrieval signals. The hue reinforces the label and means
+ * channels only — nowhere else in the product. */
+const CHANNELS: { channel: Channel; label: string; dot: string }[] = [
+  { channel: "bm25", label: "Name match", dot: "bg-evidence-text" },
+  { channel: "graph", label: "Call graph", dot: "bg-evidence-graph" },
+  { channel: "dense", label: "Similar code", dot: "bg-evidence-dense" },
+  { channel: "path", label: "Mentioned in issue", dot: "bg-evidence-path" },
 ];
 
-export function EvidenceStrip({
-  channels,
-  className,
-}: {
-  channels: Channel[];
-  className?: string;
-}) {
-  const active = new Set(channels);
-  const summary = SLOTS.filter((s) => active.has(s.channel)).map((s) => s.name);
-  const label = summary.length ? `Evidence: ${summary.join(", ")}` : "No evidence channels";
-
+export function EvidenceStrip({ channels, className }: { channels: Channel[]; className?: string }) {
+  const present = CHANNELS.filter((c) => channels.includes(c.channel));
+  if (!present.length) return null;
   return (
-    <span
-      className={cn("inline-flex gap-0.5 font-mono text-[11px] leading-none", className)}
-      title={label}
-    >
-      <span className="sr-only">{label}</span>
-      {SLOTS.map((slot) => {
-        const on = active.has(slot.channel);
-        return (
-          <span
-            key={slot.channel}
-            aria-hidden
-            className={cn(
-              "grid size-4 place-items-center rounded-sm border",
-              on
-                ? cn("border-current bg-soft font-semibold", slot.color)
-                : "border-hairline text-hairline",
-            )}
-          >
-            {on ? slot.glyph : "·"}
-          </span>
-        );
-      })}
+    <span className={cn("inline-flex flex-wrap items-center gap-1.5", className)}>
+      <span className="sr-only">
+        {`Evidence: ${present.map((c) => c.label.toLowerCase()).join(", ")}`}
+      </span>
+      {present.map((c) => (
+        <span
+          key={c.channel}
+          aria-hidden
+          className="inline-flex items-center gap-1.5 rounded-full bg-soft px-2 py-0.5 text-xs font-medium text-muted"
+        >
+          <span className={cn("size-1.5 rounded-full", c.dot)} />
+          {c.label}
+        </span>
+      ))}
     </span>
   );
 }

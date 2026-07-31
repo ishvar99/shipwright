@@ -2,42 +2,139 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
+import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { CodePane } from "@/components/workspace/code-pane";
 import { Composer } from "@/components/workspace/composer";
-import { RepoRail } from "@/components/workspace/repo-rail";
+import { RepositoriesView } from "@/components/workspace/repositories-view";
 import { ResultsList } from "@/components/workspace/results-list";
+import { Sidebar } from "@/components/workspace/sidebar";
 import { Splitter } from "@/components/workspace/splitter";
-import { StatusBar } from "@/components/workspace/status-bar";
-import { TraceStrip } from "@/components/workspace/trace-strip";
-import { apiPost, messageFor } from "@/lib/client/api";
+import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { useJobResult } from "@/lib/client/use-job-result";
 import { useRepos } from "@/lib/client/use-repos";
-import { JobSchema, type Repo } from "@/lib/contracts";
+import { JobListSchema, JobSchema, type Job, type Location, type Repo } from "@/lib/contracts";
 import { demoJob, demoRun } from "@/lib/fixtures";
-import { SelectionProvider } from "@/lib/results/selection";
+import { SelectionProvider, useSelection } from "@/lib/results/selection";
+import { sessionTitle } from "@/lib/sessions";
 import { useJobStream } from "@/lib/stream/use-job-stream";
+import type { ActivityState } from "@/lib/stream/reduce";
 import { fixtureEvents, networkEvents } from "@/lib/stream/transport";
 import { applyStoredPrefs } from "@/lib/ui-prefs";
 
-/** Pacing only — printed durations come from the recorded server timestamps. */
-const MAX_GAP_MS = 2500;
+/** Demo pacing only — the Done line still shows the true recorded wall time. */
+const DEMO_GAP_MS = 2500;
 
-function PaneHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="shrink-0 border-b border-hairline px-gutter py-gutter text-xs uppercase tracking-wide text-subtle">
-      {children}
-    </h2>
-  );
-}
+type View = { kind: "home" } | { kind: "repos" } | { kind: "session"; jobId: string; pass: number };
 
 export function WorkspaceShell({ live }: { live: boolean }) {
   const repos = useRepos(live);
+  const [view, setView] = useState<View>({ kind: "home" });
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
-  const [jobId, setJobId] = useState<string>(live ? "" : demoJob.id);
+  const [sessions, setSessions] = useState<Job[]>(live ? [] : [demoJob]);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Identity of the subscription. A deliberate change restarts the stream; an inline factory
-  // would rebuild it every render.
+  // Derived, not set in an effect: the default is simply the first ready repository.
+  const currentRepo = selectedRepo ?? repos.repos.find((r) => r.status === "ready") ?? null;
+
+  const refreshSessions = useCallback(() => {
+    if (!live) return;
+    void apiGet(JobListSchema, "/api/jobs?limit=25")
+      .then(setSessions)
+      .catch(() => undefined); // the sidebar list is never worth an error banner
+  }, [live]);
+
+  useEffect(() => {
+    refreshSessions();
+    applyStoredPrefs();
+    return () => {
+      delete document.documentElement.dataset.swResizing;
+    };
+  }, [refreshSessions]);
+
+  const run = async (issue: string) => {
+    if (!currentRepo) return;
+    setSubmitError(null);
+    try {
+      const created = await apiPost(JobSchema, "/api/jobs", {
+        repo_id: currentRepo.id,
+        issue,
+        mode: "extract_rerank",
+        base_mode: "hybrid",
+      });
+      setSessions((prev) => [created, ...prev.filter((j) => j.id !== created.id)]);
+      setView({ kind: "session", jobId: created.id, pass: 0 });
+    } catch (e) {
+      setSubmitError(messageFor(e));
+    }
+  };
+
+  const activeJobId = view.kind === "session" ? view.jobId : null;
+  const activeSession = sessions.find((j) => j.id === activeJobId) ?? null;
+
+  return (
+    <main className="workspace">
+      <h1 className="sr-only">Shipwright workspace</h1>
+      <a href="#session" className="sw-skip">
+        Skip to the session
+      </a>
+
+      <Sidebar
+        sessions={sessions}
+        activeJobId={activeJobId}
+        demo={!live}
+        onNewSession={() => setView({ kind: "home" })}
+        onOpenSession={(job) =>
+          setView((v) => ({
+            kind: "session",
+            jobId: job.id,
+            // Reopening the demo session replays it from the start.
+            pass: v.kind === "session" && v.jobId === job.id && !live ? v.pass + 1 : 0,
+          }))
+        }
+        onOpenRepositories={() => setView({ kind: "repos" })}
+      />
+
+      <div id="session" tabIndex={-1} className="workspace-main">
+        {view.kind === "repos" && <RepositoriesView state={repos} />}
+
+        {view.kind === "home" && (
+          <div className="sw-home">
+            <h2 className="text-xl font-semibold text-fg">
+              Describe a bug or a change. Shipwright finds where in the code it lives.
+            </h2>
+            <Composer
+              repos={live ? repos.repos : []}
+              repo={currentRepo}
+              onPickRepo={setSelectedRepo}
+              busy={false}
+              onRun={(issue) => void run(issue)}
+              replay={!live}
+              issueText={demoRun.issue}
+              onReplay={() => setView((v) => ({ kind: "session", jobId: demoJob.id, pass: v.kind === "session" ? v.pass + 1 : 0 }))}
+            />
+            {submitError && <p className="text-danger">{submitError}</p>}
+          </div>
+        )}
+
+        {view.kind === "session" && (
+          // Keyed by job and pass: a new session gets a fresh stream, and replaying the demo
+          // restarts it. No stream exists outside this component, so nothing in the chrome can
+          // reconnect-loop against a job that does not exist yet.
+          <PanelBoundary label="session">
+            <SessionView
+              key={`${view.jobId}#${view.pass}`}
+              jobId={view.jobId}
+              live={live}
+              session={activeSession}
+            />
+          </PanelBoundary>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function SessionView({ jobId, live, session }: { jobId: string; live: boolean; session: Job | null }) {
   const makeStream = useCallback(
     () =>
       live
@@ -46,118 +143,94 @@ export function WorkspaceShell({ live }: { live: boolean }) {
             demoRun.frames,
             { mode: "replay", capturedAt: demoRun.meta.capturedAt },
             () => Date.now(),
-            { maxGapMs: MAX_GAP_MS },
+            { maxGapMs: DEMO_GAP_MS },
           ),
     [live, jobId],
   );
-  const { state } = useJobStream(jobId || "pending", makeStream);
+  const { state, retry } = useJobStream(jobId, makeStream);
 
-  const replayJob = live ? null : demoJob;
   const terminal = state.outcome.kind !== "pending";
-  const { job, error: resultError } = useJobResult(jobId, terminal, replayJob);
-  const locations = job?.result.locations ?? [];
-
-  useEffect(() => {
-    applyStoredPrefs();
-    return () => {
-      delete document.documentElement.dataset.swResizing;
-    };
-  }, []);
-
-  const run = async (issue: string) => {
-    if (!selectedRepo) return;
-    setSubmitError(null);
-    try {
-      const created = await apiPost(JobSchema, "/api/jobs", {
-        repo_id: selectedRepo.id,
-        issue,
-        mode: "extract_rerank",
-        base_mode: "hybrid",
-      });
-      setJobId(created.id);
-    } catch (e) {
-      setSubmitError(messageFor(e));
-    }
-  };
-
-  const running = Boolean(jobId) && !terminal;
+  const { job } = useJobResult(jobId, terminal, live ? null : demoJob);
+  const locations = state.outcome.kind === "done" ? (job?.result.locations ?? []) : [];
+  const title = sessionTitle(session?.issue ?? (live ? "" : demoRun.issue)) || "Session";
+  const repoName = (state.repo ?? "").replace(/^local:/, "").split("__").pop() ?? "";
 
   return (
     <SelectionProvider locations={locations}>
-      <main className="workspace">
-        {/* The pane headers are h2s, so the page needs its own heading; it is visually carried
-            by the status bar's repo name, which is not a heading semantically. */}
-        <h1 className="sr-only">Shipwright workspace</h1>
-        {/* Tab order runs rail -> splitter -> centre -> splitter -> code. Composing and reading
-            results is the primary flow, so give the keyboard a way past the rail. */}
-        <a href="#pane-activity" className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:m-2 focus:rounded-[var(--radius)] focus:border focus:border-accent focus:bg-bg focus:px-3 focus:py-1.5">
-          Skip to activity and results
-        </a>
-        <StatusBar state={state} />
-
-        <div className="workspace-panes">
-          <section id="pane-history" className="workspace-pane" aria-label="Repositories">
-            <PaneHeader>repositories</PaneHeader>
-            <div className="workspace-scroll">
-              <PanelBoundary label="repositories">
-                <RepoRail
-                repos={repos.repos}
-                selectedId={selectedRepo?.id ?? null}
-                onSelect={setSelectedRepo}
-                state={repos}
-                  replay={!live}
-                />
-              </PanelBoundary>
-            </div>
-          </section>
-
-          <Splitter side="left" controls="pane-history" label="repositories" />
-
-          <section
-            id="pane-activity"
-            tabIndex={-1}
-            className="workspace-pane workspace-centre"
-            aria-label="Activity and results"
-          >
-            <TraceStrip state={state} />
-            <div className="workspace-scroll">
-              <PanelBoundary label="results">
-                <Composer
-                repo={selectedRepo}
-                busy={running}
-                onRun={(issue) => void run(issue)}
-                replay={!live}
-                issueText={demoRun.issue}
-              />
-              {submitError && (
-                <p className="px-gutter pb-gutter text-evidence-path" role="status">
-                  {submitError}
-                </p>
-              )}
-                {(jobId || !live) && (
-                  <ResultsList
-                  locations={locations}
-                  mode={job?.mode ?? state.mode ?? ""}
-                  jobError={state.outcome.error ?? resultError ?? null}
-                  queued={state.restStatus === "queued"}
-                    running={running}
-                  />
-                )}
-              </PanelBoundary>
-            </div>
-          </section>
-
-          <Splitter side="right" controls="pane-code" label="code" />
-
-          <section id="pane-code" className="workspace-pane" aria-label="Source">
-            <PaneHeader>code</PaneHeader>
-            {/* recorded: the deployed site has no backend, so source comes from the bundle. */}
-            <PanelBoundary label="code">
-              <CodePane jobId={jobId} recorded={live ? null : demoRun.sources} />
-            </PanelBoundary>
-          </section>
-        </div>
-      </main>
+      <SessionBody
+        title={title}
+        repoName={repoName}
+        state={state}
+        onRetry={retry}
+        locations={locations}
+        mode={job?.mode ?? state.mode ?? ""}
+        jobId={jobId}
+        live={live}
+      />
     </SelectionProvider>
+  );
+}
+
+function SessionBody({
+  title,
+  repoName,
+  state,
+  onRetry,
+  locations,
+  mode,
+  jobId,
+  live,
+}: {
+  title: string;
+  repoName: string;
+  state: ActivityState;
+  onRetry: () => void;
+  locations: readonly Location[];
+  mode: string;
+  jobId: string;
+  live: boolean;
+}) {
+  const { location, clear } = useSelection();
+
+  return (
+    <div className="sw-session" data-code={location ? "open" : undefined}>
+      <div className="grid min-w-0 content-start gap-5">
+        <header className="grid gap-1.5">
+          <h2 className="text-lg font-semibold text-fg">{title}</h2>
+          {repoName && (
+            <span className="justify-self-start rounded-full bg-soft px-2.5 py-0.5 text-xs font-medium text-muted">
+              {repoName}
+            </span>
+          )}
+        </header>
+
+        <ActivityFeed state={state} onRetry={onRetry} />
+
+        {state.restStatus === "queued" && state.timeline.length === 0 && (
+          <p className="text-subtle" role="status">
+            Queued — your analysis will start in a moment.
+          </p>
+        )}
+
+        {state.outcome.kind === "done" && locations.length === 0 && (
+          <p className="text-subtle" role="status">
+            No matches found. Adding a function name or an error message usually helps.
+          </p>
+        )}
+
+        <ResultsList locations={locations} mode={mode} />
+      </div>
+
+      {location && (
+        <>
+          <Splitter side="right" controls="code-panel" label="code" />
+          <aside id="code-panel" aria-label="Code preview" className="sw-code-panel">
+            <PanelBoundary label="code">
+              <CodePane jobId={jobId} recorded={live ? null : demoRun.sources} onClose={clear} />
+            </PanelBoundary>
+          </aside>
+        </>
+      )}
+    </div>
   );
 }

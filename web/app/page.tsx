@@ -42,9 +42,8 @@ export default function Home() {
           Finds where to change code, and shows you why.
         </h1>
         <p className="mt-6 max-w-[58ch] text-lg text-muted">
-          Point it at a Python repository and an issue. It returns ranked locations with the
-          evidence for each one — which retrieval channel found it, and where the reranker moved
-          it from.
+          Point it at a repository and describe the issue. It returns ranked places to look,
+          with the evidence for each one.
         </p>
         <dl className="mt-10 flex flex-wrap gap-x-12 gap-y-4">
           <div>
@@ -102,9 +101,8 @@ export default function Home() {
           ))}
         </ul>
         <p className="mt-4 max-w-[58ch] text-subtle">
-          Fused with reciprocal rank fusion, then reranked by a local 7B. An ablation at n=30 put
-          all four channels ahead of any subset — and showed the reranker, not the candidate
-          supply, is what limits the pipeline.
+          All four signals are combined, and the strongest candidates are re-checked against
+          your issue before ranking. The measurements page shows what each signal contributes.
         </p>
       </Reveal>
 
@@ -136,10 +134,10 @@ export default function Home() {
             </p>
           </div>
           <div className="rounded-[var(--radius)] border border-hairline p-4">
-            <p className="text-fg">It runs on one laptop.</p>
+            <p className="text-fg">Your code stays on your machine.</p>
             <p className="mt-2 text-subtle">
-              A local 7B through Ollama, no hosted API, nothing to pay for. The deployed site has
-              no backend, so the workspace here replays a recording and says so.
+              Analysis runs locally. Nothing is uploaded, and there is nothing to pay for. This
+              hosted demo replays a recorded session and says so.
             </p>
           </div>
         </div>

@@ -103,8 +103,15 @@ export const EVENT_TYPES = [
   "job.started",
   "graph.building",
   "graph.ready",
-  "model.selected",
-  "retrieval.started",
+  "engine.started",
+  "understand.started",
+  "understand.done",
+  "search.started",
+  "candidates.found",
+  "rank.started",
+  "engine.finished",
+  "model.selected", // legacy: replays of jobs recorded before the narrative events
+  "retrieval.started", // legacy + retrieval-only mode
   "model.finished",
   "localization.ready",
   "job.done",
@@ -123,7 +130,16 @@ export const JobEventSchema = z.discriminatedUnion("type", [
     call_edges: z.number().optional(),
     import_edges: z.number().optional(),
   }),
-  z.object({ ...envelope, type: z.literal("model.selected"), model: z.string(), reason: z.string() }),
+  z.object({ ...envelope, type: z.literal("engine.started") }),
+  z.object({ ...envelope, type: z.literal("understand.started") }),
+  z.object({ ...envelope, type: z.literal("understand.done"), terms: z.number() }),
+  z.object({ ...envelope, type: z.literal("search.started"), channels: z.string() }),
+  z.object({ ...envelope, type: z.literal("candidates.found"), count: z.number() }),
+  z.object({ ...envelope, type: z.literal("rank.started"), pool: z.number() }),
+  z.object({ ...envelope, type: z.literal("engine.finished") }),
+  // Legacy arm: old sessions replay events that still carry a model name. It is parsed so the
+  // replay works, and rendered nowhere.
+  z.object({ ...envelope, type: z.literal("model.selected"), model: z.string().optional(), reason: z.string().optional() }),
   // `channels` is the mode name ("hybrid", "bm25"), not a channel list. Typing it as
   // Channel[] would make isChannel silently drop it.
   z.object({ ...envelope, type: z.literal("retrieval.started"), channels: z.string() }),

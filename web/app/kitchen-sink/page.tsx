@@ -2,8 +2,6 @@ import { Band } from "@/components/ui/band";
 import { Button } from "@/components/ui/button";
 import { EvidenceStrip, type Channel } from "@/components/ui/evidence-strip";
 import { Panel } from "@/components/ui/panel";
-import { RankDelta } from "@/components/ui/rank-delta";
-import { ScoreBar } from "@/components/ui/score-bar";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Trace, type TraceStage } from "@/components/ui/trace";
@@ -40,9 +38,6 @@ const POINTS = [
 ];
 
 function Register({ dense }: { dense: boolean }) {
-  // max, not ROWS[0]: the first row is the reranked pick, and `score` is the retrieval score,
-  // so the top-ranked row often is not the highest-scoring one.
-  const top = Math.max(...ROWS.map((r) => r.s));
   return (
     <div className={dense ? "register-dense" : undefined}>
       <h2 className="mb-3 text-xs uppercase tracking-wide text-subtle">
@@ -79,14 +74,12 @@ function Register({ dense }: { dense: boolean }) {
             {ROWS.map((r) => {
               const [path, symbol] = r.sym.split(":");
               return (
-                <li key={r.sym} className="flex items-center gap-3 px-3 py-2">
-                  <RankDelta basePosition={r.r} finalPosition={r.f} />
-                  <EvidenceStrip channels={r.ch} />
+                <li key={r.sym} className="flex flex-wrap items-center gap-3 px-3 py-2">
                   <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-ui)]">
                     <span className="text-subtle">{path}:</span>
                     <span className="text-fg">{symbol}</span>
                   </span>
-                  <ScoreBar score={r.s} top={top} />
+                  <EvidenceStrip channels={r.ch} />
                 </li>
               );
             })}

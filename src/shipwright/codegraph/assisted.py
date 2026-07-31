@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..gateway.base import ModelProvider
@@ -143,20 +144,37 @@ def localize_assisted(
     base_mode: str = "hybrid",
     dense: tuple[list[str], object] | None = None,
     rerank_candidates: int = RERANK_CANDIDATES,
+    notify: Callable[[str, dict], None] | None = None,
 ) -> tuple[list[Ranked], Usage]:
     """mode: extract | rerank | extract_rerank. `base_mode` picks the retrieval channels
-    underneath, so recall and ranking improvements can be varied independently."""
+    underneath, so recall and ranking improvements can be varied independently.
+
+    `notify` narrates progress for the activity stream. The two model calls take seconds
+    each; without these beats the UI shows dead air exactly where the work happens. Payloads
+    carry counts only — never model names or prompt text."""
     loc = Localizer(graph, dense=dense)
     usage = Usage()
 
+    def note(type_: str, **payload) -> None:
+        if notify:
+            notify(type_, payload)
+
     query = issue
     if mode in ("extract", "extract_rerank"):
+        note("understand.started")
         extracted = _extract_query(model, issue, usage)
         # Fall back to raw issue text if extraction produced nothing usable.
         query = f"{extracted} {issue[:500]}" if extracted else issue
+        note("understand.done", terms=len(extracted.split()) if extracted else 0)
 
     if mode in ("rerank", "extract_rerank"):
+        note("search.started", channels=base_mode)
         wide = loc.localize(query, mode=base_mode, top_k=rerank_candidates)
+        note("candidates.found", count=len(wide))
+        note("rank.started", pool=len(wide))
         return _rerank(model, issue, wide, graph, usage)[:top_k], usage
 
-    return loc.localize(query, mode=base_mode, top_k=top_k), usage
+    note("search.started", channels=base_mode)
+    res = loc.localize(query, mode=base_mode, top_k=top_k)
+    note("candidates.found", count=len(res))
+    return res, usage
