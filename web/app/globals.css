@@ -479,5 +479,19 @@
       z-index: 1;
       background: var(--bg);
     }
+
+    /* Monitoring order. On a phone the useful thing is watching a run and reading its results,
+       not starting one, so activity comes first and the repository rail drops to the end.
+       `order` only moves the visual sequence — DOM and tab order are unchanged, so this cannot
+       desynchronise reading order from focus order. */
+    .workspace-centre {
+      order: 1;
+    }
+    #pane-code {
+      order: 2;
+    }
+    #pane-history {
+      order: 3;
+    }
   }
 }
