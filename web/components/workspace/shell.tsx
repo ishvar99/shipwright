@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { PanelBoundary } from "@/components/ui/panel-boundary";
 import { CodePane } from "@/components/workspace/code-pane";
 import { Composer } from "@/components/workspace/composer";
 import { RepoRail } from "@/components/workspace/repo-rail";
@@ -83,29 +84,45 @@ export function WorkspaceShell({ live }: { live: boolean }) {
 
   return (
     <SelectionProvider locations={locations}>
-      <div className="workspace">
+      <main className="workspace">
+        {/* The pane headers are h2s, so the page needs its own heading; it is visually carried
+            by the status bar's repo name, which is not a heading semantically. */}
+        <h1 className="sr-only">Shipwright workspace</h1>
+        {/* Tab order runs rail -> splitter -> centre -> splitter -> code. Composing and reading
+            results is the primary flow, so give the keyboard a way past the rail. */}
+        <a href="#pane-activity" className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:m-2 focus:rounded-[var(--radius)] focus:border focus:border-accent focus:bg-bg focus:px-3 focus:py-1.5">
+          Skip to activity and results
+        </a>
         <StatusBar state={state} />
 
         <div className="workspace-panes">
           <section id="pane-history" className="workspace-pane" aria-label="Repositories">
             <PaneHeader>repositories</PaneHeader>
             <div className="workspace-scroll">
-              <RepoRail
+              <PanelBoundary label="repositories">
+                <RepoRail
                 repos={repos.repos}
                 selectedId={selectedRepo?.id ?? null}
                 onSelect={setSelectedRepo}
                 state={repos}
-                replay={!live}
-              />
+                  replay={!live}
+                />
+              </PanelBoundary>
             </div>
           </section>
 
           <Splitter side="left" controls="pane-history" label="repositories" />
 
-          <section className="workspace-pane workspace-centre" aria-label="Activity and results">
+          <section
+            id="pane-activity"
+            tabIndex={-1}
+            className="workspace-pane workspace-centre"
+            aria-label="Activity and results"
+          >
             <TraceStrip state={state} />
             <div className="workspace-scroll">
-              <Composer
+              <PanelBoundary label="results">
+                <Composer
                 repo={selectedRepo}
                 busy={running}
                 onRun={(issue) => void run(issue)}
@@ -117,15 +134,16 @@ export function WorkspaceShell({ live }: { live: boolean }) {
                   {submitError}
                 </p>
               )}
-              {(jobId || !live) && (
-                <ResultsList
+                {(jobId || !live) && (
+                  <ResultsList
                   locations={locations}
                   mode={job?.mode ?? state.mode ?? ""}
                   jobError={state.outcome.error ?? resultError ?? null}
                   queued={state.restStatus === "queued"}
-                  running={running}
-                />
-              )}
+                    running={running}
+                  />
+                )}
+              </PanelBoundary>
             </div>
           </section>
 
@@ -134,10 +152,12 @@ export function WorkspaceShell({ live }: { live: boolean }) {
           <section id="pane-code" className="workspace-pane" aria-label="Source">
             <PaneHeader>code</PaneHeader>
             {/* recorded: the deployed site has no backend, so source comes from the bundle. */}
-            <CodePane jobId={jobId} recorded={live ? null : demoRun.sources} />
+            <PanelBoundary label="code">
+              <CodePane jobId={jobId} recorded={live ? null : demoRun.sources} />
+            </PanelBoundary>
           </section>
         </div>
-      </div>
+      </main>
     </SelectionProvider>
   );
 }
