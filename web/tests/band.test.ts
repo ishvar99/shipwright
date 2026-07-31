@@ -87,8 +87,8 @@ describe("the committed snapshot", () => {
 
   it("records the fine-tune's parse-failure result, which accuracy alone would hide", () => {
     const pool = runs.filter((r) => r.parse_failures > 0 && r.n === 100);
-    const tuned = pool.find((r) => r.model === "adapters");
-    const base = pool.find((r) => r.model.startsWith("Qwen2.5-Coder-1.5B"));
+    const tuned = pool.find((r) => r.model === "Engine S (tuned)");
+    const base = pool.find((r) => r.model === "Engine S");
     expect(tuned && base).toBeTruthy();
     expect(tuned!.parse_failures).toBeLessThan(base!.parse_failures);
     // ...while the accuracy difference between them sits inside the band.
