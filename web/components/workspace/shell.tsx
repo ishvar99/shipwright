@@ -1,17 +1,24 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
-import { CodeEmpty, ComposerEmpty, HistoryEmpty } from "@/components/workspace/panes";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CodeEmpty } from "@/components/workspace/panes";
+import { Composer } from "@/components/workspace/composer";
+import { RepoRail } from "@/components/workspace/repo-rail";
+import { ResultsList } from "@/components/workspace/results-list";
 import { Splitter } from "@/components/workspace/splitter";
 import { StatusBar } from "@/components/workspace/status-bar";
 import { TraceStrip } from "@/components/workspace/trace-strip";
+import { apiPost, messageFor } from "@/lib/client/api";
+import { useJobResult } from "@/lib/client/use-job-result";
+import { useRepos } from "@/lib/client/use-repos";
+import { JobSchema, type Repo } from "@/lib/contracts";
 import { demoRun } from "@/lib/fixtures";
+import { SelectionProvider } from "@/lib/results/selection";
 import { useJobStream } from "@/lib/stream/use-job-stream";
-import { fixtureEvents } from "@/lib/stream/transport";
+import { fixtureEvents, networkEvents } from "@/lib/stream/transport";
 import { applyStoredPrefs } from "@/lib/ui-prefs";
 
-/** Long enough to read, short enough not to stall the demo. Pacing only — the durations the
- * trace prints come from the recorded server timestamps. */
+/** Pacing only — printed durations come from the recorded server timestamps. */
 const MAX_GAP_MS = 2500;
 
 function PaneHeader({ children }: { children: React.ReactNode }) {
@@ -22,61 +29,116 @@ function PaneHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function WorkspaceShell() {
-  // M4 has no way to create a job, so the shell drives itself from the committed recording.
-  // That makes the status bar and trace strip genuinely live without any M5 machinery — and it
-  // is what the deployed site does regardless, having no backend to reach.
+export function WorkspaceShell({ live }: { live: boolean }) {
+  const repos = useRepos(live);
+  const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
+  const [jobId, setJobId] = useState<string>(live ? "" : demoRun.job.id);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Identity of the subscription. A deliberate change restarts the stream; an inline factory
+  // would rebuild it every render.
   const makeStream = useCallback(
     () =>
-      fixtureEvents(
-        demoRun.frames,
-        { mode: "replay", capturedAt: demoRun.meta.capturedAt },
-        () => Date.now(),
-        { maxGapMs: MAX_GAP_MS },
-      ),
-    [],
+      live
+        ? networkEvents(jobId, () => Date.now())
+        : fixtureEvents(
+            demoRun.frames,
+            { mode: "replay", capturedAt: demoRun.meta.capturedAt },
+            () => Date.now(),
+            { maxGapMs: MAX_GAP_MS },
+          ),
+    [live, jobId],
   );
-  const { state } = useJobStream(demoRun.job.id, makeStream);
+  const { state } = useJobStream(jobId || "pending", makeStream);
+
+  const replayJob = useMemo(() => (live ? null : JobSchema.parse(demoRun.job)), [live]);
+  const terminal = state.outcome.kind !== "pending";
+  const { job, error: resultError } = useJobResult(jobId, terminal, replayJob);
+  const locations = job?.result.locations ?? [];
 
   useEffect(() => {
-    // The boot script does not run on a client-side navigation from `/`.
     applyStoredPrefs();
-    // An unmount mid-drag would otherwise leave the whole app stuck in col-resize.
     return () => {
       delete document.documentElement.dataset.swResizing;
     };
   }, []);
 
+  const run = async (issue: string) => {
+    if (!selectedRepo) return;
+    setSubmitError(null);
+    try {
+      const created = await apiPost(JobSchema, "/api/jobs", {
+        repo_id: selectedRepo.id,
+        issue,
+        mode: "extract_rerank",
+        base_mode: "hybrid",
+      });
+      setJobId(created.id);
+    } catch (e) {
+      setSubmitError(messageFor(e));
+    }
+  };
+
+  const running = Boolean(jobId) && !terminal;
+
   return (
-    <div className="workspace">
-      <StatusBar state={state} />
+    <SelectionProvider locations={locations}>
+      <div className="workspace">
+        <StatusBar state={state} />
 
-      <div className="workspace-panes">
-        <section id="pane-history" className="workspace-pane" aria-label="History and repositories">
-          <PaneHeader>history</PaneHeader>
-          <div className="workspace-scroll">
-            <HistoryEmpty />
-          </div>
-        </section>
+        <div className="workspace-panes">
+          <section id="pane-history" className="workspace-pane" aria-label="Repositories">
+            <PaneHeader>repositories</PaneHeader>
+            <div className="workspace-scroll">
+              <RepoRail
+                repos={repos.repos}
+                selectedId={selectedRepo?.id ?? null}
+                onSelect={setSelectedRepo}
+                state={repos}
+                replay={!live}
+              />
+            </div>
+          </section>
 
-        <Splitter side="left" controls="pane-history" label="history" />
+          <Splitter side="left" controls="pane-history" label="repositories" />
 
-        <section className="workspace-pane workspace-centre" aria-label="Activity and results">
-          <TraceStrip state={state} />
-          <div className="workspace-scroll">
-            <ComposerEmpty />
-          </div>
-        </section>
+          <section className="workspace-pane workspace-centre" aria-label="Activity and results">
+            <TraceStrip state={state} />
+            <div className="workspace-scroll">
+              <Composer
+                repo={selectedRepo}
+                busy={running}
+                onRun={(issue) => void run(issue)}
+                replay={!live}
+                issueText={demoRun.issue}
+              />
+              {submitError && (
+                <p className="px-gutter pb-gutter text-evidence-path" role="status">
+                  {submitError}
+                </p>
+              )}
+              {(jobId || !live) && (
+                <ResultsList
+                  locations={locations}
+                  mode={job?.mode ?? state.mode ?? ""}
+                  jobError={state.outcome.error ?? resultError ?? null}
+                  queued={state.restStatus === "queued"}
+                  running={running}
+                />
+              )}
+            </div>
+          </section>
 
-        <Splitter side="right" controls="pane-code" label="code" />
+          <Splitter side="right" controls="pane-code" label="code" />
 
-        <section id="pane-code" className="workspace-pane" aria-label="Source">
-          <PaneHeader>code</PaneHeader>
-          <div className="workspace-scroll">
-            <CodeEmpty />
-          </div>
-        </section>
+          <section id="pane-code" className="workspace-pane" aria-label="Source">
+            <PaneHeader>code</PaneHeader>
+            <div className="workspace-scroll">
+              <CodeEmpty />
+            </div>
+          </section>
+        </div>
       </div>
-    </div>
+    </SelectionProvider>
   );
 }
