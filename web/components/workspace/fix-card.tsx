@@ -26,6 +26,7 @@ export function FixCard({
   onApply,
   onTest,
   onRetry,
+  actions = true,
 }: {
   fix: Fix | null | undefined;
   fixText: string;
@@ -35,6 +36,7 @@ export function FixCard({
   onApply: () => void;
   onTest: () => void;
   onRetry: () => void;
+  actions?: boolean;
 }) {
   if (writing && !fix?.patch) {
     return (
@@ -99,6 +101,7 @@ export function FixCard({
         </div>
       ))}
 
+      {actions && (
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3">
         {!applied && (
           <Button variant="primary" onClick={onApply} aria-disabled={busy || undefined}>
@@ -120,6 +123,7 @@ export function FixCard({
           Download .patch
         </Button>
       </div>
+      )}
     </div>
   );
 }

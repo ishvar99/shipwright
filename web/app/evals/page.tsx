@@ -4,7 +4,7 @@ import { AnalyticsSchema, parseOrThrow } from "@/lib/contracts";
 import snapshot from "@/fixtures/analytics.json";
 
 export const metadata: Metadata = {
-  title: "Measurements · Shipwright",
+  title: "Benchmarks · Shipwright",
   description: "Benchmark runs, with the band each sample size cannot resolve.",
 };
 
@@ -20,10 +20,11 @@ export default function EvalsPage() {
 
   return (
     <main className="register-dense mx-auto max-w-6xl px-6 py-12">
-      <h1 className="text-title text-fg">Measurements</h1>
-      <p className="mt-2 max-w-[68ch] text-muted">
-        Every run is a full configuration on Loc-Bench, scored with strict Acc@k: a task counts
-        only when every ground-truth location falls inside the top k. Pick any row as the
+      <h1 className="text-title text-fg">Benchmarks</h1>
+      <p id="scoring" className="mt-2 max-w-[68ch] text-muted">
+        Every run is a full configuration on Loc-Bench, scored strictly: a task counts only
+        when <em>every</em> known-correct location lands inside the top k — &ldquo;right file
+        in its top 5&rdquo; and &ldquo;right function in its top 10&rdquo;. Pick any row as the
         reference; the shaded range is what that comparison&rsquo;s sample size cannot resolve,
         so differences inside it are not results.
       </p>

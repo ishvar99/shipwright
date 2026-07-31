@@ -1,7 +1,7 @@
 {
  "meta": {
-  "capturedAt": "2026-07-31T12:04:34.098Z",
-  "snapshotCommit": "f392620"
+  "capturedAt": "2026-07-31T15:39:39.954Z",
+  "snapshotCommit": "1202f65"
  },
  "runs": [
   {
@@ -18,7 +18,7 @@
   {
    "run": "ea737fb8",
    "scaffold": "extract_rerank",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 100,
    "file5": 73,
    "func10": 35,
@@ -29,7 +29,7 @@
   {
    "run": "81612989",
    "scaffold": "extract_rerank_hybrid_p30",
-   "model": "adapters",
+   "model": "Engine S (tuned)",
    "n": 100,
    "file5": 62,
    "func10": 28,
@@ -40,7 +40,7 @@
   {
    "run": "250ce9d1",
    "scaffold": "extract_rerank_hybrid_p30",
-   "model": "Qwen2.5-Coder-1.5B-Instruct-4b",
+   "model": "Engine S",
    "n": 100,
    "file5": 60,
    "func10": 26,
@@ -62,7 +62,7 @@
   {
    "run": "c8436b38",
    "scaffold": "extract_rerank",
-   "model": "qwen2.5-coder-3b-loc",
+   "model": "Engine S (tuned)",
    "n": 100,
    "file5": 64,
    "func10": 25,
@@ -73,7 +73,7 @@
   {
    "run": "c074a23b",
    "scaffold": "extract_rerank_hybrid",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 30,
    "file5": 73.3,
    "func10": 36.7,
@@ -84,7 +84,7 @@
   {
    "run": "2e4f808b",
    "scaffold": "extract_rerank_hybrid4",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 30,
    "file5": 70,
    "func10": 33.3,
@@ -95,7 +95,7 @@
   {
    "run": "90ed6623",
    "scaffold": "extract_rerank_hybrid_p30",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 30,
    "file5": 76.7,
    "func10": 30,
@@ -106,7 +106,7 @@
   {
    "run": "24e8c53c",
    "scaffold": "extract_rerank_hybrid_p200",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 30,
    "file5": 70,
    "func10": 30,
@@ -117,7 +117,7 @@
   {
    "run": "4f38704b",
    "scaffold": "extract_rerank_hybrid_p100",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 30,
    "file5": 70,
    "func10": 26.7,
@@ -172,7 +172,7 @@
   {
    "run": "18ef3965",
    "scaffold": "extract_rerank_hybrid",
-   "model": "Qwen2.5-Coder-1.5B-Instruct-4b",
+   "model": "Engine S",
    "n": 30,
    "file5": 60,
    "func10": 23.3,
@@ -227,7 +227,7 @@
   {
    "run": "61fef687",
    "scaffold": "extract_rerank_hybrid",
-   "model": "adapters",
+   "model": "Engine S (tuned)",
    "n": 30,
    "file5": 63.3,
    "func10": 20,
@@ -238,7 +238,7 @@
   {
    "run": "41291a83",
    "scaffold": "extract_rerank",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 15,
    "file5": 73.3,
    "func10": 40,
@@ -249,7 +249,7 @@
   {
    "run": "7e79b2da",
    "scaffold": "rerank",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 15,
    "file5": 73.3,
    "func10": 33.3,
@@ -304,7 +304,7 @@
   {
    "run": "5088309a",
    "scaffold": "extract",
-   "model": "qwen2.5-coder-7b-16k",
+   "model": "Engine L",
    "n": 15,
    "file5": 73.3,
    "func10": 20,

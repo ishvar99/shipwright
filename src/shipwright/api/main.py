@@ -302,6 +302,21 @@ async def jobs_events(job_id: str, request: Request) -> StreamingResponse:
     )
 
 
+def _engine_alias(model: str) -> str:
+    """Benchmark rows name engines, not vendors: the model behind the API is an
+    implementation detail. Real configurations stay documented in the repo."""
+    if model == "none":
+        return "—"
+    name = model.split("/")[-1].lower()
+    if "7b" in name:
+        return "Engine L"
+    if "adapter" in name or "loc" in name:
+        return "Engine S (tuned)"
+    if "1.5b" in name or "3b" in name:
+        return "Engine S"
+    return "Engine"
+
+
 @app.get("/api/analytics/summary")
 def analytics_summary() -> dict[str, Any]:
     """Benchmark rows, so the product surface shows the same numbers as the results page."""
@@ -318,7 +333,7 @@ def analytics_summary() -> dict[str, Any]:
                 {
                     "run": str(run.id)[:8],
                     "scaffold": run.scaffold.removeprefix("retrieval_"),
-                    "model": "—" if run.model == "none" else run.model.split("/")[-1][:30],
+                    "model": _engine_alias(run.model),
                     "n": n,
                     "file5": round(100 * sum(1 for x in m if x.get("file_acc_at_5")) / n, 1),
                     "func10": round(100 * sum(1 for x in m if x.get("func_acc_at_10")) / n, 1),

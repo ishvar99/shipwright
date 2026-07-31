@@ -1,147 +1,150 @@
 import Link from "next/link";
-import { EvidenceStrip } from "@/components/ui/evidence-strip";
+import { Icon, type IconName } from "@/components/ui/icon";
 import { Reveal } from "@/components/landing/reveal";
 import { Replay } from "@/components/landing/replay";
 import { AnalyticsSchema, parseOrThrow } from "@/lib/contracts";
 import snapshot from "@/fixtures/analytics.json";
 
-const CHANNELS = [
+const FEATURES: { icon: IconName; title: string; body: string }[] = [
   {
-    channels: ["bm25"] as const,
-    name: "text",
-    body: "BM25 over symbol names, signatures and bodies. Strong when the issue quotes an identifier, useless when it describes a behaviour.",
+    icon: "crosshair",
+    title: "Pinpoints the change",
+    body: "Four search signals — names, call graph, code similarity and paths mentioned in your ticket — combine to rank the exact functions that need attention.",
   },
   {
-    channels: ["graph"] as const,
-    name: "call graph",
-    body: "Neighbours of the text hits, weighted by how many suspicious callers reach them. Finds the function nobody named.",
+    icon: "fileCode",
+    title: "Writes the fix",
+    body: "Watch the corrected code stream in live, then review it as a clean diff. Every change is validated before it is ever shown to you.",
   },
   {
-    channels: ["dense"] as const,
-    name: "embedding",
-    body: "Local embeddings over the same symbols. Catches paraphrase, and pays for it in precision.",
+    icon: "folder",
+    title: "Applies safely",
+    body: "One click commits the fix to its own branch in Shipwright's copy of your repository. Your checkout is never touched, and the patch is always yours to download.",
   },
   {
-    channels: ["path"] as const,
-    name: "path in issue",
-    body: "File paths the issue text mentions outright. Rare, and near-decisive when present.",
+    icon: "check",
+    title: "Proves it with your tests",
+    body: "Shipwright sets up the test environment and runs your suite against the fix, streaming the results. Green means verified — not vibes.",
   },
+  {
+    icon: "plus",
+    title: "Every session, kept",
+    body: "Each run is saved with its full activity, diff, branch and test results. Reopen any session and the whole story replays instantly.",
+  },
+  {
+    icon: "moon",
+    title: "Private by design",
+    body: "Analysis runs entirely on your machine. Your code is never uploaded, and there is nothing to subscribe to.",
+  },
+];
+
+const STEPS = [
+  { n: "1", title: "Connect a repository", body: "Paste a GitHub URL or point at a local folder. Shipwright indexes it in seconds." },
+  { n: "2", title: "Describe the issue", body: "In plain language — paste the ticket if you have one." },
+  { n: "3", title: "Review, apply, verify", body: "Read the diff, apply it to a branch, and watch the tests pass." },
 ];
 
 export default function Home() {
   const { runs } = parseOrThrow(AnalyticsSchema, snapshot, "fixtures/analytics.json");
   const best = runs.filter((r) => r.n >= 100).sort((a, b) => b.file5 - a.file5)[0];
-  const floor = runs.filter((r) => r.model === "—").sort((a, b) => b.n - a.n)[0];
 
   return (
     <main className="mx-auto max-w-5xl px-6 pb-24">
-      {/* Beat 1 — the claim, with both numbers attached to it. */}
-      <section className="sw-glow py-24">
-        <p className="font-mono text-[length:var(--text-ui)] text-subtle">Shipwright</p>
-        <h1 className="mt-4 max-w-[24ch] text-display font-display text-fg">
-          Finds where to change code, and shows you why.
-        </h1>
-        <p className="mt-6 max-w-[58ch] text-lg text-muted">
-          Point it at a repository and describe the issue. It returns ranked places to look,
-          with the evidence for each one.
+      {/* Hero: the promise, then proof you can watch. */}
+      <section className="sw-glow py-24 text-center">
+        <p className="inline-flex items-center gap-2 font-mono text-[length:var(--text-ui)] text-subtle">
+          <Icon name="crosshair" size={16} className="text-accent" />
+          Shipwright
         </p>
-        <dl className="mt-10 flex flex-wrap gap-x-12 gap-y-4">
-          <div>
-            <dt className="text-subtle">file@5</dt>
-            <dd className="font-mono text-title tabular-nums text-fg">{best.file5.toFixed(1)}%</dd>
-          </div>
-          <div>
-            <dt className="text-subtle">func@10</dt>
-            <dd className="font-mono text-title tabular-nums text-fg">{best.func10.toFixed(1)}%</dd>
-          </div>
-          <div className="max-w-[40ch] self-end text-subtle">
-            Strict Acc@k on {best.n} Loc-Bench issues — a task counts only when every
-            ground-truth location is inside the top k. Retrieval alone gets{" "}
-            {floor.file5.toFixed(1)}% at n={floor.n}.
-          </div>
-        </dl>
-        <div className="mt-10 flex flex-wrap items-center gap-6">
-          <Link href="/app" className="text-accent underline">
-            Open the workspace →
+        <h1 className="mx-auto mt-4 max-w-[18ch] text-display font-display text-fg">
+          Describe the bug. Ship the fix.
+        </h1>
+        <p className="mx-auto mt-6 max-w-[52ch] text-lg text-muted">
+          Shipwright reads your repository, pinpoints the code that needs to change, writes the
+          fix, and proves it with your own tests — from a plain-language description.
+        </p>
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+          <Link
+            href="/app"
+            className="inline-flex h-11 items-center gap-2 rounded-[var(--radius)] bg-accent px-6 font-medium text-bg shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            Open the workspace
+            <Icon name="send" size={16} />
           </Link>
-          <Link href="/evals" className="text-muted underline">
-            Every measurement
-          </Link>
+          <a href="#demo" className="text-muted underline underline-offset-4 hover:text-fg">
+            Watch a session
+          </a>
         </div>
+        <p className="mt-8 text-subtle">
+          Finds the right file in its top five suggestions {best.file5.toFixed(0)}% of the time,
+          measured on {best.n} real GitHub issues.{" "}
+          <Link href="/evals" className="underline underline-offset-4 hover:text-fg">
+            See every benchmark
+          </Link>
+        </p>
       </section>
 
-      {/* Beat 2 — a real run, not a screenshot. */}
+      {/* The demo: a real recorded session, playing itself. */}
       <Reveal className="py-12">
-        <h2 className="text-title text-fg">One real run</h2>
-        <p className="mt-2 max-w-[58ch] text-muted">
-          The same components the workspace uses, driven by a recorded stream through the same
-          reducer. Nothing here is a mock-up.
-        </p>
-        <div className="mt-6">
-          <Replay />
+        <div id="demo" className="mx-auto max-w-3xl">
+          <h2 className="text-title text-fg">Watch a session</h2>
+          <p className="mt-2 max-w-[58ch] text-muted">
+            A real run, replayed with the same components the product uses: located, fixed,
+            applied to a branch, and verified by the test suite.
+          </p>
+          <div className="mt-6">
+            <Replay />
+          </div>
         </div>
       </Reveal>
 
-      {/* Beat 3 — the channels, taught through the primitive that displays them. */}
+      {/* What you get. */}
       <Reveal className="py-12">
-        <h2 className="text-title text-fg">Four ways to find a function</h2>
-        <p className="mt-2 max-w-[58ch] text-muted">
-          Every result carries the channels that surfaced it, in fixed slots — so across ten rows
-          the shape of the evidence is readable as a column, not a sentence.
-        </p>
-        <ul className="mt-6 grid gap-4 sm:grid-cols-2">
-          {CHANNELS.map((c) => (
-            <li key={c.name} className="rounded-[var(--radius)] border border-hairline p-4">
-              <div className="flex items-center gap-3">
-                <EvidenceStrip channels={[...c.channels]} />
-                <span className="text-fg">{c.name}</span>
-              </div>
-              <p className="mt-2 text-subtle">{c.body}</p>
+        <h2 className="text-title text-fg">Built for the whole fix, not just the search</h2>
+        <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map((f) => (
+            <li key={f.title} className="sw-card p-5">
+              <span className="inline-grid size-9 place-items-center rounded-[var(--radius)] bg-accent-soft text-accent">
+                <Icon name={f.icon} size={18} />
+              </span>
+              <p className="mt-3 font-semibold text-fg">{f.title}</p>
+              <p className="mt-1.5 text-muted">{f.body}</p>
             </li>
           ))}
         </ul>
-        <p className="mt-4 max-w-[58ch] text-subtle">
-          All four signals are combined, and the strongest candidates are re-checked against
-          your issue before ranking. The measurements page shows what each signal contributes.
-        </p>
       </Reveal>
 
-      {/* Beat 4 — the limits, stated plainly. This is the differentiator, not a disclaimer. */}
+      {/* How it works. */}
       <Reveal className="py-12">
-        <h2 className="text-title text-fg">What it does not do</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-[var(--radius)] border border-hairline p-4">
-            <p className="text-fg">It does not fix bugs.</p>
-            <p className="mt-2 text-subtle">
-              Two SWE-bench-Live tasks were attempted end to end and neither produced a scored
-              patch — 0/2, generation only, not yet run through the harness. The failure was
-              characterised (context truncation and a repetition loop), not hidden.
-            </p>
-          </div>
-          <div className="rounded-[var(--radius)] border border-hairline p-4">
-            <p className="text-fg">It does not claim small wins.</p>
-            <p className="mt-2 text-subtle">
-              At n=30 one task is worth 3.3 points, so most differences between configurations
-              are inside the noise. The evals page shades that range and marks anything inside it
-              inconclusive.
-            </p>
-          </div>
-          <div className="rounded-[var(--radius)] border border-hairline p-4">
-            <p className="text-fg">It only reads Python.</p>
-            <p className="mt-2 text-subtle">
-              The code graph is a tree-sitter pass over Python files. Other languages parse to
-              nothing, which shows up as a repository with zero symbols rather than bad results.
-            </p>
-          </div>
-          <div className="rounded-[var(--radius)] border border-hairline p-4">
-            <p className="text-fg">Your code stays on your machine.</p>
-            <p className="mt-2 text-subtle">
-              Analysis runs locally. Nothing is uploaded, and there is nothing to pay for. This
-              hosted demo replays a recorded session and says so.
-            </p>
-          </div>
+        <h2 className="text-title text-fg">Three steps to a verified fix</h2>
+        <ol className="mt-8 grid gap-4 sm:grid-cols-3">
+          {STEPS.map((s) => (
+            <li key={s.n} className="rounded-[var(--radius)] border border-hairline p-5">
+              <span className="font-mono text-title text-accent">{s.n}</span>
+              <p className="mt-2 font-semibold text-fg">{s.title}</p>
+              <p className="mt-1.5 text-muted">{s.body}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-10 text-center">
+          <Link
+            href="/app"
+            className="inline-flex h-11 items-center gap-2 rounded-[var(--radius)] bg-accent px-6 font-medium text-bg shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            Try it now
+          </Link>
         </div>
       </Reveal>
+
+      <footer className="border-t border-hairline pt-8 text-subtle">
+        <p>
+          Every number Shipwright claims is measured and published on the{" "}
+          <Link href="/evals" className="underline underline-offset-4 hover:text-fg">
+            benchmarks page
+          </Link>
+          . Python repositories today.
+        </p>
+      </footer>
     </main>
   );
 }

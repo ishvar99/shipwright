@@ -7,6 +7,31 @@ import { cn } from "@/lib/cn";
 import { bandPp, isWithinBand, pairwiseN } from "@/lib/evals/band";
 
 type Metric = "file5" | "func10";
+
+/** Scaffold ids are lab notation; the table speaks product. The raw id stays in a title
+ * attribute so a technical reader can still pin the exact configuration. */
+function prettyScaffold(id: string): string {
+  const pool = id.match(/_p(\d+)$/)?.[1];
+  const base = id.replace(/_p\d+$/, "");
+  const names: Record<string, string> = {
+    hybrid: "Retrieval · text + graph",
+    hybrid3: "Retrieval · 3 signals",
+    hybrid4: "Retrieval · 4 signals",
+    hybrid_path: "Retrieval · text + graph + paths",
+    bm25: "Retrieval · text only",
+    graph: "Retrieval · graph only",
+    dense: "Retrieval · similarity only",
+    path: "Retrieval · paths only",
+    extract: "Extract terms",
+    rerank: "Rerank",
+    extract_rerank: "Extract + rerank",
+    extract_rerank_hybrid: "Extract + rerank",
+    extract_rerank_hybrid4: "Extract + rerank · 4 signals",
+    s2_minimal: "End-to-end attempt",
+  };
+  const label = names[base] ?? base.replaceAll("_", " ");
+  return pool ? `${label} · top ${pool}` : label;
+}
 const METRIC_LABEL: Record<Metric, string> = { file5: "file@5", func10: "func@10" };
 
 /** Below this a run cannot separate anything a reader would call a difference: one task moves
@@ -30,7 +55,7 @@ export function RunTable({ runs }: { runs: AnalyticsRun[] }) {
   const points: BandPoint[] = comparable
     ? others.map((r) => ({
         id: r.run,
-        label: `${r.scaffold} · ${r.model}`,
+        label: `${prettyScaffold(r.scaffold)} · ${r.model}`,
         deltaPp: Number((r[metric] - reference[metric]).toFixed(1)),
         n: pairwiseN(r.n, reference.n),
       }))
@@ -61,7 +86,7 @@ export function RunTable({ runs }: { runs: AnalyticsRun[] }) {
         </span>
         <span className="text-subtle">
           {comparable
-            ? `compared against ${reference.scaffold} (n=${reference.n})`
+            ? `compared against ${prettyScaffold(reference.scaffold)} (n=${reference.n})`
             : "one run — nothing to compare against"}
         </span>
       </div>
@@ -117,7 +142,9 @@ export function RunTable({ runs }: { runs: AnalyticsRun[] }) {
                       <span className="sr-only">reference</span>
                     </label>
                   </td>
-                  <td className="py-1.5 pr-3 text-fg">{r.scaffold}</td>
+                  <td className="py-1.5 pr-3 text-fg" title={r.scaffold}>
+                    {prettyScaffold(r.scaffold)}
+                  </td>
                   <td className="py-1.5 pr-3 text-muted">{r.model}</td>
                   <td className="py-1.5 pr-3 text-right">
                     {r.n}
