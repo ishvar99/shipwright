@@ -357,6 +357,68 @@
     }
   }
 
+  /* Code pane. No tokenizer: contrast carries the answer to "is this the right function?". */
+  .sw-code {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .sw-code-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: calc(var(--space-unit) * 2);
+    border-bottom: 1px solid var(--hairline);
+    padding: var(--space-unit) calc(var(--space-unit) * 2);
+    font-size: var(--text-ui);
+    overflow: clip;
+  }
+
+  .sw-code-lines {
+    margin: 0;
+    padding: var(--space-unit) 0;
+    list-style: none;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    font-family: var(--font-mono);
+    font-size: var(--text-ui);
+    line-height: 1.55;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .sw-code-line {
+    display: grid;
+    grid-template-columns: 4ch 1fr;
+    gap: calc(var(--space-unit) * 2);
+    padding-inline: calc(var(--space-unit) * 2);
+    white-space: pre;
+    /* The line is dimmed context until proven otherwise. */
+    color: var(--subtle);
+  }
+
+  .sw-code-num {
+    text-align: right;
+    color: var(--hairline);
+    user-select: none;
+  }
+
+  .sw-code-target {
+    color: var(--fg);
+    background: var(--accent-soft);
+  }
+
+  .sw-code-target .sw-code-num {
+    color: var(--subtle);
+  }
+
+  .sw-code-lines code {
+    font: inherit;
+    overflow-wrap: normal;
+  }
+
   /* WCAG 1.4.10 reflow, not mobile mode: 1280px at 400% zoom is the same CSS-pixel axis as a
      phone. Without this the demo link is visibly broken until M9. */
   @media (width < 64rem) {

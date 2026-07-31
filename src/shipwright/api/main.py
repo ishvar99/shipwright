@@ -175,7 +175,7 @@ def jobs_get(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}/source")
-def jobs_source(job_id: str, path: str, start: int = 1, end: int = 1) -> dict[str, Any]:
+def jobs_source(job_id: str, path: str, start: int = 1, end: int = 0) -> dict[str, Any]:
     with session() as s:
         job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
         if not job:
@@ -183,7 +183,9 @@ def jobs_source(job_id: str, path: str, start: int = 1, end: int = 1) -> dict[st
         repo = s.get(Repo, job.repo_id)
         repo_path = repo.path
     try:
-        return read_symbol(repo_path, path, start, end)
+        # end defaults to 0, not 1: otherwise a start without an end slices an empty range
+        # and reports a non-zero start, which reads as a loaded-but-blank file.
+        return read_symbol(repo_path, path, start, end or start)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
