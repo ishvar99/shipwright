@@ -357,6 +357,38 @@
     }
   }
 
+  /* Landing. The hidden start state is applied ONLY when motion is welcome, so a
+     reduced-motion visitor — or one whose JS never runs — sees the content, not a blank page. */
+  @media (prefers-reduced-motion: no-preference) {
+    .sw-reveal {
+      opacity: 0;
+      transform: translateY(12px);
+      transition:
+        opacity 500ms var(--ease-out-quart),
+        transform 500ms var(--ease-out-quart);
+    }
+    .sw-reveal[data-shown="true"] {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Accent wash behind the hero. Decorative only. */
+  .sw-glow {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .sw-glow::before {
+    content: "";
+    position: absolute;
+    inset: -20% -10% auto -10%;
+    height: 60vh;
+    z-index: -1;
+    background: radial-gradient(60% 50% at 50% 0%, var(--glow), transparent 70%);
+    pointer-events: none;
+  }
+
   /* Code pane. No tokenizer: contrast carries the answer to "is this the right function?". */
   .sw-code {
     display: flex;
