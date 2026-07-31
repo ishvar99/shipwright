@@ -21,3 +21,12 @@ export function isWithinBand(
 ): boolean {
   return Math.abs(deltaPp) <= bandPp(n, tasks);
 }
+
+/**
+ * Comparing two runs is limited by the coarser of the two: a 353-task run cannot lend its
+ * resolution to a 30-task one. Using the reference's n alone would understate the band on
+ * every cross-size comparison, which is the direction that flatters a result.
+ */
+export function pairwiseN(a: number, b: number): number {
+  return Math.min(a, b);
+}

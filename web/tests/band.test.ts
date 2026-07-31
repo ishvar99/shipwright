@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bandPp, isWithinBand, resolutionPp } from "@/lib/evals/band";
+import snapshot from "@/fixtures/analytics.json";
+import { AnalyticsSchema } from "@/lib/contracts";
+import { bandPp, isWithinBand, pairwiseN, resolutionPp } from "@/lib/evals/band";
 
 describe("resolutionPp", () => {
   it("is one task expressed in percentage points", () => {
@@ -46,5 +48,51 @@ describe("isWithinBand", () => {
 
   it("treats everything as inconclusive when the sample is empty", () => {
     expect(isWithinBand(50, 0)).toBe(true);
+  });
+});
+
+describe("pairwiseN", () => {
+  it("takes the coarser of the two samples", () => {
+    expect(pairwiseN(353, 30)).toBe(30);
+    expect(pairwiseN(30, 353)).toBe(30);
+    expect(pairwiseN(100, 100)).toBe(100);
+  });
+
+  // The direction that matters: borrowing the larger n would shrink the band and make a
+  // difference look real when the coarser run cannot express it.
+  it("never lets a large run lend its resolution to a small one", () => {
+    const delta = 4;
+    expect(isWithinBand(delta, 353)).toBe(false); // would read as a result
+    expect(isWithinBand(delta, pairwiseN(353, 30))).toBe(true); // honestly inconclusive
+  });
+});
+
+describe("the committed snapshot", () => {
+  const runs = snapshot.runs;
+
+  it("parses and carries a spread of sample sizes worth banding", () => {
+    expect(() => AnalyticsSchema.parse(snapshot)).not.toThrow();
+    expect(new Set(runs.map((r) => r.n)).size).toBeGreaterThan(2);
+  });
+
+  // The done-criterion, asserted rather than eyeballed.
+  it("bands widen as the sample shrinks", () => {
+    const sizes = [...new Set(runs.map((r) => r.n))].sort((a, b) => a - b);
+    const widths = sizes.map((n) => bandPp(n));
+    expect(widths).toEqual([...widths].sort((a, b) => b - a));
+    const smallest = Math.min(...sizes);
+    const largest = Math.max(...sizes);
+    expect(bandPp(smallest)).toBeGreaterThan(bandPp(largest));
+  });
+
+  it("records the fine-tune's parse-failure result, which accuracy alone would hide", () => {
+    const pool = runs.filter((r) => r.parse_failures > 0 && r.n === 100);
+    const tuned = pool.find((r) => r.model === "adapters");
+    const base = pool.find((r) => r.model.startsWith("Qwen2.5-Coder-1.5B"));
+    expect(tuned && base).toBeTruthy();
+    expect(tuned!.parse_failures).toBeLessThan(base!.parse_failures);
+    // ...while the accuracy difference between them sits inside the band.
+    const delta = tuned!.file5 - base!.file5;
+    expect(isWithinBand(delta, pairwiseN(tuned!.n, base!.n))).toBe(true);
   });
 });

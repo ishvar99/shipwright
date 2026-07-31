@@ -274,6 +274,10 @@ def analytics_summary() -> dict[str, Any]:
                     "n": n,
                     "file5": round(100 * sum(1 for x in m if x.get("file_acc_at_5")) / n, 1),
                     "func10": round(100 * sum(1 for x in m if x.get("func_acc_at_10")) / n, 1),
+                    # The fine-tune's headline was parse failures, not accuracy, so the table
+                    # has to carry it. Tokens are deliberately absent: model_calls is not
+                    # populated per benchmark task, so a column would be mostly empty.
+                    "parse_failures": sum(int(x.get("parse_failures") or 0) for x in m),
                     "commit": run.git_commit,
                     "date": run.started_at.strftime("%Y-%m-%d"),
                 }
