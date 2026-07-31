@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CodeEmpty } from "@/components/workspace/panes";
+import { CodePane } from "@/components/workspace/code-pane";
 import { Composer } from "@/components/workspace/composer";
 import { RepoRail } from "@/components/workspace/repo-rail";
 import { ResultsList } from "@/components/workspace/results-list";
@@ -133,9 +133,8 @@ export function WorkspaceShell({ live }: { live: boolean }) {
 
           <section id="pane-code" className="workspace-pane" aria-label="Source">
             <PaneHeader>code</PaneHeader>
-            <div className="workspace-scroll">
-              <CodeEmpty />
-            </div>
+            {/* recorded: the deployed site has no backend, so source comes from the bundle. */}
+            <CodePane jobId={jobId} recorded={live ? null : demoRun.sources} />
           </section>
         </div>
       </div>

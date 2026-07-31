@@ -13,7 +13,13 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 const BASE = process.env.BACKEND_URL ?? "http://localhost:8000";
-const SOURCES_TO_CAPTURE = 3;
+// Every returned location: on the deployed site the fixture IS the product, so a row
+// whose source was not captured is a dead end for the one visitor who explores.
+const SOURCES_TO_CAPTURE = 10;
+// The pane answers "is this the right function?", not "read me this class", so a bounded window
+// is enough. Uncapped, a 240-line class body pushed the bundle past 100 KB — and the landing
+// hero imports this same file statically.
+const SOURCE_WINDOW_LINES = 40;
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.issue || (!args.path && !args.url)) {
@@ -46,7 +52,8 @@ if (finished.status !== "done") {
 
 const sources = {};
 for (const loc of finished.result.locations.slice(0, SOURCES_TO_CAPTURE)) {
-  const q = new URLSearchParams({ path: loc.path, start: loc.start_line, end: loc.end_line });
+  const end = Math.min(loc.end_line || loc.start_line, loc.start_line + SOURCE_WINDOW_LINES);
+  const q = new URLSearchParams({ path: loc.path, start: loc.start_line, end });
   sources[`${loc.path}:${loc.start_line}`] = await get(`/api/jobs/${job.id}/source?${q}`);
 }
 

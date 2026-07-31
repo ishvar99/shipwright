@@ -134,18 +134,19 @@ describe("ordering", () => {
 });
 
 describe("topScore", () => {
-  it("is the maximum, which on the real capture is not the first row", () => {
-    expect(topScore(LOCATIONS)).toBe(0.031099);
-    expect(topScore(LOCATIONS)).not.toBe(LOCATIONS[0].score);
+  it("is the maximum score in the set", () => {
+    expect(topScore(LOCATIONS)).toBe(Math.max(...LOCATIONS.map((l) => l.score)));
   });
 
   it("keeps every bar within range, unlike normalising to the first row", () => {
     const top = topScore(LOCATIONS);
     expect(LOCATIONS.every((l) => l.score / top <= 1)).toBe(true);
-    // Several rows would clamp to full width with the wrong denominator, so the reranker's
-    // override would render as a row of identical full bars.
-    const clamped = LOCATIONS.filter((l) => l.score / LOCATIONS[0].score > 1).length;
-    expect(clamped).toBeGreaterThan(1);
+    // On any reranked capture the top-ranked row is not the strongest retrieval score, so the
+    // first-row denominator produces ratios above 1 that clamp to full width — the reranker's
+    // override rendering as identical bars. Asserted as a property, not a row count, because
+    // the count is a fact about one capture.
+    expect(topScore(LOCATIONS)).toBeGreaterThan(LOCATIONS[0].score);
+    expect(LOCATIONS.some((l) => l.score / LOCATIONS[0].score > 1)).toBe(true);
   });
 
   it("does not divide by zero on an empty set", () => {
