@@ -1,14 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ResultRow } from "@/components/workspace/result-row";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { ResultCard } from "@/components/workspace/result-row";
 import type { Location } from "@/lib/contracts";
-import { firstLine } from "@/lib/errors";
 import { useSelection } from "@/lib/results/selection";
 import { ordering, topScore } from "@/lib/results/rank";
-import { redact } from "@/lib/stream/redact";
-
-type Order = "reranked" | "retrieval";
 
 // The tree is prerendered, so useLayoutEffect would warn on the server; useEffect alone would
 // paint the new order once before inverting, i.e. jump then slide.
@@ -33,7 +29,6 @@ function useFlip(deps: unknown[]) {
       if (from === undefined) continue;
       const delta = from - row.offsetTop;
       if (!delta) continue;
-      // Add any transform still in flight, or flipping again mid-animation jumps first.
       const current = new DOMMatrixReadOnly(getComputedStyle(row).transform).m42;
       row.style.transition = "none";
       row.style.transform = `translateY(${delta + current}px)`;
@@ -50,33 +45,21 @@ function useFlip(deps: unknown[]) {
   return { ref, reset };
 }
 
-export function ResultsList({
-  locations,
-  mode,
-  jobError,
-  queued,
-  running,
-}: {
-  locations: readonly Location[];
-  mode: string;
-  jobError: string | null;
-  queued: boolean;
-  running: boolean;
-}) {
-  const [order, setOrder] = useState<Order>("reranked");
+/** Always relevance order. The measured movement story lives inside each card's disclosure,
+ * not in a toggle a customer has to decode. */
+export function ResultsList({ locations, mode }: { locations: readonly Location[]; mode: string }) {
   const { symbol, select, requestFocus } = useSelection();
-  const { basis, retrieval, reranked, basePosition, movedCount } = ordering(locations, mode);
-  const rows = order === "reranked" ? reranked : retrieval;
+  const { basis, reranked, basePosition } = ordering(locations, mode);
   const top = topScore(locations);
-  const { ref, reset } = useFlip([order, locations]);
+  const { ref, reset } = useFlip([locations]);
 
-  // A new job's rows must not slide in from the previous job's geometry.
   useEffect(reset, [locations, reset]);
 
-  const active = symbol ?? rows[0]?.symbol ?? null;
+  if (!locations.length) return null;
+  const active = symbol ?? reranked[0]?.symbol ?? null;
 
   const move = (to: number) => {
-    const next = rows[Math.max(0, Math.min(rows.length - 1, to))];
+    const next = reranked[Math.max(0, Math.min(reranked.length - 1, to))];
     if (!next) return;
     select(next);
     ref.current
@@ -85,7 +68,7 @@ export function ResultsList({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
-    const i = rows.findIndex((l) => l.symbol === active);
+    const i = reranked.findIndex((l) => l.symbol === active);
     switch (e.key) {
       case "ArrowDown":
         move(i + 1);
@@ -97,7 +80,7 @@ export function ResultsList({
         move(0);
         break;
       case "End":
-        move(rows.length - 1);
+        move(reranked.length - 1);
         break;
       case "Enter":
         requestFocus();
@@ -105,82 +88,28 @@ export function ResultsList({
       default:
         return; // leave screen-reader and browser shortcuts alone
     }
-    // Clamped, not wrapping: wrapping would yank the code pane from the worst hit to the best
-    // with no visible cause.
-    e.preventDefault();
+    e.preventDefault(); // clamped, not wrapping
   };
 
-  if (jobError) {
-    return (
-      <p className="p-gutter text-evidence-path" role="status">
-        {firstLine(redact(jobError))}
-      </p>
-    );
-  }
-  if (queued) {
-    return (
-      <p className="p-gutter text-subtle" role="status">
-        Waiting for a worker. Two jobs run at a time; queue position is not reported.
-      </p>
-    );
-  }
-  if (!locations.length) {
-    return (
-      <p className="p-gutter text-subtle" role="status">
-        {running ? "Searching…" : "No locations found for this issue."}
-      </p>
-    );
-  }
-
   return (
-    <div className="sw-results">
-      <header className="sw-results-head">
-        <span className="text-subtle">
-          {locations.length} location{locations.length === 1 ? "" : "s"}
-        </span>
-
-        {basis === "identity" ? (
-          <span className="text-subtle">
-            This run did not rerank — retrieval order is the result order.
-          </span>
-        ) : (
-          <span role="group" aria-label="Result order" className="flex items-center gap-gutter">
-            {(["reranked", "retrieval"] as const).map((o) => (
-              <label key={o} className="flex items-center gap-1">
-                <input
-                  type="radio"
-                  name="order"
-                  checked={order === o}
-                  onChange={() => setOrder(o)}
-                />
-                <span>{o === "reranked" ? "reranked order" : "retrieval order"}</span>
-              </label>
-            ))}
-            <span className="text-subtle">{movedCount} of {locations.length} moved</span>
-          </span>
-        )}
-      </header>
-
-      {basis === "relative" && (
-        // Stated once, visibly, not in a title: reconstructed movement is a lower bound on gains
-        // and can invert on losses.
-        <p className="sw-caveat">
-          Movement is compared only within the ten shown. This run did not record retrieval
-          positions, so gains may be understated.
-        </p>
-      )}
-
+    <section className="grid gap-2">
+      <h2 className="text-fg">
+        Where to look
+        <span className="text-subtle"> · {locations.length} places, most likely first</span>
+      </h2>
       <ul
         ref={ref}
         role="listbox"
-        aria-label="Ranked locations"
+        aria-label="Places to look"
         className="sw-rows"
         onKeyDown={onKeyDown}
       >
-        {rows.map((l) => (
-          <ResultRow
+        {reranked.map((l, i) => (
+          <ResultCard
             key={l.symbol}
             location={l}
+            index={i}
+            total={reranked.length}
             basePosition={basePosition.get(l.symbol) ?? 0}
             basis={basis}
             top={top}
@@ -191,6 +120,6 @@ export function ResultsList({
           />
         ))}
       </ul>
-    </div>
+    </section>
   );
 }

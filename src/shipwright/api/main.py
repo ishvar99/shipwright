@@ -22,7 +22,7 @@ from sqlalchemy import String, cast, func, select
 from ..config import settings
 from ..db import session
 from ..models import QUEUED, SKIPPED, Event, Job, Repo, Run, TaskResult
-from .service import import_repo, read_symbol, run_localize
+from .service import import_repo, read_symbol, run_action, run_localize
 
 app = FastAPI(title="Shipwright", version="0.1.0")
 
@@ -42,6 +42,11 @@ POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sw-job")
 class ImportRepo(BaseModel):
     url: str = Field("", description="https://github.com/owner/name")
     path: str = Field("", description="local directory")
+
+
+class CreateAction(BaseModel):
+    kind: str = Field(pattern="^(apply|test|fix_retry)$")
+    symbol: str = ""
 
 
 class CreateJob(BaseModel):
@@ -75,7 +80,9 @@ def _job_json(j: Job) -> dict[str, Any]:
         "status": j.status,
         "mode": j.mode,
         "base_mode": j.base_mode,
-        "model": j.model,
+        # Aliased: the engine is an implementation detail behind this API. Benchmark
+        # reporting reads the Run table, which keeps the real name.
+        "model": "shipwright-engine" if j.model else "",
         "issue": j.issue[:400],
         "result": j.result or {},
         "error": j.error,
@@ -96,18 +103,21 @@ def health() -> dict[str, Any]:
 @app.post("/api/repos/import")
 def repos_import(body: ImportRepo, background: BackgroundTasks) -> dict[str, Any]:
     if not body.url and not body.path:
-        raise HTTPException(400, "provide url or path")
+        raise HTTPException(400, "Enter a GitHub URL or a local folder path.")
     if body.url:
         clean = body.url.strip().removesuffix(".git")
         if "github.com/" not in clean:
-            raise HTTPException(400, "only github.com URLs are supported")
+            raise HTTPException(400, "Only GitHub repositories are supported right now.")
         slug, source, url, path = clean.split("github.com/", 1)[1], "github", clean, ""
     else:
         # read_symbol's sandbox root is this path, so "/" or $HOME would make the whole disk
         # readable through the source endpoint. A 400 now beats a failed row 30s later.
         dest = Path(body.path).expanduser().resolve()
         if dest == Path("/") or dest == Path.home() or not dest.is_dir():
-            raise HTTPException(400, "refusing to index that path")
+            raise HTTPException(
+                400,
+                "That folder can't be imported — choose a project folder, not your home directory.",
+            )
         slug, source, url, path = (
             f"local:{body.path.rstrip('/').split('/')[-1]}",
             "local",
@@ -140,9 +150,14 @@ def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
     with session() as s:
         repo = s.scalars(select(Repo).where(cast(Repo.id, String).like(f"{body.repo_id}%"))).first()
         if not repo:
-            raise HTTPException(404, "repo not found")
+            raise HTTPException(404, "That repository no longer exists. Refresh and try again.")
         if repo.status != "ready":
-            raise HTTPException(409, f"repo is {repo.status}")
+            raise HTTPException(
+                409,
+                "This repository is still importing."
+                if repo.status == "importing"
+                else "This repository failed to import.",
+            )
         job = Job(
             repo_id=repo.id,
             issue=body.issue,
@@ -158,6 +173,39 @@ def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
     return out
 
 
+@app.post("/api/jobs/{job_id}/actions")
+def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks) -> dict[str, Any]:
+    """Apply / test / fix-again as their own jobs, so each streams its own events and the
+    session stream's terminal semantics stay intact."""
+    with session() as s:
+        parent = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        if not parent or parent.kind != "localize":
+            raise HTTPException(404, "That session no longer exists.")
+        fix = (parent.result or {}).get("fix") or {}
+        if body.kind in ("apply", "test") and not fix.get("patch"):
+            raise HTTPException(409, "There is no fix to apply yet.")
+        if body.kind == "test" and not fix.get("applied_branch"):
+            raise HTTPException(409, "Apply the fix before running the tests.")
+        meta: dict[str, Any] = {"parent": str(parent.id)}
+        if body.symbol:
+            meta["symbol"] = body.symbol
+        job = Job(
+            repo_id=parent.repo_id,
+            issue=parent.issue,
+            mode=parent.mode,
+            base_mode=parent.base_mode,
+            kind=body.kind,
+            status=QUEUED,
+            result=meta,
+        )
+        s.add(job)
+        s.flush()
+        out, action_id = _job_json(job), job.id
+
+    background.add_task(POOL.submit, run_action, action_id)
+    return out
+
+
 @app.get("/api/jobs")
 def jobs_list(limit: int = 25) -> list[dict[str, Any]]:
     with session() as s:
@@ -170,7 +218,7 @@ def jobs_get(job_id: str) -> dict[str, Any]:
     with session() as s:
         job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
         if not job:
-            raise HTTPException(404, "job not found")
+            raise HTTPException(404, "That session no longer exists.")
         return _job_json(job)
 
 
@@ -179,7 +227,7 @@ def jobs_source(job_id: str, path: str, start: int = 1, end: int = 0) -> dict[st
     with session() as s:
         job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
         if not job:
-            raise HTTPException(404, "job not found")
+            raise HTTPException(404, "That session no longer exists.")
         repo = s.get(Repo, job.repo_id)
         repo_path = repo.path
     try:
@@ -196,7 +244,7 @@ async def jobs_events(job_id: str, request: Request) -> StreamingResponse:
     with session() as s:
         job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
         if not job:
-            raise HTTPException(404, "job not found")
+            raise HTTPException(404, "That session no longer exists.")
         real_id = job.id
 
     try:

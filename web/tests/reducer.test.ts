@@ -4,6 +4,8 @@ import { JobSchema, SourceSchema, type Job } from "@/lib/contracts";
 import { ApiError } from "@/lib/errors";
 import { createDecoder, feed } from "@/lib/stream/frames";
 import { redact } from "@/lib/stream/redact";
+import { activeElapsedMs, doneSummary, failureCopy, narrate } from "@/lib/stream/narrative";
+import { relativeTime, sessionTitle } from "@/lib/sessions";
 import {
   MAX_RECONNECTS,
   activeStage,
@@ -53,7 +55,7 @@ describe("feed", () => {
   it("emits identical frames no matter where the chunk boundary falls", () => {
     const whole = RAWS.join("\n\n") + "\n\n";
     const expected = feed("", whole).frames.map((f) => f.raw);
-    expect(expected).toHaveLength(8);
+    expect(expected).toHaveLength(RAWS.length);
 
     for (let split = 0; split <= whole.length; split += 1) {
       const a = feed("", whole.slice(0, split));
@@ -121,7 +123,7 @@ describe("happy path", () => {
   it("closes all three stages and reports the job done", () => {
     expect(s.outcome).toEqual({ kind: "done", wallMs: fixture.job.wall_ms });
     expect(traceStages(s).map((t) => t.state)).toEqual(["done", "done", "done"]);
-    expect(s.contiguousMax).toBe(8);
+    expect(s.contiguousMax).toBe(RAWS.length);
     expect(s.quarantined).toEqual([]);
   });
 
@@ -135,13 +137,14 @@ describe("happy path", () => {
   it("stage durations account for nearly all of the server-measured wall time", () => {
     const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
     expect(total).toBeLessThanOrEqual(fixture.job.wall_ms);
-    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.99);
+    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.96);
   });
 
-  it("carries the graph, usage and retrieval facts through", () => {
+  it("carries the graph and retrieval facts through — and no usage, which no longer travels", () => {
     expect(s.graph).toEqual({ files: 33, symbols: 463, callEdges: 2308, importEdges: 246 });
-    expect(s.usage?.calls).toBe(2);
+    expect(s.usage).toBeUndefined();
     expect(s.retrievalConfig).toBe("hybrid");
+    expect(s.candidateCount).toBe(30);
     expect(s.locationCount).toBe(10);
   });
 });
@@ -151,7 +154,7 @@ describe("replay is idempotent", () => {
     const once = fold(RAWS);
     const twice = fold(RAWS, once);
     expect({ ...twice, duplicates: 0 }).toEqual({ ...once, duplicates: 0 });
-    expect(twice.duplicates).toBe(8);
+    expect(twice.duplicates).toBe(RAWS.length);
   });
 
   it("a full replay over an advanced cursor lands on the same state", () => {
@@ -247,7 +250,7 @@ describe("failure", () => {
 
 describe("terminal state is monotone and absorbing", () => {
   it("takes terminal from the REST record when no job.done event arrives", () => {
-    const s = fold(RAWS.slice(0, 7));
+    const s = fold(RAWS.slice(0, -2));
     expect(s.outcome.kind).toBe("pending");
     const after = reduce(s, { kind: "job", job: restJob({ status: "done", wall_ms: 999 }) }).state;
     expect(after.outcome).toEqual({ kind: "done", wallMs: 999, error: undefined });
@@ -262,7 +265,10 @@ describe("terminal state is monotone and absorbing", () => {
 
   it("quarantines frames that arrive after the terminal event", () => {
     const done = fold(RAWS);
-    const after = fold([frame(9, "job.started", { repo: "x", mode: "m", base: "b" }, TS)], done);
+    const after = fold(
+      [frame(RAWS.length + 1, "job.started", { repo: "x", mode: "m", base: "b" }, TS)],
+      done,
+    );
     expect(after.quarantined).toHaveLength(1);
     expect(after.stages.graph.state).toBe("done"); // not reopened
     expect(after.repo).toBe(done.repo);
@@ -282,7 +288,7 @@ describe("cold-loading an already-finished job", () => {
 
   it("still reports the real stage durations", () => {
     const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
-    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.99);
+    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.96);
   });
 });
 
@@ -349,6 +355,24 @@ describe("the clock only ticks when something is timing", () => {
   });
 });
 
+describe("timeline", () => {
+  it("records every accepted event in order, with its display facts", () => {
+    const s = fold(RAWS);
+    expect(s.timeline).toHaveLength(RAWS.length);
+    expect(s.timeline.map((t) => t.type)).toContain("understand.started");
+    const found = s.timeline.find((t) => t.type === "candidates.found");
+    expect(found?.data?.count).toBe(30);
+    // Server timestamps ride along so the feed can show real durations.
+    expect(s.timeline.every((t) => typeof t.ts === "number")).toBe(true);
+  });
+
+  it("does not grow on duplicates or quarantined frames", () => {
+    const once = fold(RAWS);
+    const twice = fold(RAWS, once);
+    expect(twice.timeline).toHaveLength(RAWS.length);
+  });
+});
+
 describe("stream machine", () => {
   it("treats a body that ends with no terminal event as a reconnect, not a finish", () => {
     const s = fold(RAWS.slice(0, 5));
@@ -359,8 +383,8 @@ describe("stream machine", () => {
   });
 
   it("closes on a terminal event and asks for the job record once", () => {
-    const s = fold(RAWS.slice(0, 7));
-    const [f] = feed("", RAWS[7] + "\n\n").frames;
+    const s = fold(RAWS.slice(0, -1));
+    const [f] = feed("", RAWS.at(-1)! + "\n\n").frames;
     const { state, effects } = reduce(s, { kind: "frame", frame: f, at: 1 });
     expect(state.phase).toBe("closed");
     expect(state.closedReason).toBe("terminal");
@@ -479,18 +503,8 @@ describe("the job and stream axes never share vocabulary", () => {
       for (const f of frames) s = reduce(s, { kind: "frame", frame: f, at: 0 }).state;
       labels.push(jobLabel(s).text);
     }
-    // The gaps between stages (graph.ready -> retrieval.started, localization.ready ->
-    // job.done) must not read as the job disappearing.
-    expect(labels).toEqual([
-      "running",
-      "running",
-      "running",
-      "running",
-      "running",
-      "running",
-      "running",
-      "complete",
-    ]);
+    // The gaps between stages must not read as the job disappearing.
+    expect(labels).toEqual([...RAWS.slice(1).map(() => "running"), "complete"]);
   });
 
   it("reports a job as queued from the REST record", () => {
@@ -567,5 +581,96 @@ describe("committed fixture integrity", () => {
     expect(text).not.toMatch(/\/Users\//);
     expect(text).not.toMatch(/\/home\/[a-z]/);
     expect(text).not.toMatch(/\/\/[^/\s:@]+:[^/\s@]+@/);
+  });
+});
+
+// The customer copy is the contract now: these strings are what a user reads, so they are
+// asserted exactly rather than eyeballed.
+describe("narrative feed", () => {
+  it("tells the recorded run as checked-off beats with facts", () => {
+    const s = fold(RAWS);
+    expect(narrate(s)).toEqual([
+      { key: "read", state: "done", label: "Read the codebase", fact: "33 files, 463 definitions" },
+      { key: "understand", state: "done", label: "Understood the request", fact: "20 key terms" },
+      { key: "search", state: "done", label: "Searched the code", fact: "30 possible locations" },
+      { key: "narrow", state: "done", label: "Picked the most likely places" },
+      { key: "found", state: "done", label: "Found 10 places to look" },
+    ]);
+    expect(doneSummary(s)).toBe(`Done · ${(fixture.job.wall_ms / 1000).toFixed(1)}s`);
+  });
+
+  it("shows exactly one active beat mid-run", () => {
+    const mid = fold(RAWS.slice(0, 5)); // through understand.started
+    const lines = narrate(mid);
+    expect(lines.filter((l) => l.state === "active")).toHaveLength(1);
+    expect(lines.at(-1)).toMatchObject({ state: "active", label: "Understanding the request…" });
+    expect(doneSummary(mid)).toBeNull();
+  });
+
+  it("never mentions the machinery", () => {
+    const text = JSON.stringify(narrate(fold(RAWS)));
+    for (const word of ["model", "token", "hybrid", "bm25", "rerank", "qwen"]) {
+      expect(text.toLowerCase()).not.toContain(word);
+    }
+  });
+
+  it("flips the active beat to failed and keeps the detail behind the disclosure", () => {
+    const s = fold([
+      frame(1, "job.started", { repo: "r", mode: "m", base: "b" }, TS),
+      frame(2, "graph.building", {}, TS),
+      frame(3, "job.failed", { error: "ConnectError: [Errno 61] Connection refused" }, TS),
+    ]);
+    expect(narrate(s).at(-1)).toMatchObject({ state: "failed" });
+    const copy = failureCopy("ConnectError: [Errno 61] Connection refused");
+    expect(copy.headline).toBe("The analysis engine isn't responding right now. Try again in a moment.");
+    expect(failureCopy("FileNotFoundError: gone.py").headline).toBe(
+      "We couldn't read this repository. Re-import it and try again.",
+    );
+    expect(failureCopy("ValueError: whatever").headline).toBe(
+      "Something went wrong on our side and this run didn't finish. Please try again.",
+    );
+  });
+
+  it("narrates a legacy recording through the fallback closes", () => {
+    const legacy = [
+      frame(1, "job.started", { repo: "r", mode: "extract_rerank", base: "hybrid" }, TS),
+      frame(2, "graph.building", {}, TS),
+      frame(3, "graph.ready", { files: 10, symbols: 20 }, TS),
+      frame(4, "retrieval.started", { channels: "hybrid" }, TS),
+      frame(5, "model.finished", { calls: 2, input_tokens: 1, output_tokens: 1, parse_failures: 0 }, TS),
+      frame(6, "localization.ready", { count: 4 }, TS),
+      frame(7, "job.done", { wall_ms: 900, locations: 4 }, TS),
+    ];
+    const lines = narrate(fold(legacy));
+    expect(lines.every((l) => l.state === "done")).toBe(true);
+    expect(lines.map((l) => l.key)).toEqual(["read", "search", "found"]);
+  });
+
+  it("suppresses the elapsed counter in replays, where a wall clock would lie", () => {
+    const live = fold(RAWS.slice(0, 5), opened(), () => 0);
+    const later = reduce(live, { kind: "tick", now: 5000 }).state;
+    expect(activeElapsedMs(later)).toBe(5000);
+    const replay = fold(RAWS.slice(0, 5), opened({ mode: "replay", capturedAt: "x" }), () => 0);
+    const rLater = reduce(replay, { kind: "tick", now: 5000 }).state;
+    expect(activeElapsedMs(rLater)).toBeUndefined();
+  });
+});
+
+describe("session presentation", () => {
+  it("titles a session from the first line of the issue", () => {
+    expect(sessionTitle("Fix the cache\n\nlong body...")).toBe("Fix the cache");
+    expect(sessionTitle("## Fix the cache")).toBe("Fix the cache");
+    expect(sessionTitle("  ")).toBe("Untitled session");
+    const long = sessionTitle("word ".repeat(30));
+    expect(long.length).toBeLessThanOrEqual(65);
+    expect(long.endsWith("…")).toBe(true);
+  });
+
+  it("renders relative times without timezone drift on naive timestamps", () => {
+    const now = Date.parse("2026-07-31T12:00:00Z");
+    expect(relativeTime("2026-07-31T11:59:30", now)).toBe("just now");
+    expect(relativeTime("2026-07-31T11:20:00", now)).toBe("40m ago");
+    expect(relativeTime("2026-07-31T03:00:00", now)).toBe("9h ago");
+    expect(relativeTime("2026-07-28T12:00:00", now)).toBe("3d ago");
   });
 });

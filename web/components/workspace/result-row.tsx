@@ -1,28 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { EvidenceStrip, type Channel } from "@/components/ui/evidence-strip";
-import { RankDelta } from "@/components/ui/rank-delta";
-import { ScoreBar } from "@/components/ui/score-bar";
+import { Icon } from "@/components/ui/icon";
 import type { Location } from "@/lib/contracts";
 import { cn } from "@/lib/cn";
-import { qualifiedName, rankDelta, type Basis } from "@/lib/results/rank";
+import { matchTier, qualifiedName, rankDelta, type Basis } from "@/lib/results/rank";
 
-/** Authored, not read from the contents. Left to itself the row announces five clauses with the
- * identifying field fourth, repeated on every arrow press. */
-function label(loc: Location, basePosition: number, basis: Basis, pct: number): string {
-  const { direction, magnitude } = rankDelta(basePosition, loc.rank);
-  const movement =
-    basis === "identity" || direction === "none"
-      ? "same position in retrieval order"
-      : direction === "unknown"
-        ? "retrieval position not recorded"
-        : `${magnitude} place${magnitude === 1 ? "" : "s"} ${direction === "up" ? "higher" : "lower"} than in retrieval order`;
-  const line = loc.start_line > 0 ? `Line ${loc.start_line}. ` : "";
-  return `${qualifiedName(loc)}, ${loc.path}. ${line}${movement}. Score ${pct} percent of the strongest here.`;
-}
-
-export function ResultRow({
+/**
+ * A result as a card: the answer first (symbol name), the evidence one disclosure away.
+ * Movement is narrated only when it was measured — never reconstructed claims.
+ */
+export function ResultCard({
   location,
+  index,
+  total,
   basePosition,
   basis,
   top,
@@ -32,6 +24,8 @@ export function ResultRow({
   onActivate,
 }: {
   location: Location;
+  index: number;
+  total: number;
   basePosition: number;
   basis: Basis;
   top: number;
@@ -40,10 +34,14 @@ export function ResultRow({
   onSelect: () => void;
   onActivate: () => void;
 }) {
-  const pct = top > 0 ? Math.round((location.score / top) * 100) : 0;
-  const symbol = qualifiedName(location);
-  const dir = location.path.includes("/") ? location.path.slice(0, location.path.lastIndexOf("/") + 1) : "";
-  const file = location.path.slice(dir.length);
+  const [open, setOpen] = useState(false);
+  const tier = matchTier(location.score, top);
+  const name = qualifiedName(location);
+  const delta = rankDelta(basePosition, location.rank);
+  const movement =
+    basis === "measured" && delta.direction !== "none" && delta.direction !== "unknown"
+      ? `Search ranked this #${basePosition}; analysis moved it to #${location.rank}.`
+      : null;
 
   return (
     <li
@@ -51,27 +49,53 @@ export function ResultRow({
       aria-selected={selected}
       tabIndex={tabbable ? 0 : -1}
       data-symbol={location.symbol}
-      aria-label={label(location, basePosition, basis, pct)}
-      className={cn("sw-row", selected && "sw-row-selected")}
+      aria-label={`Match ${index + 1} of ${total}. ${name} in ${location.path}${
+        location.start_line > 0 ? `, line ${location.start_line}` : ""
+      }. ${tier.label}.`}
+      className={cn("sw-result", selected && "sw-result-selected")}
       onClick={onSelect}
       onDoubleClick={onActivate}
     >
-      {/* One aria-hidden wrapper: the name above is the row's whole announcement, but DOM order
-          still matches visual order, so there is no reading-order mismatch. */}
-      <span aria-hidden className="contents">
-        {basis !== "identity" && (
-          <RankDelta basePosition={basePosition} finalPosition={location.rank} />
-        )}
-        <EvidenceStrip channels={location.channels as Channel[]} />
-        {/* Leading ellipsis on the directory: the identifying part of a path is its tail. */}
-        <span className="sw-path">
-          <span className="sw-dir">{dir}</span>
-          <span className="sw-file">{file}</span>
-          <span className="sw-sym">{symbol}</span>
-        </span>
-        <ScoreBar score={location.score} top={top} className="sw-bar" />
-        <span className="sw-line">{location.start_line > 0 ? `L${location.start_line}` : "—"}</span>
-      </span>
+      <div aria-hidden className="flex items-start gap-3">
+        <span className="pt-0.5 text-xs tabular-nums text-subtle">{index + 1}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-semibold text-fg">{name}</span>
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-medium",
+                tier.tier === "strong" ? "bg-ok-soft text-ok" : "bg-soft text-muted",
+              )}
+            >
+              {tier.label}
+            </span>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-baseline gap-2 font-mono text-xs text-subtle">
+            <span className="truncate">{location.path}</span>
+            {location.start_line > 0 && (
+              <span className="shrink-0 rounded-full bg-soft px-1.5">line {location.start_line}</span>
+            )}
+          </div>
+          {open && (
+            <div className="mt-2 grid gap-1.5">
+              <EvidenceStrip channels={location.channels as Channel[]} />
+              {movement && <p className="text-xs text-subtle">{movement}</p>}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
+          className="rounded p-1 text-subtle transition-colors hover:bg-soft hover:text-fg"
+          title={open ? "Hide why" : "Why here?"}
+        >
+          <Icon name="chevron" size={14} className={cn("transition-transform", open && "rotate-90")} />
+        </button>
+      </div>
     </li>
   );
 }

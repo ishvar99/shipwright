@@ -25,7 +25,9 @@ class OllamaProvider:
         temperature: float = 0.0,
         max_tokens: int | None = None,
         timeout: float = 300.0,
+        on_delta=None,
     ) -> GenResult:
+        """`on_delta(text)` receives each streamed chunk; the activity stream batches them."""
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -55,6 +57,8 @@ class OllamaProvider:
                         if not ttft_ms:
                             ttft_ms = int((time.perf_counter() - started) * 1000)
                         chunks.append(piece)
+                        if on_delta:
+                            on_delta(piece)
                     if event.get("done"):
                         final = event
 

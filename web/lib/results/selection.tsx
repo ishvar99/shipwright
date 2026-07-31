@@ -12,6 +12,7 @@ type Selection = {
   symbol: string | null;
   location: Location | null;
   select: (location: Location) => void;
+  clear: () => void;
   /** Bumped when the user asks for the code pane (Enter). M6 focuses on a change. */
   focusNonce: number;
   requestFocus: () => void;
@@ -30,14 +31,15 @@ export function SelectionProvider({
   const [focusNonce, setFocusNonce] = useState(0);
 
   const select = useCallback((location: Location) => setSymbol(location.symbol), []);
+  const clear = useCallback(() => setSymbol(null), []);
   const requestFocus = useCallback(() => setFocusNonce((n) => n + 1), []);
 
   const value = useMemo<Selection>(() => {
     // Resolved from the current rows, so a new job clears a selection that no longer exists
     // rather than leaving the code pane on a stale location.
     const location = locations.find((l) => l.symbol === symbol) ?? null;
-    return { symbol: location ? symbol : null, location, select, focusNonce, requestFocus };
-  }, [locations, symbol, select, focusNonce, requestFocus]);
+    return { symbol: location ? symbol : null, location, select, clear, focusNonce, requestFocus };
+  }, [locations, symbol, select, clear, focusNonce, requestFocus]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

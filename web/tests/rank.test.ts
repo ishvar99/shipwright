@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fixture from "@/fixtures/msal-extract-rerank.json";
 import { LocationSchema, type Location } from "@/lib/contracts";
-import { basisFor, ordering, qualifiedName, rankDelta, topScore } from "@/lib/results/rank";
+import { basisFor, matchTier, ordering, qualifiedName, rankDelta, topScore } from "@/lib/results/rank";
 
 const LOCATIONS: Location[] = fixture.job.result.locations.map((l) => LocationSchema.parse(l));
 
@@ -167,5 +167,21 @@ describe("qualifiedName", () => {
 
   it("falls back to the bare name when there is no path prefix", () => {
     expect(qualifiedName(loc({ symbol: "lonely", name: "lonely", rank: 1 }))).toBe("lonely");
+  });
+});
+
+describe("matchTier", () => {
+  it("splits at two thirds and one third of the strongest score", () => {
+    expect(matchTier(0.9, 1).tier).toBe("strong");
+    expect(matchTier(0.5, 1).tier).toBe("good");
+    expect(matchTier(0.2, 1).tier).toBe("possible");
+    expect(matchTier(1, 0).tier).toBe("possible");
+  });
+
+  it('says "match", never a probability word — the score is a rank, not a confidence', () => {
+    for (const label of [matchTier(0.9, 1).label, matchTier(0.5, 1).label, matchTier(0.1, 1).label]) {
+      expect(label).toMatch(/match$/);
+      expect(label.toLowerCase()).not.toMatch(/confiden|probab|%/);
+    }
   });
 });

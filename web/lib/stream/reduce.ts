@@ -21,6 +21,16 @@ export type Stage = {
   startedAt?: number;
 };
 
+export type TimelineEntry = {
+  type: JobEvent["type"];
+  /** Server clock, when the wire carried one. */
+  ts?: number;
+  /** Client arrival. */
+  at: number;
+  /** Small display facts (counts), never free text. */
+  data?: Record<string, number | string>;
+};
+
 export type StreamOrigin =
   | { mode: "network" }
   | { mode: "replay"; capturedAt: string; note?: string };
@@ -61,10 +71,15 @@ export type ActivityState = {
   graph?: { files: number; symbols: number; callEdges?: number; importEdges?: number };
   usage?: { calls: number; inputTokens: number; outputTokens: number; parseFailures: number };
   locationCount?: number;
+  candidateCount?: number;
   /** Raw REST status. `outcome` only distinguishes terminal from pending, so queued vs running
    * would otherwise be unreportable. */
   restStatus?: Job["status"];
 
+  /** Every accepted event in arrival order — the narrative feed renders from this. */
+  timeline: TimelineEntry[];
+  /** The engine ran. Replaces the model name, which no longer travels to the client. */
+  assisted: boolean;
   stages: Record<StageKey, Stage>;
   outcome: { kind: "pending" | "done" | "failed"; wallMs?: number; error?: string };
   /** Distinct from `outcome`, which REST can also set. Only a terminal EVENT means the
@@ -110,6 +125,8 @@ export function initialState(jobId: string, origin: StreamOrigin, now = 0): Acti
       results: { state: "pending" },
     },
     outcome: { kind: "pending" },
+    timeline: [],
+    assisted: false,
     terminalEventSeen: false,
     seen: new Set(),
     contiguousMax: 0,
@@ -221,10 +238,30 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
         "graph",
         { state: "done", endedTs: ts },
       );
-    case "model.selected":
-      return { ...s, model: e.model };
-    case "retrieval.started":
-      return stage({ ...s, retrievalConfig: e.channels }, "search", {
+    case "engine.started":
+      return { ...s, assisted: true };
+    case "model.selected": // legacy replays
+      return { ...s, assisted: true, model: e.model };
+    case "understand.started":
+      return stage({ ...s, assisted: true }, "search", {
+        state: "active",
+        startedTs: ts,
+        startedAt: at,
+      });
+    case "understand.done":
+    case "rank.started":
+      return s;
+    case "candidates.found":
+      return { ...s, candidateCount: e.count };
+    case "search.started":
+    case "retrieval.started": {
+      const opened = { ...s, retrievalConfig: e.channels };
+      // Under extract modes the span is already open from understand.started.
+      if (s.stages.search.state === "active") return opened;
+      return stage(opened, "search", { state: "active", startedTs: ts, startedAt: at });
+    }
+    case "engine.finished":
+      return stage(stage(s, "search", { state: "done", endedTs: ts }), "results", {
         state: "active",
         startedTs: ts,
         startedAt: at,
@@ -365,8 +402,16 @@ export function reduce(state: ActivityState, action: Action): { state: ActivityS
       }
 
       const seen = new Set(s.seen).add(e.seq);
+      // Envelope keys are structural; everything else is a display fact for the feed.
+      const { seq: _seq, type: _type, ts: _ts, ...rest } = e as Record<string, unknown> & JobEvent;
+      void _seq; void _type; void _ts;
+      const folded = fold(s, e, action.at);
       let next: ActivityState = {
-        ...fold(s, e, action.at),
+        ...folded,
+        timeline: [
+          ...folded.timeline,
+          { type: e.type, ts: tsMs(e.ts), at: action.at, data: rest as TimelineEntry["data"] },
+        ],
         seen,
         contiguousMax: grow(seen, s.contiguousMax),
       };
@@ -442,7 +487,7 @@ export function traceStages(s: ActivityState): TraceStage[] {
   for (const key of STAGE_KEYS) {
     const st = s.stages[key];
     if (st.state === "skipped") continue;
-    const label = key === "search" && s.model ? "retrieval + model" : STAGE_LABEL[key];
+    const label = key === "search" && s.assisted ? "retrieval + model" : STAGE_LABEL[key];
     const durationMs =
       st.startedTs !== undefined && st.endedTs !== undefined ? st.endedTs - st.startedTs : undefined;
     out.push({ key, label, state: st.state, durationMs, detail: stageDetail(s, key) });
@@ -451,12 +496,10 @@ export function traceStages(s: ActivityState): TraceStage[] {
 }
 
 function stageDetail(s: ActivityState, key: StageKey): string | undefined {
-  if (key === "graph") return s.graph ? `${s.graph.symbols} symbols` : undefined;
-  if (key === "search") {
-    const parts = [s.retrievalConfig, s.usage ? `${s.usage.calls} calls` : undefined].filter(Boolean);
-    return parts.length ? parts.join(" · ") : undefined;
-  }
-  return s.locationCount !== undefined ? `${s.locationCount} locations` : undefined;
+  if (key === "graph") return s.graph ? `${s.graph.symbols} definitions` : undefined;
+  if (key === "search")
+    return s.candidateCount !== undefined ? `${s.candidateCount} possible locations` : undefined;
+  return s.locationCount !== undefined ? `${s.locationCount} places` : undefined;
 }
 
 export function activeStage(s: ActivityState): StageKey | null {
