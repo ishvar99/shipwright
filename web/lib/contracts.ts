@@ -44,9 +44,24 @@ export const GraphStatsSchema = z.object({
   import_edges: z.number().optional(),
 });
 
+export const FixSchema = z.object({
+  patch: z.string().optional(),
+  files: z.number().optional(),
+  additions: z.number().optional(),
+  deletions: z.number().optional(),
+  attempt: z.number().optional(),
+  failed: z.string().optional(),
+  applied_branch: z.string().optional(),
+  target: z
+    .object({ symbol: z.string(), path: z.string(), name: z.string(), start_line: z.number() })
+    .optional(),
+  tests: z.object({ passed: z.number(), failed: z.number() }).optional(),
+});
+
 export const JobResultSchema = z.object({
   locations: z.array(LocationSchema).default([]),
   graph: GraphStatsSchema.default({}),
+  fix: FixSchema.nullish(),
 });
 
 export const JobSchema = z.object({
@@ -110,6 +125,18 @@ export const EVENT_TYPES = [
   "candidates.found",
   "rank.started",
   "engine.finished",
+  "fix.started",
+  "fix.delta",
+  "fix.ready",
+  "fix.failed",
+  "fix.skipped",
+  "apply.started",
+  "apply.done",
+  "env.started",
+  "env.ready",
+  "test.started",
+  "test.output",
+  "test.done",
   "model.selected", // legacy: replays of jobs recorded before the narrative events
   "retrieval.started", // legacy + retrieval-only mode
   "model.finished",
@@ -137,6 +164,25 @@ export const JobEventSchema = z.discriminatedUnion("type", [
   z.object({ ...envelope, type: z.literal("candidates.found"), count: z.number() }),
   z.object({ ...envelope, type: z.literal("rank.started"), pool: z.number() }),
   z.object({ ...envelope, type: z.literal("engine.finished") }),
+  z.object({ ...envelope, type: z.literal("fix.started"), attempt: z.number() }),
+  z.object({ ...envelope, type: z.literal("fix.delta"), text: z.string() }),
+  z.object({
+    ...envelope,
+    type: z.literal("fix.ready"),
+    files: z.number(),
+    additions: z.number(),
+    deletions: z.number(),
+    attempt: z.number(),
+  }),
+  z.object({ ...envelope, type: z.literal("fix.failed"), reason: z.string() }),
+  z.object({ ...envelope, type: z.literal("fix.skipped") }),
+  z.object({ ...envelope, type: z.literal("apply.started") }),
+  z.object({ ...envelope, type: z.literal("apply.done"), branch: z.string() }),
+  z.object({ ...envelope, type: z.literal("env.started") }),
+  z.object({ ...envelope, type: z.literal("env.ready") }),
+  z.object({ ...envelope, type: z.literal("test.started") }),
+  z.object({ ...envelope, type: z.literal("test.output"), text: z.string() }),
+  z.object({ ...envelope, type: z.literal("test.done"), passed: z.number(), failed: z.number() }),
   // Legacy arm: old sessions replay events that still carry a model name. It is parsed so the
   // replay works, and rendered nowhere.
   z.object({ ...envelope, type: z.literal("model.selected"), model: z.string().optional(), reason: z.string().optional() }),
@@ -165,6 +211,7 @@ export type Job = z.infer<typeof JobSchema>;
 export type Source = z.infer<typeof SourceSchema>;
 export type Analytics = z.infer<typeof AnalyticsSchema>;
 export type AnalyticsRun = z.infer<typeof AnalyticsRunSchema>;
+export type Fix = z.infer<typeof FixSchema>;
 
 function isChannel(value: string): value is Channel {
   return (CHANNELS as readonly string[]).includes(value);

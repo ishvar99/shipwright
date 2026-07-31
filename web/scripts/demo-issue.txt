@@ -1,0 +1,5 @@
+Account lookups miss when the username casing differs
+
+get_accounts lowercases the username filter but compares it against the raw stored
+username, so lookups with different casing silently return no accounts. Make the
+comparison case-insensitive.

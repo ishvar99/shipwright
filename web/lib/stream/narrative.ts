@@ -64,6 +64,39 @@ const BEATS: readonly Beat[] = [
     active: "Narrowing to the most likely places…",
     done: "Picked the most likely places",
   },
+  {
+    key: "fix",
+    opens: ["fix.started"],
+    closes: ["fix.ready"],
+    active: "Writing the fix…",
+    done: "Proposed a fix",
+    fact: (d) =>
+      typeof d.additions === "number" && typeof d.deletions === "number"
+        ? `+${d.additions} −${d.deletions}`
+        : undefined,
+  },
+  {
+    key: "apply",
+    opens: ["apply.started"],
+    closes: ["apply.done"],
+    active: "Applying the fix…",
+    done: "Applied the fix",
+    fact: (d) => (typeof d.branch === "string" ? `branch ${d.branch}` : undefined),
+  },
+  {
+    key: "env",
+    opens: ["env.started"],
+    closes: ["env.ready"],
+    active: "Setting up the test environment…",
+    done: "Test environment ready",
+  },
+  {
+    key: "test",
+    opens: ["test.started"],
+    closes: ["test.done"],
+    active: "Running the tests…",
+    done: "Tests finished",
+  },
 ];
 
 export function narrate(state: ActivityState): FeedLine[] {
@@ -105,6 +138,28 @@ export function narrate(state: ActivityState): FeedLine[] {
         state: "done",
         label: typeof count === "number" ? `Found ${count} place${count === 1 ? "" : "s"} to look` : "Found the places to look",
       });
+    }
+    if (entry.type === "fix.failed") {
+      if (open && open.key === "fix") {
+        open.state = "failed";
+        open.label = "Couldn't write a safe fix";
+        open.fact = typeof entry.data?.reason === "string" ? entry.data.reason : undefined;
+        open = null;
+      }
+      continue;
+    }
+    if (entry.type === "fix.skipped") {
+      lines.push({ key: "fix", state: "done", label: "No single function to fix here" });
+      continue;
+    }
+    if (entry.type === "test.done" && lines.at(-1)?.key === "test") {
+      const last = lines.at(-1)!;
+      const passed = Number(entry.data?.passed ?? 0);
+      const failed = Number(entry.data?.failed ?? 0);
+      last.state = failed > 0 ? "failed" : "done";
+      last.label = failed > 0 ? `Tests · ${passed} passed, ${failed} failed` : `Tests · ${passed} passed`;
+      open = null;
+      continue;
     }
     if (entry.type === "job.failed" && open) {
       open.state = "failed";

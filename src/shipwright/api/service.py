@@ -56,14 +56,11 @@ def import_repo(repo_id) -> None:
                 raise RuntimeError(f"path does not exist: {src}")
             if not (src / ".git").exists():
                 raise RuntimeError("that folder is not a git repository")
-            # Shipwright works on its own clone: applying a fix must never mutate the
-            # user's checkout. --local hardlinks objects, so this is near-instant.
+            # Shipwright works on its own copy: applying a fix must never mutate the
+            # user's checkout.
             dest = WORKSPACES / slug.replace("/", "__")
-            dest.parent.mkdir(parents=True, exist_ok=True)
             if not (dest / ".git").exists():
-                ok, err = _run_git(["clone", "--local", str(src), str(dest)])
-                if not ok:
-                    raise RuntimeError(f"clone failed: {err}")
+                _materialize(src, dest)
         else:
             dest = WORKSPACES / slug.replace("/", "__")
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +208,33 @@ def _fix_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -
         return {"failed": str(e)}
 
 
+def _materialize(src: Path, dest: Path) -> None:
+    """A fully-owned copy of the checkout: `git archive` of HEAD into a fresh `git init`.
+    Survives shallow and partial sources (`clone --local` does not), and carries no remotes,
+    so a token-bearing origin URL can never travel into Shipwright's copy."""
+    dest.mkdir(parents=True, exist_ok=True)
+    archive = subprocess.Popen(["git", "archive", "HEAD"], cwd=src, stdout=subprocess.PIPE)
+    extract = subprocess.run(["tar", "-x", "-C", str(dest)], stdin=archive.stdout, timeout=300)
+    archive.wait(timeout=300)
+    if archive.returncode != 0 or extract.returncode != 0:
+        raise RuntimeError("could not copy the repository")
+    for args in (
+        ["init", "-q"],
+        ["config", "user.email", "fix@shipwright.local"],
+        ["config", "user.name", "Shipwright"],
+        ["add", "-A"],
+        ["commit", "-q", "-m", "shipwright import"],
+    ):
+        ok, err = _run_git(args, cwd=dest, timeout=120)
+        if not ok:
+            raise RuntimeError(f"workspace setup failed: {err[-120:]}")
+    # Repo-local, uncommitted ignore: `git add -A` during apply must never sweep the test
+    # environment into a fix commit.
+    exclude = dest / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    exclude.write_text(".shipwright-venv/\n")
+
+
 def _owned_clone(repo_id) -> Path:
     """Actions mutate; mutation happens only in a clone Shipwright owns. Legacy rows imported
     before this rule point at external checkouts (including the eval corpus) — migrate them
@@ -223,10 +247,7 @@ def _owned_clone(repo_id) -> Path:
             return current
         dest = workspace / repo.slug.replace("/", "__")
         if not (dest / ".git").exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            ok, err = _run_git(["clone", "--local", str(current), str(dest)])
-            if not ok:
-                raise RuntimeError(f"clone failed: {err}")
+            _materialize(current, dest)
         repo.path = str(dest)
         return dest
 
@@ -279,8 +300,6 @@ def run_action(job_id) -> None:
         parent_result = dict(parent.result or {})
         repo_id = job.repo_id
     fix = dict(parent_result.get("fix") or {})
-    repo_dir = _owned_clone(repo_id)
-    repo_path = str(repo_dir)
 
     def write_back(updated_fix: dict) -> None:
         with session() as s:
@@ -288,6 +307,10 @@ def run_action(job_id) -> None:
             p.result = {**(p.result or {}), "fix": updated_fix}
 
     try:
+        # Inside the guard: an exception before the first emit would otherwise vanish into
+        # the executor's unread Future and leave the job silently RUNNING forever.
+        repo_dir = _owned_clone(repo_id)
+        repo_path = str(repo_dir)
         if kind == "apply":
             emit(job_id, "apply.started")
             branch = f"shipwright/fix-{str(parent_id)[:8]}"

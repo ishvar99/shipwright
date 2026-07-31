@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fixture from "@/fixtures/msal-extract-rerank.json";
 import { LocationSchema, type Location } from "@/lib/contracts";
+import { diffStat, parseUnifiedDiff } from "@/lib/results/diff";
 import { basisFor, matchTier, ordering, qualifiedName, rankDelta, topScore } from "@/lib/results/rank";
 
 const LOCATIONS: Location[] = fixture.job.result.locations.map((l) => LocationSchema.parse(l));
@@ -141,12 +142,15 @@ describe("topScore", () => {
   it("keeps every bar within range, unlike normalising to the first row", () => {
     const top = topScore(LOCATIONS);
     expect(LOCATIONS.every((l) => l.score / top <= 1)).toBe(true);
-    // On any reranked capture the top-ranked row is not the strongest retrieval score, so the
-    // first-row denominator produces ratios above 1 that clamp to full width — the reranker's
-    // override rendering as identical bars. Asserted as a property, not a row count, because
-    // the count is a fact about one capture.
-    expect(topScore(LOCATIONS)).toBeGreaterThan(LOCATIONS[0].score);
-    expect(LOCATIONS.some((l) => l.score / LOCATIONS[0].score > 1)).toBe(true);
+    // The invariant is >=: whether the reranker overrode retrieval's #1 varies per run. The
+    // clamping hazard is demonstrated on constructed rows, where it is guaranteed.
+    expect(top).toBeGreaterThanOrEqual(LOCATIONS[0].score);
+    const rows = [
+      loc({ symbol: "a", rank: 1, score: 0.01 }),
+      loc({ symbol: "b", rank: 2, score: 0.02 }),
+    ];
+    expect(rows.some((l) => l.score / rows[0].score > 1)).toBe(true);
+    expect(rows.every((l) => l.score / topScore(rows) <= 1)).toBe(true);
   });
 
   it("does not divide by zero on an empty set", () => {
@@ -183,5 +187,27 @@ describe("matchTier", () => {
       expect(label).toMatch(/match$/);
       expect(label.toLowerCase()).not.toMatch(/confiden|probab|%/);
     }
+  });
+});
+
+describe("parseUnifiedDiff", () => {
+  const patch = fixture.job.result.fix!.patch!;
+
+  it("parses the committed fix patch into files and hunks", () => {
+    const files = parseUnifiedDiff(patch);
+    expect(files).toHaveLength(fixture.job.result.fix!.files!);
+    expect(files[0].path).toBe(fixture.job.result.fix!.target!.path);
+    expect(files[0].hunks.length).toBeGreaterThan(0);
+  });
+
+  it("reproduces the stored addition and deletion counts", () => {
+    const stat = diffStat(parseUnifiedDiff(patch));
+    expect(stat.additions).toBe(fixture.job.result.fix!.additions);
+    expect(stat.deletions).toBe(fixture.job.result.fix!.deletions);
+  });
+
+  it("never invents structure from unknown lines", () => {
+    expect(parseUnifiedDiff("random\ntext\n")).toEqual([]);
+    expect(parseUnifiedDiff("")).toEqual([]);
   });
 });

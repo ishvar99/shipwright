@@ -131,13 +131,16 @@ describe("happy path", () => {
     expect(traceStages(s).map((t) => t.label)).toEqual(["graph", "retrieval + model", "results"]);
   });
 
-  // The contiguity property the three-stage model exists for: the spans account for
-  // essentially all of the server-measured wall time, so a fabricated boundary would show up
-  // as a gap. Proportional, because the two untracked gaps vary per capture.
-  it("stage durations account for nearly all of the server-measured wall time", () => {
+  // The session now spends most of its wall time writing the fix, which sits outside the
+  // three locate stages — so the invariant is bounded-above, and each span is checked against
+  // its own event boundaries in the timeline.
+  it("stage durations are real spans bounded by the wall time", () => {
     const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
+    expect(total).toBeGreaterThan(0);
     expect(total).toBeLessThanOrEqual(fixture.job.wall_ms);
-    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.96);
+    const at = (type: string) => s.timeline.find((t) => t.type === type)?.ts ?? NaN;
+    expect(traceStages(s)[0].durationMs).toBe(at("graph.ready") - at("graph.building"));
+    expect(traceStages(s)[1].durationMs).toBe(at("engine.finished") - at("understand.started"));
   });
 
   it("carries the graph and retrieval facts through — and no usage, which no longer travels", () => {
@@ -288,7 +291,8 @@ describe("cold-loading an already-finished job", () => {
 
   it("still reports the real stage durations", () => {
     const total = traceStages(s).reduce((n, t) => n + (t.durationMs ?? 0), 0);
-    expect(total / fixture.job.wall_ms).toBeGreaterThan(0.96);
+    expect(total).toBeGreaterThan(0);
+    expect(total).toBeLessThanOrEqual(fixture.job.wall_ms);
   });
 });
 
@@ -589,13 +593,19 @@ describe("committed fixture integrity", () => {
 describe("narrative feed", () => {
   it("tells the recorded run as checked-off beats with facts", () => {
     const s = fold(RAWS);
-    expect(narrate(s)).toEqual([
-      { key: "read", state: "done", label: "Read the codebase", fact: "33 files, 463 definitions" },
-      { key: "understand", state: "done", label: "Understood the request", fact: "20 key terms" },
-      { key: "search", state: "done", label: "Searched the code", fact: "30 possible locations" },
-      { key: "narrow", state: "done", label: "Picked the most likely places" },
-      { key: "found", state: "done", label: "Found 10 places to look" },
+    const lines = narrate(s);
+    expect(lines.map((l) => [l.key, l.state, l.label])).toEqual([
+      ["read", "done", "Read the codebase"],
+      ["understand", "done", "Understood the request"],
+      ["search", "done", "Searched the code"],
+      ["narrow", "done", "Picked the most likely places"],
+      ["found", "done", "Found 10 places to look"],
+      ["fix", "done", "Proposed a fix"],
     ]);
+    expect(lines[0].fact).toBe("33 files, 463 definitions");
+    expect(lines[2].fact).toBe("30 possible locations");
+    const fx = fixture.job.result.fix!;
+    expect(lines[5].fact).toBe(`+${fx.additions} −${fx.deletions}`);
     expect(doneSummary(s)).toBe(`Done · ${(fixture.job.wall_ms / 1000).toFixed(1)}s`);
   });
 

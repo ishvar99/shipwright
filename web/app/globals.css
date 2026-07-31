@@ -417,6 +417,52 @@
     box-shadow: 0 0 0 2px var(--accent), var(--shadow-1);
   }
 
+  /* ---------- fix: streaming draft + diff ---------- */
+  .sw-fix-stream {
+    margin: 0;
+    max-height: 18rem;
+    overflow: auto;
+    padding: calc(var(--space-unit) * 2) calc(var(--space-unit) * 3);
+    font-family: var(--font-mono);
+    font-size: var(--text-ui);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    color: var(--muted);
+  }
+
+  .sw-diff {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-ui);
+    line-height: 1.55;
+  }
+
+  .sw-diff-line {
+    display: flex;
+    gap: calc(var(--space-unit) * 1.5);
+    padding-inline: calc(var(--space-unit) * 3);
+    white-space: pre;
+    color: var(--subtle);
+  }
+
+  .sw-diff-sign {
+    width: 1ch;
+    flex: none;
+    user-select: none;
+  }
+
+  .sw-diff-add {
+    background: var(--ok-soft);
+    color: var(--fg);
+  }
+
+  .sw-diff-del {
+    background: var(--danger-soft);
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in oklch, var(--danger) 45%, transparent);
+  }
+
   /* ---------- splitter (right gutter only) ---------- */
   .workspace-sep {
     background: transparent;

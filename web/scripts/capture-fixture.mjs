@@ -44,10 +44,21 @@ console.log(`job ${job.id}`);
 const frames = await recordStream(job.id);
 console.log(`recorded ${frames.length} event frames`);
 
-const finished = await get(`/api/jobs/${job.id}`);
+let finished = await get(`/api/jobs/${job.id}`);
 if (finished.status !== "done") {
   console.error(`job ended ${finished.status}: ${finished.error}`);
   process.exit(1);
+}
+
+// The demo's Apply and Run-tests buttons replay real recorded action streams.
+const actions = {};
+if (finished.result.fix?.patch) {
+  for (const kind of ["apply", "test"]) {
+    const action = await post(`/api/jobs/${job.id}/actions`, { kind });
+    actions[kind] = await recordStream(action.id);
+    console.log(`recorded action ${kind}: ${actions[kind].length} frames`);
+  }
+  finished = await get(`/api/jobs/${job.id}`); // now carries applied_branch + tests
 }
 
 const sources = {};
@@ -80,6 +91,7 @@ const bundle = {
   },
   issue,
   frames,
+  actions,
   job: finished,
   sources,
 };

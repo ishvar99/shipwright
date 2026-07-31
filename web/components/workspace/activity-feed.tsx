@@ -13,9 +13,17 @@ import { traceStages, type ActivityState } from "@/lib/stream/reduce";
  * Pure presentation over the reducer's timeline; live, reopened and recorded sessions all
  * render through this one component.
  */
-export function ActivityFeed({ state, onRetry }: { state: ActivityState; onRetry?: () => void }) {
+export function ActivityFeed({
+  state,
+  onRetry,
+  summary = true,
+}: {
+  state: ActivityState;
+  onRetry?: () => void;
+  summary?: boolean;
+}) {
   const lines = narrate(state);
-  const summary = doneSummary(state);
+  const done = summary ? doneSummary(state) : null;
   const elapsed = activeElapsedMs(state);
   const failed = state.outcome.kind === "failed";
   const failure = failed && state.outcome.error ? failureCopy(state.outcome.error) : null;
@@ -27,7 +35,7 @@ export function ActivityFeed({ state, onRetry }: { state: ActivityState; onRetry
       {/* Announce completed beats once; active lines stay visual-only so screen readers are
           not spammed by the shimmer line changing. */}
       <p className="sr-only" role="status">
-        {failure ? failure.headline : (summary ?? lastDone?.label ?? "")}
+        {failure ? failure.headline : (done ?? lastDone?.label ?? "")}
       </p>
 
       <ol className="grid gap-1.5">
@@ -68,9 +76,9 @@ export function ActivityFeed({ state, onRetry }: { state: ActivityState; onRetry
         </div>
       )}
 
-      {summary && (
+      {done && (
         <div className="flex items-center gap-3 pl-6 pt-1">
-          <span className="font-medium text-fg">{summary}</span>
+          <span className="font-medium text-fg">{done}</span>
           <button
             type="button"
             onClick={() => setShowSteps((v) => !v)}
@@ -82,7 +90,7 @@ export function ActivityFeed({ state, onRetry }: { state: ActivityState; onRetry
           </button>
         </div>
       )}
-      {summary && showSteps && (
+      {done && showSteps && (
         <div className="pl-6">
           <Trace stages={traceStages(state)} className="flex-nowrap overflow-x-auto" />
         </div>
