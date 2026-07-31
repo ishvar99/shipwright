@@ -20,6 +20,34 @@ export class ApiError extends Error {
   }
 }
 
+/** Exception names httpx raises when Ollama is unreachable or the model is not pulled. Keyed on
+ * the NAME, because run_localize formats as f"{type(e).__name__}: {e}" and the message text
+ * differs by platform and resolver. */
+const MODEL_TRANSPORT_ERRORS = new Set([
+  "ConnectError",
+  "ConnectTimeout",
+  "ReadTimeout",
+  "ReadError",
+  "RemoteProtocolError",
+  "PoolTimeout",
+  "HTTPStatusError",
+]);
+
+/**
+ * Turns a job's error text into a kind, so "Ollama is not running" gets its own recovery action
+ * instead of reading identically to a graph-build failure. Without this, `model_unavailable` is
+ * declared in the union and derived by nothing.
+ */
+export function classifyJobError(text: string): ErrorKind {
+  const name = text.slice(0, text.indexOf(":") === -1 ? undefined : text.indexOf(":")).trim();
+  return MODEL_TRANSPORT_ERRORS.has(name) ? "model_unavailable" : "backend_error";
+}
+
+/** Python reprs can be multiline; only the first line is useful in a panel. */
+export function firstLine(text: string): string {
+  return text.split("\n", 1)[0].trim();
+}
+
 const HTTP_TO_KIND: Record<number, ErrorKind> = {
   400: "validation",
   404: "not_found",
