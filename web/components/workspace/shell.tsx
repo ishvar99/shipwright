@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CodePane } from "@/components/workspace/code-pane";
 import { Composer } from "@/components/workspace/composer";
 import { RepoRail } from "@/components/workspace/repo-rail";
@@ -12,7 +12,7 @@ import { apiPost, messageFor } from "@/lib/client/api";
 import { useJobResult } from "@/lib/client/use-job-result";
 import { useRepos } from "@/lib/client/use-repos";
 import { JobSchema, type Repo } from "@/lib/contracts";
-import { demoRun } from "@/lib/fixtures";
+import { demoJob, demoRun } from "@/lib/fixtures";
 import { SelectionProvider } from "@/lib/results/selection";
 import { useJobStream } from "@/lib/stream/use-job-stream";
 import { fixtureEvents, networkEvents } from "@/lib/stream/transport";
@@ -32,7 +32,7 @@ function PaneHeader({ children }: { children: React.ReactNode }) {
 export function WorkspaceShell({ live }: { live: boolean }) {
   const repos = useRepos(live);
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
-  const [jobId, setJobId] = useState<string>(live ? "" : demoRun.job.id);
+  const [jobId, setJobId] = useState<string>(live ? "" : demoJob.id);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Identity of the subscription. A deliberate change restarts the stream; an inline factory
@@ -51,7 +51,7 @@ export function WorkspaceShell({ live }: { live: boolean }) {
   );
   const { state } = useJobStream(jobId || "pending", makeStream);
 
-  const replayJob = useMemo(() => (live ? null : JobSchema.parse(demoRun.job)), [live]);
+  const replayJob = live ? null : demoJob;
   const terminal = state.outcome.kind !== "pending";
   const { job, error: resultError } = useJobResult(jobId, terminal, replayJob);
   const locations = job?.result.locations ?? [];
