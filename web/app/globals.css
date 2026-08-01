@@ -8,7 +8,7 @@
   --fg: oklch(21% 0.006 270);
   --accent: #6553d9;
   --muted: color-mix(in oklch, var(--fg) 68%, var(--bg));
-  --subtle: color-mix(in oklch, var(--fg) 48%, var(--bg));
+  --subtle: color-mix(in oklch, var(--fg) 62%, var(--bg)); /* 5.6:1 — AA at body size */
   --hairline: color-mix(in oklch, var(--fg) 13%, var(--bg));
   --soft: color-mix(in oklch, var(--fg) 4%, var(--bg));
   --accent-soft: color-mix(in oklch, var(--accent) 10%, var(--bg));
@@ -53,7 +53,7 @@
   --fg: #ededf0;
   --accent: #8b7cf6;
   --muted: #a2a2ad;
-  --subtle: #71717c;
+  --subtle: #858592; /* 5.4:1 — AA at body size */
   --hairline: color-mix(in oklch, var(--fg) 10%, var(--bg));
   --soft: #141419;
   --accent-soft: color-mix(in oklch, var(--accent) 15%, var(--bg));
@@ -572,22 +572,27 @@
     isolation: isolate;
   }
 
-  /* Hero constellation: a committed dark panel (nested .dark rescopes the tokens), nav on
-     top, proof strip on the fold. Rich base so it reads designed, not just switched off. */
+  /* Hero: nav on top, proof strip on the fold, constellation behind. Built from tokens, so
+     it wears the site theme and the page reads as one surface end to end. */
   .sw-hero {
-    --subtle: color-mix(in oklch, var(--fg) 66%, var(--bg));
     position: relative;
     isolation: isolate;
-    min-height: 100svh;
+    min-height: 92svh;
     display: grid;
     grid-template-rows: auto 1fr auto;
     align-items: center;
     overflow: clip;
+    /* Token-only, so the hero follows the site theme instead of fighting it. */
     background:
-      radial-gradient(90% 70% at 50% -10%, color-mix(in oklch, var(--accent) 22%, transparent), transparent 62%),
-      radial-gradient(60% 50% at 85% 100%, color-mix(in oklch, var(--accent) 10%, transparent), transparent 70%),
-      linear-gradient(180deg, #0b0a12, #0a0a0f 55%, #0d0c16);
-    color: var(--fg);
+      radial-gradient(85% 65% at 50% -8%, color-mix(in oklch, var(--accent) 9%, transparent), transparent 62%),
+      radial-gradient(55% 45% at 88% 108%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 70%),
+      linear-gradient(180deg, var(--bg), color-mix(in oklch, var(--accent) 3%, var(--bg)) 55%, var(--bg));
+  }
+
+  .sw-shell {
+    width: min(100%, 84rem);
+    margin-inline: auto;
+    padding-inline: clamp(1.5rem, 4vw, 3.5rem);
   }
 
   .sw-hero-nav {
@@ -595,9 +600,7 @@
     align-items: center;
     justify-content: space-between;
     gap: calc(var(--space-unit) * 3);
-    width: min(100%, 80rem);
-    margin-inline: auto;
-    padding: calc(var(--space-unit) * 2.5) calc(var(--space-unit) * 3);
+    padding-block: calc(var(--space-unit) * 2.5);
     position: relative;
     z-index: 1;
   }
@@ -607,11 +610,9 @@
     z-index: 1;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: calc(var(--space-unit) * 3);
-    width: min(100%, 64rem);
-    margin-inline: auto;
-    padding: calc(var(--space-unit) * 4) calc(var(--space-unit) * 3) calc(var(--space-unit) * 5);
-    border-top: 1px solid color-mix(in oklch, var(--fg) 10%, transparent);
+    gap: calc(var(--space-unit) * 4);
+    padding-block: calc(var(--space-unit) * 4) calc(var(--space-unit) * 5);
+    border-top: 1px solid var(--hairline);
     text-align: left;
   }
 
@@ -670,9 +671,9 @@
     inset: 0;
     z-index: -1;
     background:
-      radial-gradient(46% 50% at 50% 46%, color-mix(in oklch, #0a0a0f 42%, transparent), transparent 72%),
+      radial-gradient(44% 48% at 50% 46%, color-mix(in oklch, var(--bg) 62%, transparent), transparent 72%),
       /* Vignette: the ring fades off-frame instead of being cut by the section edge. */
-      radial-gradient(120% 100% at 50% 50%, transparent 55%, #0a0a0f 100%);
+      radial-gradient(120% 100% at 50% 50%, transparent 52%, var(--bg) 100%);
     pointer-events: none;
   }
 
