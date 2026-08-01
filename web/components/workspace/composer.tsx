@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
 import type { Repo } from "@/lib/contracts";
+import { repoDisplayName } from "@/lib/repo-name";
 import { cn } from "@/lib/cn";
 
 const MIN_CHARS = 8;
@@ -110,7 +111,7 @@ export function Composer({
               )}
             >
               {r.status !== "ready" && <StatusDot tone={r.status === "failed" ? "bad" : "active"} />}
-              {r.slug.replace(/^local:/, "").split("__").pop()}
+              {repoDisplayName(r.slug)}
             </button>
           ))}
         </div>

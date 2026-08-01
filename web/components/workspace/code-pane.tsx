@@ -53,10 +53,13 @@ export function CodePane({
   jobId,
   recorded,
   onClose,
+  onOpenInEditor,
 }: {
   jobId: string;
   recorded: Record<string, unknown> | null;
   onClose?: () => void;
+  /** Live only — the demo has no workspace to edit. */
+  onOpenInEditor?: () => void;
 }) {
   const { location, focusNonce } = useSelection();
   const state = useSource(jobId, location, recorded);
@@ -103,12 +106,24 @@ export function CodePane({
         <span className="shrink-0 rounded-full bg-soft px-2 py-0.5 text-xs text-subtle">
           {from === to ? `Line ${from}` : `Lines ${from}–${to}`}
         </span>
+        {onOpenInEditor && (
+          <button
+            type="button"
+            onClick={onOpenInEditor}
+            className="ml-auto shrink-0 rounded px-2 py-0.5 text-xs text-subtle transition-colors hover:bg-soft hover:text-fg"
+          >
+            Open in editor
+          </button>
+        )}
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label="Close code preview"
-            className="ml-auto rounded p-1 text-subtle transition-colors hover:bg-soft hover:text-fg"
+            className={cn(
+              "shrink-0 rounded p-1 text-subtle transition-colors hover:bg-soft hover:text-fg",
+              !onOpenInEditor && "ml-auto",
+            )}
           >
             <Icon name="x" size={14} />
           </button>

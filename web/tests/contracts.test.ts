@@ -63,6 +63,12 @@ describe("RepoSchema", () => {
   it("rejects an unknown status rather than passing it through", () => {
     expect(() => RepoSchema.parse({ ...repo, status: "wat" })).toThrow();
   });
+
+  it("accepts a zip-sourced repo", () => {
+    // Uploaded repos carry source "zip"; the enum omitting it would fail every repos poll
+    // once a single archive had been imported.
+    expect(RepoSchema.parse({ ...repo, source: "zip", slug: "zip:demoproj" }).source).toBe("zip");
+  });
 });
 
 describe("LocationSchema", () => {
@@ -93,6 +99,13 @@ describe("JobSchema", () => {
     const { status, ...withoutStatus } = job;
     void status;
     expect(() => JobSchema.parse(withoutStatus)).toThrow();
+  });
+
+  it("carries repo_slug, defaulting for jobs recorded before it existed", () => {
+    expect(JobSchema.parse({ ...job, repo_slug: "zip:demoproj" }).repo_slug).toBe("zip:demoproj");
+    const { repo_slug, ...without } = { ...job, repo_slug: "x" };
+    void repo_slug;
+    expect(JobSchema.parse(without).repo_slug).toBe("");
   });
 });
 

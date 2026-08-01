@@ -2,18 +2,12 @@
 
 import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
-import { StatusDot, type StatusTone } from "@/components/ui/status-dot";
+import { StatusDot } from "@/components/ui/status-dot";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import type { Job } from "@/lib/contracts";
 import { cn } from "@/lib/cn";
-import { relativeTime, sessionTitle } from "@/lib/sessions";
-
-const TONE: Record<Job["status"], StatusTone> = {
-  queued: "active",
-  running: "active",
-  done: "good",
-  errored: "bad",
-};
+import { repoDisplayName } from "@/lib/repo-name";
+import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
 
 export function Sidebar({
   sessions,
@@ -61,8 +55,13 @@ export function Sidebar({
               >
                 <span className="block truncate text-fg">{sessionTitle(job.issue)}</span>
                 <span className="mt-0.5 flex items-center gap-2 text-xs text-subtle">
-                  <StatusDot tone={TONE[job.status]} />
-                  {relativeTime(job.created_at)}
+                  <StatusDot tone={SESSION_TONE[job.status]} />
+                  {/* Titles come from the issue's first line, so two runs of the same text are
+                      otherwise indistinguishable in this list. */}
+                  {job.repo_slug && (
+                    <span className="truncate">{repoDisplayName(job.repo_slug)}</span>
+                  )}
+                  <span className="shrink-0">{relativeTime(job.created_at)}</span>
                   {demo && <span className="rounded-full bg-soft px-1.5 font-medium">Demo</span>}
                 </span>
               </button>
@@ -72,12 +71,12 @@ export function Sidebar({
       </div>
 
       <div className="mt-2 grid gap-1 border-t border-hairline pt-2">
-        {!demo && (
-          <button type="button" onClick={onOpenRepositories} className="sw-side-item">
-            <Icon name="folder" size={16} />
-            Repositories
-          </button>
-        )}
+        {/* Shown in demo too: it is the only route to the file browser, which the hosted
+            demo can drive from the recording. */}
+        <button type="button" onClick={onOpenRepositories} className="sw-side-item">
+          <Icon name="folder" size={16} />
+          Repositories
+        </button>
         <div className="px-2 py-1">
           <ThemeToggle />
         </div>

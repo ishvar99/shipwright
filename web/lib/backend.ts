@@ -6,7 +6,7 @@ const BASE = process.env.BACKEND_URL ?? "http://localhost:8000";
 const TIMEOUT_MS = 30_000;
 
 type Options = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
   query?: Record<string, string | number | undefined>;
 };

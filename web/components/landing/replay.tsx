@@ -6,6 +6,7 @@ import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { FixCard } from "@/components/workspace/fix-card";
 import { ResultsList } from "@/components/workspace/results-list";
 import { demoJob, demoRun } from "@/lib/fixtures";
+import { repoDisplayName } from "@/lib/repo-name";
 import { SelectionProvider } from "@/lib/results/selection";
 import { fixtureEvents, type CapturedFrame } from "@/lib/stream/transport";
 import { useJobStream } from "@/lib/stream/use-job-stream";
@@ -91,7 +92,7 @@ export function Replay() {
       <div className="register-dense sw-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-2.5">
           <span className="text-[length:var(--text-ui)] font-medium text-fg">
-            {demoRun.meta.repo.replace(/^local:/, "").split("__").pop()}
+            {repoDisplayName(demoRun.meta.repo)}
           </span>
           <Button
             variant="ghost"

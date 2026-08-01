@@ -1,3 +1,5 @@
+import { ancestorsOf, foldTree } from "@/lib/repo-fold";
+import { fuzzyRank } from "@/lib/repo-fuzzy";
 import { describe, expect, it } from "vitest";
 import fixture from "@/fixtures/msal-extract-rerank.json";
 import { LocationSchema, type Location } from "@/lib/contracts";
@@ -209,5 +211,81 @@ describe("parseUnifiedDiff", () => {
   it("never invents structure from unknown lines", () => {
     expect(parseUnifiedDiff("random\ntext\n")).toEqual([]);
     expect(parseUnifiedDiff("")).toEqual([]);
+  });
+});
+
+describe("foldTree", () => {
+  const entries = [
+    { path: "msal/application.py", size: 100 },
+    { path: "README.md", size: 10 },
+    { path: "msal/token_cache.py", size: 50 },
+    { path: "tests/unit/test_app.py", size: 20 },
+  ];
+
+  it("nests by directory and puts directories before files", () => {
+    const tree = foldTree(entries);
+    expect(tree.map((n) => n.name)).toEqual(["msal", "tests", "README.md"]);
+    expect(tree[0].kind).toBe("dir");
+  });
+
+  it("reuses one node for a shared directory instead of duplicating it", () => {
+    const tree = foldTree(entries);
+    const msal = tree.find((n) => n.name === "msal");
+    expect(msal?.kind === "dir" && msal.children).toHaveLength(2);
+  });
+
+  it("keeps nested directories nested", () => {
+    const tree = foldTree(entries);
+    const tests = tree.find((n) => n.name === "tests");
+    const unit = tests?.kind === "dir" ? tests.children[0] : null;
+    expect(unit?.kind).toBe("dir");
+    expect(unit?.path).toBe("tests/unit");
+  });
+
+  it("returns nothing for no entries", () => {
+    expect(foldTree([])).toEqual([]);
+  });
+});
+
+describe("ancestorsOf", () => {
+  it("lists every directory on the way down, excluding the file itself", () => {
+    expect(ancestorsOf("tests/unit/test_app.py")).toEqual(["tests", "tests/unit"]);
+  });
+
+  it("returns nothing for a file at the root", () => {
+    expect(ancestorsOf("README.md")).toEqual([]);
+  });
+});
+
+describe("fuzzyRank", () => {
+  const paths = ["msal/application.py", "msal/token_cache.py", "tests/test_application.py"];
+
+  it("matches a subsequence, not just a substring", () => {
+    expect(fuzzyRank("mapp", paths).map((m) => m.path)).toContain("msal/application.py");
+  });
+
+  it("drops paths that do not contain the characters in order", () => {
+    expect(fuzzyRank("zzz", paths)).toEqual([]);
+  });
+
+  it("ranks a filename match above a directory-only match", () => {
+    const ranked = fuzzyRank("test", paths);
+    expect(ranked[0].path).toBe("tests/test_application.py");
+  });
+
+  it("prefers a consecutive run over scattered characters", () => {
+    const consecutive = fuzzyRank("token", ["msal/token_cache.py"])[0].score;
+    const scattered = fuzzyRank("tkn", ["msal/token_cache.py"])[0].score;
+    expect(consecutive).toBeGreaterThan(scattered);
+  });
+
+  it("returns the head of the list unranked for an empty query", () => {
+    expect(fuzzyRank("  ", paths, 2).map((m) => m.path)).toEqual(paths.slice(0, 2));
+  });
+
+  it("reports match positions so the UI can highlight them", () => {
+    const [first] = fuzzyRank("app", ["msal/application.py"]);
+    expect(first.hits).toHaveLength(3);
+    expect("msal/application.py"[first.hits[0]]).toBe("a");
   });
 });

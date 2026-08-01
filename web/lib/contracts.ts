@@ -10,7 +10,7 @@ export const JobStatusSchema = z.enum(["queued", "running", "done", "errored"]);
 export const RepoSchema = z.object({
   id: z.string(),
   slug: z.string(),
-  source: z.enum(["github", "local"]),
+  source: z.enum(["github", "local", "zip"]),
   status: RepoStatusSchema,
   symbols: z.number(),
   files: z.number(),
@@ -67,6 +67,9 @@ export const JobResultSchema = z.object({
 export const JobSchema = z.object({
   id: z.string(),
   repo_id: z.string(),
+  // Carried on the job so session lists name their repo without a client-side join, which
+  // has nothing to join against in the recorded demo.
+  repo_slug: z.string().default(""),
   kind: z.string(),
   status: JobStatusSchema,
   mode: z.string(),
@@ -79,6 +82,31 @@ export const JobSchema = z.object({
   output_tokens: z.number(),
   wall_ms: z.number(),
   created_at: z.string(),
+});
+
+/** The repo browser's file list. Flat: the client folds it into a tree and feeds quick-open
+ * from the same array. `branch` is the branch actually checked out — after an apply the
+ * workspace sits on shipwright/fix-*, and the UI says so rather than guessing. */
+export const RepoTreeSchema = z.object({
+  entries: z.array(z.object({ path: z.string(), size: z.number() })),
+  truncated: z.boolean().default(false),
+  branch: z.string().default(""),
+  head: z.string().default(""),
+});
+
+/** Binary and oversize files come back 200 with a reason and no content, so the editor shows
+ * a placeholder rather than an error banner. */
+export const RepoFileSchema = z.object({
+  path: z.string(),
+  content: z.string().default(""),
+  sha: z.string().default(""),
+  reason: z.enum(["binary", "too_large"]).nullish(),
+});
+
+/** `sha` is the new conflict token: without it every second save would self-conflict. */
+export const RepoSaveSchema = z.object({
+  sha: z.string(),
+  commit: z.string().nullable(),
 });
 
 export const SourceSchema = z.object({
@@ -209,6 +237,9 @@ export type Repo = z.infer<typeof RepoSchema>;
 export type Location = z.infer<typeof LocationSchema>;
 export type Job = z.infer<typeof JobSchema>;
 export type Source = z.infer<typeof SourceSchema>;
+export type RepoTree = z.infer<typeof RepoTreeSchema>;
+export type RepoFile = z.infer<typeof RepoFileSchema>;
+export type RepoSave = z.infer<typeof RepoSaveSchema>;
 export type Analytics = z.infer<typeof AnalyticsSchema>;
 export type AnalyticsRun = z.infer<typeof AnalyticsRunSchema>;
 export type Fix = z.infer<typeof FixSchema>;

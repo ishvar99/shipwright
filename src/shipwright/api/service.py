@@ -10,16 +10,19 @@ that reconnects can resume from Last-Event-ID instead of losing the timeline.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
+import threading
 import time
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import func, select
 
 from ..codegraph.assisted import localize_assisted
-from ..codegraph.build import build
+from ..codegraph.build import SKIP_DIRS, build
 from ..codegraph.retrieve import Localizer
 from ..config import settings
 from ..db import session
@@ -27,6 +30,65 @@ from ..fix import FixError, generate_fix
 from ..models import DONE, ERRORED, RUNNING, Event, Job, Repo
 
 WORKSPACES = Path("workspaces")
+
+# One lock per repo id serialises every git-mutating operation (apply, test, save) so they
+# never collide on .git/index.lock and a save's read-hash→write→commit stays atomic.
+_REPO_LOCKS: dict[str, threading.Lock] = defaultdict(threading.Lock)
+
+_DENY_TOP = {".git", ".shipwright-venv"}
+MAX_EDIT_BYTES = 2_000_000
+MAX_TREE_ENTRIES = 20_000
+MAX_COMPRESSED_UPLOAD = 150 * 1024 * 1024
+
+
+class RepoBusy(Exception):
+    """An action holds the repo lock; the save is refused rather than queued."""
+
+
+class SaveConflict(Exception):
+    """The file changed since the editor loaded it. Carries the current sha so the client
+    can offer Overwrite without a second read and a second race."""
+
+    def __init__(self, current_sha: str) -> None:
+        super().__init__("The file changed on disk since you opened it.")
+        self.current_sha = current_sha
+
+
+class FileTooLarge(Exception):
+    pass
+
+
+def repo_lock(repo_id) -> threading.Lock:
+    return _REPO_LOCKS[str(repo_id)]
+
+
+def _sha(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _scrub_creds(text: str) -> str:
+    """Strip //user:token@ userinfo so a token in git stderr never reaches repo.error."""
+    return re.sub(r"//[^/@\s]+@", "//***@", text)
+
+
+def _fail_repo(repo_id, message: str) -> None:
+    with session() as s:
+        r = s.get(Repo, repo_id)
+        r.status = "failed"
+        r.error = _scrub_creds(message)[:500]
+
+
+def _resolve_in_repo(repo_path: str, path: str) -> Path:
+    """Containment + deny-list. read_symbol allows .git/config; repo-level endpoints must not."""
+    root = Path(repo_path).resolve()
+    target = (root / path).resolve()
+    try:
+        rel = target.relative_to(root)
+    except ValueError as e:
+        raise ValueError("path escapes repository") from e
+    if rel.parts and rel.parts[0] in _DENY_TOP:
+        raise ValueError("path is not accessible")
+    return target
 
 
 def emit(job_id, type_: str, **payload) -> None:
@@ -59,31 +121,63 @@ def import_repo(repo_id) -> None:
             # Shipwright works on its own copy: applying a fix must never mutate the
             # user's checkout.
             dest = WORKSPACES / slug.replace("/", "__")
-            if not (dest / ".git").exists():
-                _materialize(src, dest)
+            import_sha = _materialize(src, dest) if not (dest / ".git").exists() else ""
         else:
             dest = WORKSPACES / slug.replace("/", "__")
             dest.parent.mkdir(parents=True, exist_ok=True)
             if not (dest / ".git").exists():
                 ok, err = _run_git(["clone", "--depth", "1", url, str(dest)])
                 if not ok:
-                    raise RuntimeError(f"clone failed: {err}")
+                    raise RuntimeError(f"clone failed: {_scrub_creds(err)}")
+            ok, import_sha = _run_git(["rev-parse", "HEAD"], cwd=dest, timeout=60)
+            import_sha = import_sha.strip() if ok else ""
 
         graph = build(dest)
         stats = graph.stats()
         with session() as s:
             r = s.get(Repo, repo_id)
             r.path = str(dest)
+            r.import_ref = import_sha
             r.symbols = stats["symbols"]
             r.files = stats["files"]
             r.status = "ready"
             ok, ref = _run_git(["rev-parse", "--short", "HEAD"], cwd=dest, timeout=60)
             r.default_ref = ref.strip() if ok else ""
     except Exception as e:
+        _fail_repo(repo_id, f"{type(e).__name__}: {e}")
+
+
+def import_zip(repo_id, zip_path: str) -> None:
+    """Uploaded archive → owned workspace. Runs on IMPORT_POOL, off the request thread and
+    off the job pool, so an extraction never queues behind two inference sessions."""
+    from .importer import ZipRejected, extract, validate
+
+    zp = Path(zip_path)
+    try:
+        with session() as s:
+            slug = s.get(Repo, repo_id).slug
+        dest = WORKSPACES / slug.replace("/", "__").replace(":", "_")
+        validate(zp)
+        extract(zp, dest)
+        import_sha = _git_init_owned(dest)
+        graph = build(dest)
+        stats = graph.stats()
         with session() as s:
             r = s.get(Repo, repo_id)
-            r.status = "failed"
-            r.error = f"{type(e).__name__}: {e}"[:500]
+            r.path = str(dest)
+            r.import_ref = import_sha
+            r.symbols = stats["symbols"]
+            r.files = stats["files"]
+            r.status = "ready"
+            ok, ref = _run_git(["rev-parse", "--short", "HEAD"], cwd=dest, timeout=60)
+            r.default_ref = ref.strip() if ok else ""
+        zp.unlink(missing_ok=True)
+    except ZipRejected as e:
+        _fail_repo(repo_id, str(e))  # curated copy, stored verbatim
+        zp.unlink(missing_ok=True)
+    except Exception as e:
+        _fail_repo(repo_id, f"Import failed while reading the archive ({type(e).__name__}).")
+        zp.unlink(missing_ok=True)
 
 
 def run_localize(job_id) -> None:
@@ -208,16 +302,9 @@ def _fix_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -
         return {"failed": str(e)}
 
 
-def _materialize(src: Path, dest: Path) -> None:
-    """A fully-owned copy of the checkout: `git archive` of HEAD into a fresh `git init`.
-    Survives shallow and partial sources (`clone --local` does not), and carries no remotes,
-    so a token-bearing origin URL can never travel into Shipwright's copy."""
-    dest.mkdir(parents=True, exist_ok=True)
-    archive = subprocess.Popen(["git", "archive", "HEAD"], cwd=src, stdout=subprocess.PIPE)
-    extract = subprocess.run(["tar", "-x", "-C", str(dest)], stdin=archive.stdout, timeout=300)
-    archive.wait(timeout=300)
-    if archive.returncode != 0 or extract.returncode != 0:
-        raise RuntimeError("could not copy the repository")
+def _git_init_owned(dest: Path) -> str:
+    """Fresh git identity over an already-populated tree; returns the import commit sha.
+    Shared by _materialize (git sources) and zip import (which has no source git)."""
     for args in (
         ["init", "-q"],
         ["config", "user.email", "fix@shipwright.local"],
@@ -233,6 +320,21 @@ def _materialize(src: Path, dest: Path) -> None:
     exclude = dest / ".git" / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
     exclude.write_text(".shipwright-venv/\n")
+    ok, sha = _run_git(["rev-parse", "HEAD"], cwd=dest, timeout=60)
+    return sha.strip() if ok else ""
+
+
+def _materialize(src: Path, dest: Path) -> str:
+    """A fully-owned copy of the checkout: `git archive` of HEAD into a fresh `git init`.
+    Survives shallow and partial sources (`clone --local` does not), and carries no remotes,
+    so a token-bearing origin URL never travels into our copy. Returns the import sha."""
+    dest.mkdir(parents=True, exist_ok=True)
+    archive = subprocess.Popen(["git", "archive", "HEAD"], cwd=src, stdout=subprocess.PIPE)
+    extract = subprocess.run(["tar", "-x", "-C", str(dest)], stdin=archive.stdout, timeout=300)
+    archive.wait(timeout=300)
+    if archive.returncode != 0 or extract.returncode != 0:
+        raise RuntimeError("could not copy the repository")
+    return _git_init_owned(dest)
 
 
 def _owned_clone(repo_id) -> Path:
@@ -314,23 +416,31 @@ def run_action(job_id) -> None:
         if kind == "apply":
             emit(job_id, "apply.started")
             branch = f"shipwright/fix-{str(parent_id)[:8]}"
-            ok, err = _run_git(["checkout", "-B", branch], cwd=repo_dir, timeout=60)
-            if not ok:
-                raise RuntimeError(f"branch failed: {err}")
-            r = subprocess.run(
-                ["git", "apply", "-"],
-                input=fix["patch"],
-                text=True,
-                capture_output=True,
-                cwd=repo_dir,
-            )
-            if r.returncode != 0:
-                raise RuntimeError(f"apply failed: {r.stderr[-200:]}")
-            _run_git(["add", "-A"], cwd=repo_dir, timeout=60)
-            title = issue.splitlines()[0][:60]
-            ok, err = _run_git(["commit", "-m", f"shipwright: {title}"], cwd=repo_dir, timeout=60)
-            if not ok:
-                raise RuntimeError(f"commit failed: {err}")
+            with repo_lock(repo_id):
+                with session() as s:
+                    base = s.get(Repo, repo_id).import_ref or "HEAD"
+                # Base on the import commit, not HEAD: the workspace may still be parked on
+                # an earlier fix branch, and branching off it would fold that fix and every
+                # editor commit into this one's history.
+                ok, err = _run_git(["checkout", "-B", branch, base], cwd=repo_dir, timeout=60)
+                if not ok:
+                    raise RuntimeError(f"branch failed: {err}")
+                r = subprocess.run(
+                    ["git", "apply", "-"],
+                    input=fix["patch"],
+                    text=True,
+                    capture_output=True,
+                    cwd=repo_dir,
+                )
+                if r.returncode != 0:
+                    raise RuntimeError(f"apply failed: {r.stderr[-200:]}")
+                _run_git(["add", "-A"], cwd=repo_dir, timeout=60)
+                title = issue.splitlines()[0][:60]
+                ok, err = _run_git(
+                    ["commit", "-m", f"shipwright: {title}"], cwd=repo_dir, timeout=60
+                )
+                if not ok:
+                    raise RuntimeError(f"commit failed: {err}")
             fix["applied_branch"] = branch
             fix.pop("tests", None)
             write_back(fix)
@@ -340,13 +450,15 @@ def run_action(job_id) -> None:
             py = _ensure_test_env(job_id, repo_dir)
             targets = _test_targets(repo_dir, fix["target"]["path"])
             emit(job_id, "test.started")
-            proc = subprocess.run(
-                [str(py), "-m", "pytest", *targets, "--no-header", "-q"],
-                capture_output=True,
-                text=True,
-                cwd=repo_dir,
-                timeout=180,
-            )
+            # Locked: a save landing mid-run would test a tree the user has since changed.
+            with repo_lock(repo_id):
+                proc = subprocess.run(
+                    [str(py), "-m", "pytest", *targets, "--no-header", "-q"],
+                    capture_output=True,
+                    text=True,
+                    cwd=repo_dir,
+                    timeout=180,
+                )
             out = (proc.stdout or "") + (proc.stderr or "")
             tail = out[-2000:]
             for i in range(0, min(len(tail), 2000), 700):
@@ -446,3 +558,88 @@ def read_symbol(repo_path: str, path: str, start: int, end: int, pad: int = 8) -
     lo = max(0, (start or 1) - 1 - pad)
     hi = min(len(lines), (end or start or 1) + pad)
     return {"path": path, "start": lo + 1, "lines": lines[lo:hi]}
+
+
+def read_whole_file(repo_path: str, path: str) -> dict:
+    """The editor's read. Strict decoding: errors="replace" would turn a cp1252 file into
+    U+FFFD characters that a later save writes back as permanent corruption."""
+    target = _resolve_in_repo(repo_path, path)
+    if not target.is_file():
+        raise ValueError("not a file")
+    if target.stat().st_size > MAX_EDIT_BYTES:
+        return {"path": path, "content": "", "sha": "", "reason": "too_large"}
+    raw = target.read_bytes()
+    if b"\x00" in raw[:8192]:
+        return {"path": path, "content": "", "sha": "", "reason": "binary"}
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return {"path": path, "content": "", "sha": "", "reason": "binary"}
+    return {"path": path, "content": text, "sha": _sha(raw), "reason": None}
+
+
+def build_tree(repo_path: str) -> dict:
+    """Every file the editor may open, plus the branch actually checked out — after an apply
+    the workspace sits on shipwright/fix-*, and the UI has to say so rather than guess."""
+    root = Path(repo_path).resolve()
+    entries: list[dict] = []
+    truncated = False
+    for file in sorted(root.rglob("*")):
+        if len(entries) >= MAX_TREE_ENTRIES:
+            truncated = True
+            break
+        rel = file.relative_to(root)
+        # Same exclusions the graph build uses, so the tree can't show .git or the test venv.
+        if any(p.startswith(".") for p in rel.parts[:-1]) or rel.parts[0].startswith("."):
+            continue
+        if any(p in SKIP_DIRS for p in rel.parts):
+            continue
+        if file.is_symlink() or not file.is_file():
+            continue
+        entries.append({"path": str(rel), "size": file.stat().st_size})
+    branch = head = ""
+    ok, out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=root, timeout=30)
+    if ok:
+        branch = out.strip()
+    ok, out = _run_git(["rev-parse", "--short", "HEAD"], cwd=root, timeout=30)
+    if ok:
+        head = out.strip()
+    return {"entries": entries, "truncated": truncated, "branch": branch, "head": head}
+
+
+def save_file(repo_id, path: str, content: str, base_sha: str) -> dict:
+    """Write + commit, atomically per repo. Auto-committing keeps the working tree clean so
+    apply's `git add -A` can never sweep a manual edit into a fix commit."""
+    if len(content.encode("utf-8")) > MAX_EDIT_BYTES:
+        raise FileTooLarge("That file is too large to save (limit 2 MB).")
+    lock = repo_lock(repo_id)
+    # Non-blocking: an apply holding this lock is a "busy", not a queue to wait in.
+    if not lock.acquire(blocking=False):
+        raise RepoBusy("A fix job is running on this repository. Try again in a moment.")
+    try:
+        # Mutation happens only in a clone we own — repo.path may still be the user's own
+        # checkout for rows imported before that rule.
+        root = _owned_clone(repo_id)
+        target = _resolve_in_repo(str(root), path)
+        if not target.is_file():
+            raise ValueError("not a file")
+        raw = target.read_bytes()
+        current = _sha(raw)
+        if current != base_sha:
+            raise SaveConflict(current)
+        had_bom = raw.startswith(b"\xef\xbb\xbf")
+        new_raw = (b"\xef\xbb\xbf" if had_bom else b"") + content.encode("utf-8")
+        if new_raw == raw:
+            return {"sha": current, "commit": None}  # no-op: git commit would exit 1
+        target.write_bytes(new_raw)
+        new_sha = _sha(new_raw)
+        _run_git(["add", "--", path], cwd=root, timeout=60)
+        ok, err = _run_git(
+            ["commit", "-m", f"edit: {path} (Shipwright editor)"], cwd=root, timeout=60
+        )
+        if not ok:
+            raise RuntimeError(f"commit failed: {err[-200:]}")
+        ok, short = _run_git(["rev-parse", "--short", "HEAD"], cwd=root, timeout=30)
+        return {"sha": new_sha, "commit": short.strip() if ok else None}
+    finally:
+        lock.release()

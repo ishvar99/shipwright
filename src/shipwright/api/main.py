@@ -13,16 +13,31 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, cast, func, or_, select
 
 from ..config import settings
 from ..db import session
 from ..models import QUEUED, SKIPPED, Event, Job, Repo, Run, TaskResult
-from .service import import_repo, read_symbol, run_action, run_localize
+from .service import (
+    MAX_COMPRESSED_UPLOAD,
+    WORKSPACES,
+    FileTooLarge,
+    RepoBusy,
+    SaveConflict,
+    _fail_repo,
+    build_tree,
+    import_repo,
+    import_zip,
+    read_symbol,
+    read_whole_file,
+    run_action,
+    run_localize,
+    save_file,
+)
 
 app = FastAPI(title="Shipwright", version="0.1.0")
 
@@ -37,6 +52,9 @@ app.add_middleware(
 # Graph builds are CPU-bound; keep them off the event loop and bounded so two heavy
 # imports cannot exhaust a 16GB machine.
 POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sw-job")
+# Imports get a separate single worker so a zip extraction never queues behind two
+# inference sessions on POOL (extraction is zlib-bound and releases the GIL).
+IMPORT_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sw-import")
 
 
 class ImportRepo(BaseModel):
@@ -72,10 +90,13 @@ def _repo_json(r: Repo) -> dict[str, Any]:
     }
 
 
-def _job_json(j: Job) -> dict[str, Any]:
+def _job_json(j: Job, slug: str = "") -> dict[str, Any]:
     return {
         "id": str(j.id),
         "repo_id": str(j.repo_id),
+        # Carried on the job so session lists render a repo name without a client-side join
+        # against the repos list, which is empty in the recorded demo.
+        "repo_slug": slug,
         "kind": j.kind,
         "status": j.status,
         "mode": j.mode,
@@ -145,6 +166,121 @@ def repos_list() -> list[dict[str, Any]]:
         return [_repo_json(r) for r in s.scalars(select(Repo).order_by(Repo.created_at.desc()))]
 
 
+def _unique_slug(s, base: str) -> str:
+    """zip:name, zip:name-2, … Re-uploading while one is still importing reuses that row
+    (as /import does) rather than minting a second copy of the same project."""
+    taken = set(
+        s.scalars(
+            select(Repo.slug).where(or_(Repo.slug == base, Repo.slug.like(f"{base}-%")))
+        ).all()
+    )
+    if base not in taken:
+        return base
+    n = 2
+    while f"{base}-{n}" in taken:
+        n += 1
+    return f"{base}-{n}"
+
+
+@app.post("/api/repos/upload")
+def repos_upload(background: BackgroundTasks, file: UploadFile) -> dict[str, Any]:
+    """Zip import. Sync def so FastAPI threadpools the copy: Starlette closes the spooled
+    upload at request teardown, and the worker runs after the response, so the bytes must
+    land somewhere durable first."""
+    name = (file.filename or "upload.zip").rsplit("/", 1)[-1]
+    if not name.lower().endswith(".zip"):
+        raise HTTPException(400, "Upload a .zip archive.")
+    base = f"zip:{name[:-4][:80] or 'project'}"
+
+    with session() as s:
+        existing = s.scalars(select(Repo).where(Repo.slug == base)).first()
+        if existing and existing.status == "importing":
+            return _repo_json(existing)
+        repo = Repo(slug=_unique_slug(s, base), source="zip", status="importing")
+        s.add(repo)
+        s.flush()
+        out, repo_id = _repo_json(repo), repo.id
+
+    uploads = WORKSPACES / "_uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    zip_path = uploads / f"{repo_id}.zip"
+    size = 0
+    try:
+        with open(zip_path, "wb") as w:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_COMPRESSED_UPLOAD:
+                    raise HTTPException(413, "That archive is too large (limit 150 MB).")
+                w.write(chunk)
+    except HTTPException:
+        zip_path.unlink(missing_ok=True)
+        _fail_repo(repo_id, "That archive is too large (limit 150 MB).")
+        raise
+
+    background.add_task(IMPORT_POOL.submit, import_zip, repo_id, str(zip_path))
+    return out
+
+
+def _ready_repo(repo_id: str) -> Repo:
+    """Repo-scoped file access needs a workspace we own. Importing local rows still point at
+    the user's own checkout, and a failed row's path can be "" — which resolves to the
+    server's working directory."""
+    with session() as s:
+        repo = s.scalars(select(Repo).where(cast(Repo.id, String).like(f"{repo_id}%"))).first()
+        if not repo:
+            raise HTTPException(404, "That repository no longer exists.")
+        if repo.status != "ready":
+            raise HTTPException(
+                409,
+                "This repository is still importing."
+                if repo.status == "importing"
+                else "This repository failed to import.",
+            )
+        s.expunge(repo)
+        return repo
+
+
+@app.get("/api/repos/{repo_id}/tree")
+def repo_tree(repo_id: str) -> dict[str, Any]:
+    return build_tree(_ready_repo(repo_id).path)
+
+
+@app.get("/api/repos/{repo_id}/file")
+def repo_file(repo_id: str, path: str) -> dict[str, Any]:
+    try:
+        return read_whole_file(_ready_repo(repo_id).path, path)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class SaveFile(BaseModel):
+    path: str
+    content: str
+    # Required: an absent token would make every save an unconditional overwrite, and the
+    # Overwrite path always has the sha the 409 handed back.
+    base_sha: str = Field(min_length=64, max_length=64)
+
+
+@app.put("/api/repos/{repo_id}/file")
+def repo_save(repo_id: str, body: SaveFile) -> Any:
+    repo = _ready_repo(repo_id)
+    try:
+        return save_file(repo.id, body.path, body.content, body.base_sha)
+    except SaveConflict as e:
+        # Two different 409s: the client offers Overwrite for this one only, and the
+        # returned sha lets it do that in a single request.
+        return JSONResponse(
+            status_code=409,
+            content={"reason": "conflict", "detail": str(e), "current_sha": e.current_sha},
+        )
+    except RepoBusy as e:
+        return JSONResponse(status_code=409, content={"reason": "busy", "detail": str(e)})
+    except FileTooLarge as e:
+        raise HTTPException(413, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @app.post("/api/jobs")
 def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
     with session() as s:
@@ -167,7 +303,7 @@ def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
         )
         s.add(job)
         s.flush()
-        out, job_id = _job_json(job), job.id
+        out, job_id = _job_json(job, repo.slug), job.id
 
     background.add_task(POOL.submit, run_localize, job_id)
     return out
@@ -200,7 +336,8 @@ def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks)
         )
         s.add(job)
         s.flush()
-        out, action_id = _job_json(job), job.id
+        repo = s.get(Repo, parent.repo_id)
+        out, action_id = _job_json(job, repo.slug if repo else ""), job.id
 
     background.add_task(POOL.submit, run_action, action_id)
     return out
@@ -210,7 +347,9 @@ def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks)
 def jobs_list(limit: int = 25) -> list[dict[str, Any]]:
     with session() as s:
         rows = s.scalars(select(Job).order_by(Job.created_at.desc()).limit(limit)).all()
-        return [_job_json(j) for j in rows]
+        ids = {j.repo_id for j in rows}
+        slugs = dict(s.execute(select(Repo.id, Repo.slug).where(Repo.id.in_(ids))).all())
+        return [_job_json(j, slugs.get(j.repo_id, "")) for j in rows]
 
 
 @app.get("/api/jobs/{job_id}")
@@ -219,7 +358,8 @@ def jobs_get(job_id: str) -> dict[str, Any]:
         job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
         if not job:
             raise HTTPException(404, "That session no longer exists.")
-        return _job_json(job)
+        repo = s.get(Repo, job.repo_id)
+        return _job_json(job, repo.slug if repo else "")
 
 
 @app.get("/api/jobs/{job_id}/source")
