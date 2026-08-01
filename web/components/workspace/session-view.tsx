@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { AnswerCard, NoWorkCard } from "@/components/workspace/answer-card";
@@ -12,6 +14,7 @@ import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { apiPost, messageFor } from "@/lib/client/api";
 import { useJobResult } from "@/lib/client/use-job-result";
 import { repoDisplayName } from "@/lib/repo-name";
+import { repoHome } from "@/lib/repo-routes";
 import { JobSchema, type Fix, type Job, type Location } from "@/lib/contracts";
 import { demoJob, demoRun } from "@/lib/fixtures";
 import { SelectionProvider, useSelection } from "@/lib/results/selection";
@@ -58,7 +61,9 @@ export function SessionView({
   // Demo outcomes are revealed by the replayed actions, not shown upfront.
   const [demoStage, setDemoStage] = useState<"proposed" | "applied" | "tested">("proposed");
   const terminal = state.outcome.kind !== "pending";
-  const { job } = useJobResult(jobId, terminal, null, nonce);
+  // Gated on `live`: a replayed session's id belongs to no row, so fetching it is a guaranteed
+  // 404 whose result is discarded two lines below anyway.
+  const { job } = useJobResult(jobId, terminal && live, null, nonce);
   const shown = live ? job : demoJob;
   const fix = live
     ? (job?.result.fix ?? null)
@@ -226,12 +231,15 @@ function SessionBody({
     <div className="sw-session" data-code={location ? "open" : undefined}>
       <div className="grid min-w-0 content-start gap-5">
         <header className="grid gap-1.5">
-          <h2 className="text-lg font-semibold text-fg">{title}</h2>
+          {/* The repository above the issue, and a link: a session is somewhere, and this is
+              the way back to it. */}
           {repoName && (
-            <span className="justify-self-start rounded-full bg-soft px-2.5 py-0.5 text-xs font-medium text-muted">
-              {repoName}
-            </span>
+            <Link href={repoHome(repoId)} className="sw-session-repo">
+              <Icon name="folder" size={13} className="shrink-0" />
+              <span className="sw-truncate">{repoName}</span>
+            </Link>
           )}
+          <h2 className="text-head font-semibold text-fg">{title}</h2>
         </header>
 
         <ActivityFeed state={state} onRetry={onRetry} />

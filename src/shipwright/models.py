@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import ForeignKey, Index, String, Uuid
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -76,9 +76,15 @@ class Repo(Base):
     """A repository the user imported through the product surface."""
 
     __tablename__ = "repos"
+    # Unique per owner, not globally. A global unique on slug is what let the import path hand
+    # the second person to import a repository the first person's workspace — including a
+    # private repo cloned with someone else's token.
+    __table_args__ = (UniqueConstraint("owner", "slug", name="repos_owner_slug_key"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
-    slug: Mapped[str] = mapped_column(String(255), unique=True)  # owner/name or local:<dir>
+    # GitHub provider id of whoever imported it; "" is the single-user local install.
+    owner: Mapped[str] = mapped_column(String(128), default="", index=True)
+    slug: Mapped[str] = mapped_column(String(255))  # owner/name or local:<dir>
     source: Mapped[str] = mapped_column(String(16))  # github | local
     url: Mapped[str] = mapped_column(String(512), default="")
     path: Mapped[str] = mapped_column(String(512), default="")
@@ -103,6 +109,8 @@ class Job(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     repo_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repos.id"))
+    # Denormalised from the repo so a session can be authorised without a join.
+    owner: Mapped[str] = mapped_column(String(128), default="", index=True)
     kind: Mapped[str] = mapped_column(String(16), default=LOCALIZE)
     issue: Mapped[str] = mapped_column(String(20000))
     mode: Mapped[str] = mapped_column(String(32), default="extract_rerank")

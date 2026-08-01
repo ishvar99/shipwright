@@ -7,6 +7,8 @@ import {
   SourceSchema,
   parseOrThrow,
 } from "@/lib/contracts";
+import { checklist, checklistComplete, nextStep } from "@/lib/checklist";
+import { parseWorkspacePath, repoFiles, repoHome, repoSession } from "@/lib/repo-routes";
 
 // Fixtures copied from live responses, including the naive (no-offset) timestamps
 // FastAPI emits — a schema that only accepts ISO-with-zone would break on real data.
@@ -152,5 +154,71 @@ describe("parseOrThrow", () => {
 
   it("returns the parsed value on success", () => {
     expect(parseOrThrow(SourceSchema, { path: "a.py", start: 1, lines: [] }, "x").path).toBe("a.py");
+  });
+});
+
+describe("workspace routes", () => {
+  it("nests a session inside its repository", () => {
+    expect(repoSession("r1", "j2")).toBe("/app/repo/r1/s/j2");
+  });
+
+  it("builds the editor URL with only the parts it was given", () => {
+    expect(repoFiles("r1")).toBe("/app/repo/r1/files");
+    expect(repoFiles("r1", { file: "a/b.py", line: 12, symbol: "f" })).toBe(
+      "/app/repo/r1/files?file=a%2Fb.py&line=12&symbol=f",
+    );
+  });
+
+  // A zip import's slug is "zip:My App", which is a path separator away from a broken link.
+  it("escapes ids that are not URL-safe", () => {
+    expect(repoHome("a/b")).toBe("/app/repo/a%2Fb");
+    expect(parseWorkspacePath(repoHome("a/b")).repoId).toBe("a/b");
+  });
+
+  it("reads the current repository and session back out of a path", () => {
+    expect(parseWorkspacePath("/app/repo/r1/s/j2")).toEqual({ repoId: "r1", jobId: "j2" });
+    expect(parseWorkspacePath("/app/repo/r1/files")).toEqual({ repoId: "r1", jobId: null });
+    expect(parseWorkspacePath("/app/repo/r1")).toEqual({ repoId: "r1", jobId: null });
+  });
+
+  it("resolves the job on the legacy flat route but claims no repository", () => {
+    expect(parseWorkspacePath("/app/session/j2")).toEqual({ repoId: null, jobId: "j2" });
+  });
+
+  it("treats the launcher and unrelated paths as scoping nothing", () => {
+    expect(parseWorkspacePath("/app")).toEqual({ repoId: null, jobId: null });
+    expect(parseWorkspacePath("/app/repos")).toEqual({ repoId: null, jobId: null });
+    expect(parseWorkspacePath("/evals")).toEqual({ repoId: null, jobId: null });
+  });
+});
+
+describe("first-run checklist", () => {
+  const base = { exampleVisible: true, ownRepos: 0, ownSessions: 0, exampleHref: "/x" };
+
+  it("arrives with the first step already complete", () => {
+    const [first, ...rest] = checklist(base);
+    expect(first.done).toBe(true);
+    expect(rest.map((i) => i.done)).toEqual([false, false]);
+  });
+
+  // Someone who imported before the recording was ever on screen has still seen enough.
+  it("counts the example as seen once the user has a repository of their own", () => {
+    expect(checklist({ ...base, exampleVisible: false, ownRepos: 1 })[0].done).toBe(true);
+    expect(checklist({ ...base, exampleVisible: false })[0].done).toBe(false);
+  });
+
+  it("points at the first unfinished step", () => {
+    expect(nextStep(checklist(base))?.id).toBe("import");
+    expect(nextStep(checklist({ ...base, ownRepos: 2 }))?.id).toBe("ship");
+  });
+
+  it("is complete, and so hidden, once a session of the user's own exists", () => {
+    const done = checklist({ ...base, ownRepos: 1, ownSessions: 1 });
+    expect(checklistComplete(done)).toBe(true);
+    expect(nextStep(done)).toBeNull();
+  });
+
+  it("is not complete on the strength of the pre-completed step alone", () => {
+    expect(checklistComplete(checklist(base))).toBe(false);
   });
 });

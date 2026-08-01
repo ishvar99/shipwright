@@ -58,7 +58,7 @@ export function ResultCard({
         <span className="pt-0.5 text-xs tabular-nums text-subtle">{index + 1}</span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="min-w-0 break-words font-semibold text-fg">{name}</span>
+            <span className="min-w-0 break-words text-subhead font-semibold text-fg">{name}</span>
             {/* One glance should identify the single best candidate. */}
             {location.rank === 1 && (
               <span className="rounded-full bg-ok-soft px-2 py-0.5 text-xs font-medium text-ok">
@@ -66,7 +66,7 @@ export function ResultCard({
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex min-w-0 items-baseline gap-2 font-mono text-xs text-subtle">
+          <div className="mt-1 flex min-w-0 items-baseline gap-2 font-mono text-xs font-normal text-subtle">
             <span className="truncate">{location.path}</span>
             {location.start_line > 0 && (
               <span className="shrink-0 rounded-full bg-soft px-1.5">line {location.start_line}</span>

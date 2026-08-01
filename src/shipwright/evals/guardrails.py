@@ -137,7 +137,7 @@ def run_case(repo_id: str, case: Case, timeout_s: int = 240) -> Outcome:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repo", required=True, help="repository id (prefix is fine)")
+    ap.add_argument("--repo", required=True, help="repository id (full UUID; ids match exactly)")
     ap.add_argument("--only", default="", help="run one kind only")
     ap.add_argument("--out", default="", help="write JSON results here")
     args = ap.parse_args()

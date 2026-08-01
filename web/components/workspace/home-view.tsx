@@ -6,27 +6,53 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/cn";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Composer } from "@/components/workspace/composer";
+import { FirstRun } from "@/components/workspace/first-run";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
-import { demoJob, demoRun } from "@/lib/fixtures";
+import { demoJob, demoRepo, demoRun, isDemoJob, isDemoRepo } from "@/lib/fixtures";
 import { repoDisplayName } from "@/lib/repo-name";
+import { repoHome, repoSession } from "@/lib/repo-routes";
 import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
 
 export function HomeView() {
-  const { live, repos, repoList, sessions, currentRepo, selectRepo, submitting, submitError, run } =
-    useWorkspace();
+  const {
+    live,
+    demoVisible,
+    repos,
+    repoList,
+    sessions,
+    currentRepo,
+    selectRepo,
+    submitting,
+    submitError,
+    queuedRepoId,
+    run,
+  } = useWorkspace();
   const router = useRouter();
   // With nothing imported, the composer is the wrong hero: it points at the one action the user
   // cannot take, and the only thing that works is a tertiary card at the bottom of the page.
   const empty = live && !repos.repos.length && !repos.loading;
+  // The composer can only replay when the recording is what it is aimed at.
+  const replay = isDemoRepo(currentRepo?.id);
 
   return (
     <div className="sw-home">
+      {live && (
+        <FirstRun
+          exampleVisible={demoVisible}
+          ownRepos={repos.repos.length}
+          ownSessions={sessions.filter((j) => !isDemoJob(j.id)).length}
+          exampleHref={repoSession(demoRepo.id, demoJob.id)}
+        />
+      )}
+
       {empty && (
         <div className="sw-card grid gap-3 p-5">
-          <h2 className="text-xl font-semibold text-fg">Import a repository to get started</h2>
+          <h2 className="text-head font-semibold text-fg">Import a repository to get started</h2>
           <p className="text-muted">
             Paste a GitHub URL, point at a local folder, or drop a .zip anywhere on this page.
-            Shipwright indexes it and then finds the code behind any bug you describe.
+            Shipwright indexes it and then finds the code behind any bug you describe. Meanwhile
+            the session below is a real recorded run — open it to see what a finished one looks
+            like.
           </p>
           <div>
             <Link href="/app/repos" className="sw-primary-link">
@@ -38,26 +64,25 @@ export function HomeView() {
       )}
 
       <div className={cn("sw-home-composer", empty && "sw-home-muted")}>
-        <h2 className="text-xl font-semibold text-fg">
+        <h2 className="text-head font-semibold text-fg">
           Describe a bug or a change. Shipwright finds where in the code it lives.
         </h2>
         <Composer
-          repos={live ? repos.repos : []}
+          repos={repoList}
           repo={currentRepo}
           onPickRepo={selectRepo}
           busy={submitting}
           onRun={(issue) => {
             void run(issue).then((id) => {
-              if (id) router.push(`/app/session/${id}`);
+              if (id && currentRepo) router.push(repoSession(currentRepo.id, id));
             });
           }}
-          replay={!live}
+          replay={replay}
+          hosted={!live}
+          queued={queuedRepoId === currentRepo?.id}
           issueText={demoRun.issue}
-          onReplay={() => router.push(`/app/session/${demoJob.id}`)}
+          onReplay={() => router.push(repoSession(demoRepo.id, demoJob.id))}
         />
-        {empty && (
-          <p className="text-subtle">Import a repository first — then describe what to change.</p>
-        )}
         {submitError && (
           <p role="alert" className="text-danger">
             {submitError}
@@ -74,7 +99,7 @@ export function HomeView() {
             {sessions.slice(0, 6).map((job) => (
               <li key={job.id}>
                 <Link
-                  href={`/app/session/${job.id}`}
+                  href={repoSession(job.repo_id, job.id)}
                   title={sessionTitle(job.issue)}
                   className="sw-card sw-lift sw-home-card w-full"
                 >
@@ -86,7 +111,14 @@ export function HomeView() {
                     {job.repo_slug && (
                       <span className="sw-truncate">{repoDisplayName(job.repo_slug)}</span>
                     )}
-                    <span className="shrink-0">{relativeTime(job.created_at)}</span>
+                    {/* Named, so nobody mistakes it for a run they started. */}
+                    {isDemoJob(job.id) ? (
+                      <span className="shrink-0 rounded-full bg-soft px-1.5 font-medium">
+                        Recorded
+                      </span>
+                    ) : (
+                      <span className="shrink-0">{relativeTime(job.created_at)}</span>
+                    )}
                   </span>
                 </Link>
               </li>
@@ -104,12 +136,14 @@ export function HomeView() {
           {repoList.slice(0, 5).map((r) => (
             <li key={r.id}>
               <Link
-                href={r.status === "ready" ? `/app/repo/${r.id}` : "/app/repos"}
+                href={r.status === "ready" ? repoHome(r.id) : "/app/repos"}
                 className="sw-card sw-lift sw-home-card w-full"
               >
                 <span className="sw-home-card-title">{repoDisplayName(r.slug)}</span>
                 <span className="sw-home-card-meta">
-                  {r.status === "ready"
+                  {isDemoRepo(r.id)
+                    ? "Recorded example — a real repository and a real session"
+                    : r.status === "ready"
                     ? r.symbols === 0
                       ? "Browse and edit"
                       : `${r.symbols.toLocaleString()} functions`

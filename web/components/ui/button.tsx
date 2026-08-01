@@ -14,7 +14,7 @@ export function Button({ className, variant = "secondary", ...props }: Props) {
         "text-[length:var(--text-ui)] font-medium transition-colors duration-150",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "aria-disabled:cursor-not-allowed aria-disabled:opacity-60",
-        variant === "primary" && "bg-accent text-bg shadow-sm hover:bg-[var(--accent-hover)]",
+        variant === "primary" && "bg-ink text-ink-fg shadow-sm hover:bg-[var(--ink-hover)]",
         variant === "secondary" && "border border-hairline bg-surface text-fg shadow-sm hover:border-accent",
         variant === "ghost" && "bg-transparent text-muted hover:bg-soft hover:text-fg",
         className,

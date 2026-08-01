@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://shipwright:shipwright@localhost:55432/shipwright"
     redis_url: str = "redis://localhost:56379/0"
 
+    # Shared secret between the web BFF and this process. Empty means open, which is the right
+    # default for a loopback-only dev box; set it anywhere the port could be reached otherwise.
+    shipwright_api_key: str = ""
+
     ollama_base_url: str = "http://localhost:11434"
     # 16k-context build (see infra/ollama/). Stock qwen2.5-coder:7b loads at 4096,
     # which silently truncates agent history mid-run.

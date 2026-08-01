@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { ok, toResponse } from "@/lib/route-helpers";
 import { RepoSchema, parseOrThrow } from "@/lib/contracts";
+import { backendHeaders } from "@/lib/backend";
 import { ApiError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
       // verbatim; content-length is not, because this leg is chunked.
       upstream = await fetch(new URL("/api/repos/upload", base), {
         method: "POST",
-        headers: { "content-type": type },
+        headers: await backendHeaders({ "content-type": type }),
         body: request.body,
         // @ts-expect-error -- duplex is required by Node for a streamed request body and is
         // absent from the DOM RequestInit type.

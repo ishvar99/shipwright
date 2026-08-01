@@ -9,18 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, delete, func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from ..config import settings
-from ..db import session
+from ..db import init_schema, session
 from ..models import QUEUED, SKIPPED, Event, Job, Repo, Run, TaskResult
 from .service import (
     MAX_COMPRESSED_UPLOAD,
@@ -34,12 +36,27 @@ from .service import (
     import_zip,
     read_symbol,
     read_whole_file,
+    reindex_repo,
     run_action,
     run_localize,
     save_file,
 )
 
-app = FastAPI(title="Shipwright", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Bring the schema up to date on boot.
+
+    This project uses `create_all` rather than migrations, which only ever CREATEs — so pulling
+    a change that adds a column left the API answering 500s until somebody remembered to run
+    `sw db-init` by hand. Both steps are idempotent, so doing it here costs a few milliseconds
+    and removes the manual step entirely.
+    """
+    init_schema()
+    yield
+
+
+app = FastAPI(title="Shipwright", version="0.1.0", lifespan=lifespan)
 
 # Dev-only: the Vite dev server runs on another port.
 app.add_middleware(
@@ -48,6 +65,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_key(request: Request, call_next):
+    """One shared secret between the BFF and this process.
+
+    Thirteen of the fifteen endpoints below carry no caller identity of any kind — the only
+    thing standing between two people was that uvicorn binds loopback. This closes all of them
+    in one place rather than per route, so a new endpoint is covered by default instead of by
+    remembering. Off when unset, which is correct for a single-user dev box.
+    """
+    if (
+        settings.shipwright_api_key
+        and request.method != "OPTIONS"  # a preflight carries no custom headers to check
+        and request.headers.get("x-shipwright-key") != settings.shipwright_api_key
+    ):
+        return JSONResponse({"detail": "Not authorised."}, status_code=401)
+    return await call_next(request)
+
 
 # Graph builds are CPU-bound; keep them off the event loop and bounded so two heavy
 # imports cannot exhaust a 16GB machine.
@@ -70,13 +106,65 @@ class CreateAction(BaseModel):
 
 
 class CreateJob(BaseModel):
-    # min_length: an empty id makes the prefix match below LIKE '%', which silently selects an
-    # arbitrary repo and returns confident results for one the user never chose.
+    # Matched exactly against a UUID now, so a malformed id is a 404 rather than a silent
+    # prefix hit on somebody else's repository.
     repo_id: str = Field(min_length=8)
     issue: str = Field(min_length=8, max_length=20000)
     mode: str = "extract_rerank"
     base_mode: str = "hybrid"
     client: str = ""
+
+
+def caller_owner(request: Request) -> str:
+    """Who the BFF says is calling, as a GitHub provider id. Trusted only because the shared
+    secret gates this port — the header means nothing on its own, and that is the whole design:
+    identity is resolved once, at the BFF, where the session cookie actually lives.
+
+    "" is the single-user local install, and it owns everything that predates this column.
+    """
+    return (request.headers.get("x-shipwright-owner") or "").strip()[:128]
+
+
+OwnerDep = Annotated[str, Depends(caller_owner)]
+
+
+def _owned(column, owner: str):
+    """Rows this caller may reach.
+
+    A signed-in caller also reaches rows with no owner. Those can only have been created by
+    whoever runs this install, back when it had no accounts — the alternative is that
+    connecting GitHub makes your own existing repositories and sessions disappear.
+
+    That leniency is a migration window, not a resting state: `_claim` below takes ownership of
+    every unowned row the caller touches, so the set shrinks to empty and the model converges
+    on strict per-owner isolation. Import and upload are strict from the start, because a
+    global slug lookup is the path the cross-user workspace handoff actually took.
+    """
+    return column.in_(("", owner)) if owner else column == ""
+
+
+def _claim(owner: str, *rows) -> None:
+    """First authenticated touch of a pre-ownership row takes ownership of it.
+
+    Without this the choice is between losing your work when you sign in (strict) and leaving
+    every legacy row writable by anyone who signs in (lenient). Claiming is the third option:
+    one-time, per row, and it converges. Rows are attached to the caller's session, so the
+    write lands on commit.
+    """
+    if not owner:
+        return
+    for row in rows:
+        if row is not None and not row.owner:
+            row.owner = owner
+
+
+def _uuid_or_404(value: str) -> uuid.UUID:
+    """Ids are matched exactly. A `LIKE '<prefix>%'` lookup turns an opaque UUID into a
+    guessable namespace and can match more than one row."""
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        raise HTTPException(404, "Not found.") from None
 
 
 def _repo_json(r: Repo) -> dict[str, Any]:
@@ -129,7 +217,7 @@ def health() -> dict[str, Any]:
 
 
 @app.post("/api/repos/import")
-def repos_import(body: ImportRepo, background: BackgroundTasks) -> dict[str, Any]:
+def repos_import(body: ImportRepo, background: BackgroundTasks, owner: OwnerDep) -> dict[str, Any]:
     if not body.url and not body.path:
         raise HTTPException(400, "Enter a GitHub URL or a local folder path.")
     if body.url:
@@ -154,10 +242,14 @@ def repos_import(body: ImportRepo, background: BackgroundTasks) -> dict[str, Any
         )
 
     with session() as s:
-        existing = s.scalars(select(Repo).where(Repo.slug == slug)).first()
+        # Scoped to the caller. Globally, this returned whoever imported it first — handing the
+        # second person that workspace, private clone and all.
+        existing = s.scalars(
+            select(Repo).where(Repo.owner == owner, Repo.slug == slug)
+        ).first()
         if existing and existing.status != "failed":
             return _repo_json(existing)
-        repo = existing or Repo(slug=slug, source=source, url=url, path=path)
+        repo = existing or Repo(owner=owner, slug=slug, source=source, url=url, path=path)
         repo.status, repo.error = "importing", ""
         s.add(repo)
         s.flush()
@@ -168,17 +260,23 @@ def repos_import(body: ImportRepo, background: BackgroundTasks) -> dict[str, Any
 
 
 @app.get("/api/repos")
-def repos_list() -> list[dict[str, Any]]:
+def repos_list(owner: OwnerDep) -> list[dict[str, Any]]:
     with session() as s:
-        return [_repo_json(r) for r in s.scalars(select(Repo).order_by(Repo.created_at.desc()))]
+        q = select(Repo).where(_owned(Repo.owner, owner)).order_by(Repo.created_at.desc())
+        rows = list(s.scalars(q))
+        # The list is the first call the app makes, so this is where the migration happens.
+        _claim(owner, *rows)
+        return [_repo_json(r) for r in rows]
 
 
-def _unique_slug(s, base: str) -> str:
+def _unique_slug(s, owner: str, base: str) -> str:
     """zip:name, zip:name-2, … Re-uploading while one is still importing reuses that row
     (as /import does) rather than minting a second copy of the same project."""
     taken = set(
         s.scalars(
-            select(Repo.slug).where(or_(Repo.slug == base, Repo.slug.like(f"{base}-%")))
+            select(Repo.slug).where(
+                Repo.owner == owner, or_(Repo.slug == base, Repo.slug.like(f"{base}-%"))
+            )
         ).all()
     )
     if base not in taken:
@@ -190,7 +288,7 @@ def _unique_slug(s, base: str) -> str:
 
 
 @app.post("/api/repos/upload")
-def repos_upload(background: BackgroundTasks, file: UploadFile) -> dict[str, Any]:
+def repos_upload(background: BackgroundTasks, file: UploadFile, owner: OwnerDep) -> dict[str, Any]:
     """Zip import. Sync def so FastAPI threadpools the copy: Starlette closes the spooled
     upload at request teardown, and the worker runs after the response, so the bytes must
     land somewhere durable first."""
@@ -200,10 +298,14 @@ def repos_upload(background: BackgroundTasks, file: UploadFile) -> dict[str, Any
     base = f"zip:{name[:-4][:80] or 'project'}"
 
     with session() as s:
-        existing = s.scalars(select(Repo).where(Repo.slug == base)).first()
+        existing = s.scalars(
+            select(Repo).where(Repo.owner == owner, Repo.slug == base)
+        ).first()
         if existing and existing.status == "importing":
             return _repo_json(existing)
-        repo = Repo(slug=_unique_slug(s, base), source="zip", status="importing")
+        repo = Repo(
+            owner=owner, slug=_unique_slug(s, owner, base), source="zip", status="importing"
+        )
         s.add(repo)
         s.flush()
         out, repo_id = _repo_json(repo), repo.id
@@ -228,14 +330,42 @@ def repos_upload(background: BackgroundTasks, file: UploadFile) -> dict[str, Any
     return out
 
 
-def _ready_repo(repo_id: str) -> Repo:
+@app.post("/api/repos/{repo_id}/reindex")
+def repo_reindex(repo_id: str, background: BackgroundTasks, owner: OwnerDep) -> dict[str, Any]:
+    """Rebuild the graph for an already-imported repository. The row goes back to `importing`,
+    which is what the client already knows how to poll and render."""
+    with session() as s:
+        repo = s.scalars(
+            select(Repo).where(Repo.id == _uuid_or_404(repo_id), _owned(Repo.owner, owner))
+        ).first()
+        if not repo:
+            raise HTTPException(404, "That repository no longer exists.")
+        _claim(owner, repo)
+        if repo.status == "importing":
+            raise HTTPException(409, "This repository is already indexing.")
+        if not repo.path:
+            raise HTTPException(409, "This repository never imported — retry the import instead.")
+        repo.status, repo.error = "importing", ""
+        s.flush()
+        out, rid = _repo_json(repo), repo.id
+
+    background.add_task(IMPORT_POOL.submit, reindex_repo, rid)
+    return out
+
+
+def _ready_repo(repo_id: str, owner: str) -> Repo:
     """Repo-scoped file access needs a workspace we own. Importing local rows still point at
     the user's own checkout, and a failed row's path can be "" — which resolves to the
     server's working directory."""
     with session() as s:
-        repo = s.scalars(select(Repo).where(cast(Repo.id, String).like(f"{repo_id}%"))).first()
+        # Owner is part of the lookup, not a check after it: a 404 for someone else's row
+        # says nothing about whether it exists.
+        repo = s.scalars(
+            select(Repo).where(Repo.id == _uuid_or_404(repo_id), _owned(Repo.owner, owner))
+        ).first()
         if not repo:
             raise HTTPException(404, "That repository no longer exists.")
+        _claim(owner, repo)
         if repo.status != "ready":
             raise HTTPException(
                 409,
@@ -248,14 +378,14 @@ def _ready_repo(repo_id: str) -> Repo:
 
 
 @app.get("/api/repos/{repo_id}/tree")
-def repo_tree(repo_id: str) -> dict[str, Any]:
-    return build_tree(_ready_repo(repo_id).path)
+def repo_tree(repo_id: str, owner: OwnerDep) -> dict[str, Any]:
+    return build_tree(_ready_repo(repo_id, owner).path)
 
 
 @app.get("/api/repos/{repo_id}/file")
-def repo_file(repo_id: str, path: str) -> dict[str, Any]:
+def repo_file(repo_id: str, path: str, owner: OwnerDep) -> dict[str, Any]:
     try:
-        return read_whole_file(_ready_repo(repo_id).path, path)
+        return read_whole_file(_ready_repo(repo_id, owner).path, path)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -269,8 +399,8 @@ class SaveFile(BaseModel):
 
 
 @app.put("/api/repos/{repo_id}/file")
-def repo_save(repo_id: str, body: SaveFile) -> Any:
-    repo = _ready_repo(repo_id)
+def repo_save(repo_id: str, body: SaveFile, owner: OwnerDep) -> Any:
+    repo = _ready_repo(repo_id, owner)
     try:
         return save_file(repo.id, body.path, body.content, body.base_sha)
     except SaveConflict as e:
@@ -289,11 +419,14 @@ def repo_save(repo_id: str, body: SaveFile) -> Any:
 
 
 @app.post("/api/jobs")
-def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
+def jobs_create(body: CreateJob, background: BackgroundTasks, owner: OwnerDep) -> dict[str, Any]:
     with session() as s:
-        repo = s.scalars(select(Repo).where(cast(Repo.id, String).like(f"{body.repo_id}%"))).first()
+        repo = s.scalars(
+            select(Repo).where(Repo.id == _uuid_or_404(body.repo_id), _owned(Repo.owner, owner))
+        ).first()
         if not repo:
             raise HTTPException(404, "That repository no longer exists. Refresh and try again.")
+        _claim(owner, repo)
         if repo.status != "ready":
             raise HTTPException(
                 409,
@@ -303,6 +436,7 @@ def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
             )
         job = Job(
             repo_id=repo.id,
+            owner=owner,
             issue=body.issue,
             mode=body.mode,
             base_mode=body.base_mode,
@@ -318,13 +452,18 @@ def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
 
 
 @app.post("/api/jobs/{job_id}/actions")
-def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks) -> dict[str, Any]:
+def actions_create(
+    job_id: str, body: CreateAction, background: BackgroundTasks, owner: OwnerDep
+) -> dict[str, Any]:
     """Apply / test / fix-again as their own jobs, so each streams its own events and the
     session stream's terminal semantics stay intact."""
     with session() as s:
-        parent = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        parent = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
         if not parent or parent.kind != "localize":
             raise HTTPException(404, "That session no longer exists.")
+        _claim(owner, parent)
         fix = (parent.result or {}).get("fix") or {}
         if body.kind in ("apply", "test") and not fix.get("patch"):
             raise HTTPException(409, "There is no fix to apply yet.")
@@ -335,6 +474,7 @@ def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks)
             meta["symbol"] = body.symbol
         job = Job(
             repo_id=parent.repo_id,
+            owner=owner,
             issue=parent.issue,
             mode=parent.mode,
             base_mode=parent.base_mode,
@@ -352,41 +492,52 @@ def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks)
 
 
 @app.get("/api/jobs")
-def jobs_list(limit: int = 25, kind: str = "", client: str = "") -> list[dict[str, Any]]:
+def jobs_list(
+    owner: OwnerDep, limit: int = 25, kind: str = "", client: str = ""
+) -> list[dict[str, Any]]:
     """Filters run in SQL, before the limit. Filtering after truncation would let a benchmark
     sweep fill the page and push every one of the user's own sessions off it."""
     with session() as s:
-        q = select(Job)
+        q = select(Job).where(_owned(Job.owner, owner))
         if kind:
             q = q.where(Job.kind == kind)
         if client:
             q = q.where(Job.client == client)
         rows = s.scalars(q.order_by(Job.created_at.desc()).limit(limit)).all()
+        _claim(owner, *rows)
         ids = {j.repo_id for j in rows}
         slugs = dict(s.execute(select(Repo.id, Repo.slug).where(Repo.id.in_(ids))).all())
         return [_job_json(j, slugs.get(j.repo_id, "")) for j in rows]
 
 
 @app.get("/api/jobs/{job_id}")
-def jobs_get(job_id: str) -> dict[str, Any]:
+def jobs_get(job_id: str, owner: OwnerDep) -> dict[str, Any]:
     with session() as s:
-        job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        job = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
         if not job:
             raise HTTPException(404, "That session no longer exists.")
+        _claim(owner, job)
         repo = s.get(Repo, job.repo_id)
         return _job_json(job, repo.slug if repo else "")
 
 
 @app.delete("/api/jobs/{job_id}")
-def jobs_delete(job_id: str) -> dict[str, Any]:
+def jobs_delete(job_id: str, owner: OwnerDep) -> dict[str, Any]:
     """Removing a session removes its events and its action jobs: a job row without its event
     stream is unreadable, and an orphaned apply job points at a parent that is gone."""
     with session() as s:
-        job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        job = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
         if not job:
             raise HTTPException(404, "That session no longer exists.")
+        _claim(owner, job)
         children = s.scalars(
-            select(Job).where(Job.result["parent"].as_string() == str(job.id))
+            select(Job).where(
+                Job.result["parent"].as_string() == str(job.id), _owned(Job.owner, owner)
+            )
         ).all()
         for child in [*children, job]:
             s.execute(delete(Event).where(Event.job_id == child.id))
@@ -395,11 +546,16 @@ def jobs_delete(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}/source")
-def jobs_source(job_id: str, path: str, start: int = 1, end: int = 0) -> dict[str, Any]:
+def jobs_source(
+    job_id: str, owner: OwnerDep, path: str, start: int = 1, end: int = 0
+) -> dict[str, Any]:
     with session() as s:
-        job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        job = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
         if not job:
             raise HTTPException(404, "That session no longer exists.")
+        _claim(owner, job)
         repo = s.get(Repo, job.repo_id)
         repo_path = repo.path
     try:
@@ -411,12 +567,15 @@ def jobs_source(job_id: str, path: str, start: int = 1, end: int = 0) -> dict[st
 
 
 @app.get("/api/jobs/{job_id}/events")
-async def jobs_events(job_id: str, request: Request) -> StreamingResponse:
+async def jobs_events(job_id: str, request: Request, owner: OwnerDep) -> StreamingResponse:
     """SSE with replay. Honours Last-Event-ID so a refresh does not lose the timeline."""
     with session() as s:
-        job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        job = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
         if not job:
             raise HTTPException(404, "That session no longer exists.")
+        _claim(owner, job)
         real_id = job.id
 
     try:

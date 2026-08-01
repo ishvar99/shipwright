@@ -6,7 +6,13 @@
   color-scheme: light;
   --bg: oklch(98% 0.003 90);
   --fg: oklch(21% 0.006 270);
-  --accent: #6553d9;
+  /* Colour means something here: green/amber/red are outcomes, the four evidence hues are
+     retrieval channels. Primary actions take none of them — they are ink. The old accent was
+     Tailwind violet, which every hue region being spoken for had made the only choice left. */
+  --ink: #20242a;
+  --ink-fg: #fcfcfa;
+  --ink-hover: #2c323a;
+  --accent: #46607c;
   --muted: color-mix(in oklch, var(--fg) 68%, var(--bg));
   --subtle: color-mix(in oklch, var(--fg) 62%, var(--bg)); /* 5.6:1 — AA at body size */
   --hairline: color-mix(in oklch, var(--fg) 13%, var(--bg));
@@ -25,8 +31,8 @@
   /* Surfaces and elevation: cards float on the canvas instead of everything being
      hairline-boxed wireframe. */
   --surface: oklch(100% 0 0);
-  --shadow-1: 0 1px 2px oklch(20% 0.01 270 / 0.05), 0 1px 3px oklch(20% 0.01 270 / 0.07);
-  --shadow-2: 0 1px 3px oklch(20% 0.01 270 / 0.06), 0 6px 16px oklch(20% 0.01 270 / 0.1);
+  --shadow-1: 0 0 0 1px oklch(20% 0.01 270 / 0.07), 0 1px 2px oklch(20% 0.01 270 / 0.05);
+  --shadow-2: 0 0 0 1px oklch(20% 0.01 270 / 0.08), 0 6px 16px oklch(20% 0.01 270 / 0.1);
 
   /* Status palette. The accent means "interactive/working"; these mean outcomes. The
      evidence colours mean retrieval channels and are never reused for state. */
@@ -36,8 +42,7 @@
   --ok-soft: color-mix(in oklch, var(--ok) 12%, var(--bg));
   --warn-soft: color-mix(in oklch, var(--warn) 12%, var(--bg));
   --danger-soft: color-mix(in oklch, var(--danger) 12%, var(--bg));
-  --accent-hover: color-mix(in oklch, var(--accent) 88%, var(--fg));
-  --accent-2: oklch(72% 0.15 305);
+  --accent-hover: color-mix(in oklch, var(--accent) 82%, var(--fg));
   --sidebar-w: 260px;
 
   /* Expressive register (landing). .register-dense overrides these four. */
@@ -52,7 +57,10 @@
   color-scheme: dark;
   --bg: #0a0a0f;
   --fg: #ededf0;
-  --accent: #8b7cf6;
+  --ink: #eeeef1;
+  --ink-fg: #0f0f12;
+  --ink-hover: #d8d8de;
+  --accent: #8cafd3;
   --muted: #a2a2ad;
   --subtle: #858592; /* 5.4:1 — AA at body size */
   --hairline: color-mix(in oklch, var(--fg) 10%, var(--bg));
@@ -69,7 +77,9 @@
 
   --surface: #17171d;
   /* Dark elevation is a ring, not a drop shadow — shadows vanish on dark canvases. */
-  --shadow-1: 0 0 0 1px color-mix(in oklch, var(--fg) 9%, transparent);
+  /* Same physical model as light: ring plus shadow, so a card is the same object in both
+     themes rather than reading as border here and float there. */
+  --shadow-1: 0 0 0 1px color-mix(in oklch, var(--fg) 9%, transparent), 0 1px 2px oklch(0% 0 0 / 0.4);
   --shadow-2: 0 0 0 1px color-mix(in oklch, var(--fg) 11%, transparent), 0 8px 24px oklch(0% 0 0 / 0.5);
   --ok: oklch(72% 0.14 155);
   --warn: oklch(78% 0.13 75);
@@ -77,7 +87,6 @@
   --ok-soft: color-mix(in oklch, var(--ok) 14%, var(--bg));
   --warn-soft: color-mix(in oklch, var(--warn) 14%, var(--bg));
   --danger-soft: color-mix(in oklch, var(--danger) 14%, var(--bg));
-  --accent-2: oklch(82% 0.13 305);
 }
 
 /* Workspace register: denser, flat. Texture competes with dense data. */
@@ -86,13 +95,17 @@
   --text-ui: 0.875rem;
   --radius: 0.5rem;
   --radius-card: 12px;
-  --surface-texture: none;
+  /* Kept, at lower contrast: the blueprint grid is the product's one distinctive surface, and
+     turning it off in the product was throwing away the only non-generic thing in the file. */
+  --surface-texture: radial-gradient(var(--grid-dot) 1px, transparent 1px);
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-fg: var(--fg);
   --color-accent: var(--accent);
+  --color-ink: var(--ink);
+  --color-ink-fg: var(--ink-fg);
   --color-muted: var(--muted);
   --color-subtle: var(--subtle);
   --color-hairline: var(--hairline);
@@ -125,6 +138,15 @@
   --text-display: clamp(2.9rem, 1.1rem + 7.2vw, 5.5rem);
   --text-display--line-height: 1.03;
   --text-display--letter-spacing: -0.035em;
+  /* Product headings. The marketing page had a scale and /app had none — 34 of 47 sized
+     elements were text-xs and the largest thing in the product was 24px. */
+  --text-head: 1.5rem;
+  --text-head--line-height: 1.25;
+  --text-head--letter-spacing: -0.021em;
+  --text-subhead: 1.0625rem;
+  --text-subhead--line-height: 1.35;
+  --text-subhead--letter-spacing: -0.011em;
+
   --text-title: clamp(1.7rem, 1.2rem + 1.9vw, 2.35rem);
   --text-title--line-height: 1.15;
   --text-title--letter-spacing: -0.02em;
@@ -256,15 +278,15 @@
     height: 36px;
     padding-inline: 12px;
     border-radius: var(--radius);
-    background: var(--accent);
-    color: var(--bg);
+    background: var(--ink);
+    color: var(--ink-fg);
     font-weight: 500;
     box-shadow: var(--shadow-1);
     transition: background-color 150ms;
   }
 
   .sw-new-session:hover {
-    background: var(--accent-hover);
+    background: var(--ink-hover);
   }
 
   /* The implicit grid track sizes to max-content unless both it and its items are pinned to
@@ -366,13 +388,6 @@
     color: var(--subtle);
   }
 
-  .sw-session-meta > .sw-truncate {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   /* An owned class, not utilities: the narrow-viewport rule below has to override this, and
      Tailwind's utility layer always wins over @layer components regardless of specificity. */
   .sw-side-footer {
@@ -424,6 +439,146 @@
     gap: calc(var(--space-unit) * 3);
   }
 
+  /* Same measure and rhythm as the launcher — moving between them should not feel like moving
+     between two apps. */
+  .sw-repo-home {
+    display: grid;
+    gap: calc(var(--space-unit) * 5);
+    max-width: 64rem;
+    margin-inline: auto;
+    padding-top: 3vh;
+  }
+
+  .sw-repo-home-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: calc(var(--space-unit) * 3);
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .sw-repo-home-actions {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit));
+    flex-shrink: 0;
+  }
+
+  /* Secondary by construction: these sit beside a heading, so they read as tools rather than
+     as the thing to do next. The composer below is the primary action. */
+  .sw-quiet-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding-inline: 10px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    transition: color var(--dur-fast) var(--ease-swift),
+      background-color var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-quiet-button:hover {
+    color: var(--fg);
+    background: var(--soft);
+  }
+
+  .sw-quiet-button:disabled {
+    opacity: 0.6;
+  }
+
+  .sw-unlock {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    padding: calc(var(--space-unit) * 3);
+  }
+
+  .sw-unlock-card {
+    display: grid;
+    gap: calc(var(--space-unit) * 2);
+    width: min(100%, 26rem);
+    padding: calc(var(--space-unit) * 5);
+  }
+
+  .sw-firstrun {
+    display: grid;
+    gap: calc(var(--space-unit) * 3);
+    padding: calc(var(--space-unit) * 4);
+  }
+
+  .sw-firstrun-list {
+    display: grid;
+    gap: calc(var(--space-unit) * 2);
+    list-style: none;
+    padding: 0;
+    counter-reset: none;
+  }
+
+  .sw-firstrun-item {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit) * 2);
+    color: var(--fg);
+  }
+
+  /* Done steps recede rather than vanish — the point of a pre-completed first item is that you
+     can see it is already ticked. */
+  .sw-firstrun-item.is-done {
+    color: var(--subtle);
+    text-decoration: line-through;
+    text-decoration-color: var(--hairline);
+  }
+
+  .sw-firstrun-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border: 1px solid var(--hairline);
+    border-radius: 9999px; /* a state marker, which is exactly what a pill radius is for */
+    color: var(--ok);
+  }
+
+  .is-done > .sw-firstrun-mark {
+    border-color: var(--ok);
+  }
+
+  .sw-firstrun-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--fg);
+    transition: color var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-firstrun-link:hover {
+    color: var(--accent);
+  }
+
+  .sw-session-repo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    justify-self: start;
+    font-size: 0.8125rem;
+    color: var(--subtle);
+    transition: color var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-session-repo:hover {
+    color: var(--fg);
+  }
+
   /* Muted, not hidden: the composer stays visible so its purpose is obvious, but it stops
      competing with the action that actually works. */
   .sw-home-muted h2 {
@@ -437,15 +592,15 @@
     height: 36px;
     padding-inline: 14px;
     border-radius: var(--radius);
-    background: var(--accent);
-    color: var(--bg);
+    background: var(--ink);
+    color: var(--ink-fg);
     font-weight: 500;
     box-shadow: var(--shadow-1);
     transition: background-color var(--dur-fast);
   }
 
   .sw-primary-link:hover {
-    background: var(--accent-hover);
+    background: var(--ink-hover);
   }
 
   .sw-page {
@@ -504,13 +659,6 @@
     min-width: 0;
     font-size: 0.75rem;
     color: var(--subtle);
-  }
-
-  .sw-home-card-meta > .sw-truncate {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .sw-caret {
@@ -769,6 +917,15 @@
     background: var(--warn-soft);
   }
 
+  /* One rule, not per-container copies: this was scoped to two ancestors, so every other
+     element carrying the class simply wrapped. */
+  .sw-truncate {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .sw-repo-trigger {
     display: inline-flex;
     align-items: center;
@@ -776,7 +933,8 @@
     max-width: 22rem;
     padding: 4px 10px;
     border: 1px solid var(--hairline);
-    border-radius: 999px;
+    /* A control, not a badge — pill radius is reserved for tags. */
+    border-radius: var(--radius);
     background: var(--soft);
     color: var(--fg);
     font-size: 0.75rem;
@@ -1284,26 +1442,6 @@
     .sw-hero-stats {
       grid-template-columns: 1fr;
       gap: calc(var(--space-unit) * 2);
-    }
-  }
-
-  /* background-IMAGE, never the shorthand: Lightning CSS duplicates rules containing an
-     oklch() literal to emit a lab() fallback, and a duplicated `background` shorthand resets
-     background-clip to border-box — which paints the gradient as a solid block over
-     transparent text. background-image cannot clobber the clip. */
-  .sw-gradient-text {
-    background-image: linear-gradient(100deg, var(--accent), var(--accent-2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  /* @supports guard: if a browser cannot clip to text, the words stay legible rather than
-     disappearing into a transparent fill. */
-  @supports not ((background-clip: text) or (-webkit-background-clip: text)) {
-    .sw-gradient-text {
-      background-image: none;
-      color: var(--accent);
     }
   }
 

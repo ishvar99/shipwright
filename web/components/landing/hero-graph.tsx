@@ -72,10 +72,22 @@ function readPalette(host: HTMLElement): Palette {
   const css = getComputedStyle(host);
   const probe = document.createElement("span");
   host.appendChild(probe);
+  // The browser resolves color-mix() for us, but it does not promise to serialise the result
+  // as rgb(): in the light theme it hands back oklch() and lab(), which THREE.Color cannot
+  // parse — it warns and leaves the colour white. Painting one pixel and reading it back is
+  // the only form that is always sRGB bytes.
+  const swatch = document.createElement("canvas");
+  swatch.width = swatch.height = 1;
+  const ctx = swatch.getContext("2d", { willReadFrequently: true });
   const resolve = (variable: string) => {
-    // color-mix()/oklch() need the browser to resolve to a computed rgb.
     probe.style.color = css.getPropertyValue(variable).trim() || "#888";
-    return new THREE.Color(getComputedStyle(probe).color);
+    const computed = getComputedStyle(probe).color;
+    if (!ctx) return new THREE.Color(computed);
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = computed;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return new THREE.Color(r / 255, g / 255, b / 255);
   };
   const palette = {
     base: resolve("--muted"),

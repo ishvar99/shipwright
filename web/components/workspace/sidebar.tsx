@@ -4,27 +4,42 @@ import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import type { Job } from "@/lib/contracts";
+import { RepoPicker } from "@/components/workspace/repo-picker";
+import type { Job, Repo } from "@/lib/contracts";
+import { isDemoJob } from "@/lib/fixtures";
 import { repoDisplayName } from "@/lib/repo-name";
+import { repoHome, repoSession } from "@/lib/repo-routes";
 import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
 import { groupSessions } from "@/lib/sessions-group";
 
 /** Navigation is links, not callbacks: every destination is a real address, so middle-click and
  * copy-link work and the browser owns the history. `sw-rail-hide` marks what folds away when the
- * sidebar collapses — the icons stay so the rail keeps its wayfinding. */
+ * sidebar collapses — the icons stay so the rail keeps its wayfinding.
+ *
+ * The list is one repository's sessions rather than every session there has ever been: which
+ * repository you are in is the page you are on, and changing it is navigation. */
 export function Sidebar({
+  repos,
+  currentRepo,
+  onPickRepo,
   sessions,
   sessionsLoaded,
   activeJobId,
+  scoped,
   demo,
   onToggleRail,
   onDelete,
   showAll,
   onShowAll,
 }: {
+  repos: Repo[];
+  currentRepo: Repo | null;
+  onPickRepo: (repo: Repo) => void;
   sessions: Job[];
   sessionsLoaded: boolean;
   activeJobId: string | null;
+  /** True when the list belongs to one repository, which changes what "empty" means. */
+  scoped: boolean;
   demo: boolean;
   onToggleRail: () => void;
   onDelete: (id: string) => void;
@@ -53,7 +68,17 @@ export function Sidebar({
         </button>
       </div>
 
-      <Link href="/app" className="sw-new-session" title="New session">
+      {repos.length > 0 && (
+        <div className="sw-rail-hide mt-3">
+          <RepoPicker repos={repos} repo={currentRepo} onPick={onPickRepo} block />
+        </div>
+      )}
+
+      <Link
+        href={currentRepo ? repoHome(currentRepo.id) : "/app"}
+        className="sw-new-session mt-2"
+        title="New session"
+      >
         <Icon name="plus" size={16} className="shrink-0" />
         <span className="sw-rail-hide">New session</span>
       </Link>
@@ -71,7 +96,9 @@ export function Sidebar({
           </div>
         )}
         {sessionsLoaded && sessions.length === 0 && (
-          <p className="sw-rail-hide px-2 py-1 text-subtle">Your sessions will appear here.</p>
+          <p className="sw-rail-hide px-2 py-1 text-subtle">
+            {scoped ? "No sessions in this repository yet." : "Your sessions will appear here."}
+          </p>
         )}
         {groupSessions(sessions).map((group) => (
           <div key={group.label} className="sw-rail-hide">
@@ -80,28 +107,31 @@ export function Sidebar({
               {group.sessions.map((job) => (
                 <li key={job.id} className="sw-session-row-wrap">
                   <Link
-                    href={`/app/session/${job.id}`}
+                    href={repoSession(job.repo_id, job.id)}
                     aria-current={job.id === activeJobId || undefined}
                     title={sessionTitle(job.issue)}
                     className="sw-session-row"
                   >
                     <span className="sw-session-title">{sessionTitle(job.issue)}</span>
                     <span className="sw-session-meta">
+                      {/* The dot is aria-hidden, so the status needs a text equivalent. */}
                       <StatusDot tone={SESSION_TONE[job.status]} />
-                      {/* Titles come from the issue's first line, so two runs of the same text
-                          are otherwise indistinguishable in this list. */}
-                      {job.repo_slug && (
+                      <span className="sr-only">{job.status}</span>
+                      {/* Redundant once the list is one repository's — the switcher above
+                          already names it. */}
+                      {!scoped && job.repo_slug && (
                         <span className="sw-truncate">{repoDisplayName(job.repo_slug)}</span>
                       )}
                       <span className="shrink-0">{relativeTime(job.created_at)}</span>
-                      {demo && (
+                      {isDemoJob(job.id) && (
                         <span className="shrink-0 rounded-full bg-soft px-1.5 font-medium">
-                          Demo
+                          Recorded
                         </span>
                       )}
                     </span>
                   </Link>
-                  {!demo && (
+                  {/* The recording has no row in the database to delete. */}
+                  {!isDemoJob(job.id) && (
                     <button
                       type="button"
                       aria-label={`Delete ${sessionTitle(job.issue)}`}
@@ -118,13 +148,15 @@ export function Sidebar({
           </div>
         ))}
 
+        {/* Named for what it does now that the list is repo-scoped: the hidden rows are the
+            benchmark harness's, not another person's. */}
         {!demo && sessionsLoaded && (
           <button
             type="button"
             onClick={() => onShowAll(!showAll)}
             className="sw-rail-hide mt-2 px-2 text-xs text-subtle transition-colors hover:text-fg"
           >
-            {showAll ? "Show only my sessions" : "Show all sessions"}
+            {showAll ? "Hide harness runs" : "Show harness runs"}
           </button>
         )}
       </div>

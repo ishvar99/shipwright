@@ -1,26 +1,47 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { useRepos, type ReposState } from "@/lib/client/use-repos";
 import { JobListSchema, JobSchema, type Job, type Repo } from "@/lib/contracts";
-import { demoJob, demoRepo } from "@/lib/fixtures";
+import { demoJob, demoRepo, isDemoRepo } from "@/lib/fixtures";
+import { repoHome, repoSession } from "@/lib/repo-routes";
+import { readLastRepo, setDraft, setLastRepo } from "@/lib/ui-prefs";
 
 type Workspace = {
+  /** There is a backend to talk to. This is NOT "there is something to show" — see `demoVisible`,
+   * which is the distinction that used to be missing. */
   live: boolean;
+  /** The recording is on screen: either there is no backend at all, or there is one and nothing
+   * has been imported yet. Somebody who clones this and runs it locally is in the second case,
+   * and used to be shown an empty app while a finished session sat unused in the bundle. */
+  demoVisible: boolean;
   repos: ReposState;
-  /** Demo has no backend to poll, so the recorded repo is the whole list — without it there is
-   * no way to reach the file browser at all. */
+  /** Real repositories, plus the recorded one whenever it is visible — without it there is no
+   * way to reach the file browser or the finished session at all. */
   repoList: Repo[];
   sessions: Job[];
+  /** The sidebar and the repository home both show one repository's work, not the firehose. */
+  sessionsFor: (repoId: string | null) => Job[];
   sessionsLoaded: boolean;
   currentRepo: Repo | null;
   selectRepo: (repo: Repo) => void;
   submitting: boolean;
   submitError: string | null;
-  /** Resolves to the new job id so the caller can navigate to it. */
-  run: (issue: string) => Promise<string | null>;
+  /** A run waiting on its repository to finish indexing, so surfaces can say so. */
+  queuedRepoId: string | null;
+  /** Resolves to the new job id so the caller can navigate to it. `repoId` is what the
+   * repository home passes: there the page's repo is the target, not the global selection. */
+  run: (issue: string, repoId?: string) => Promise<string | null>;
   refreshSessions: () => void;
   patchSession: (id: string, patch: Partial<Job>) => void;
   deleteSession: (id: string) => Promise<void>;
@@ -51,14 +72,40 @@ export function WorkspaceProvider({
 }) {
   const repos = useRepos(live);
   const router = useRouter();
-  const [sessions, setSessions] = useState<Job[]>(live ? [] : [demoJob]);
+  const [sessions, setSessions] = useState<Job[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(!live);
+  // Read once during the first render, not in an effect: an effect would select a repo one
+  // frame after the composer had already rendered pointed at a different one.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [readPrefs, setReadPrefs] = useState(false);
+  if (!readPrefs && typeof document !== "undefined") {
+    setReadPrefs(true);
+    const stored = readLastRepo();
+    if (stored) setSelectedId(stored);
+  }
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  // An issue written while the repository is still indexing. Held here rather than in the
+  // composer so the run survives navigating away from the page that started it.
+  const queuedRun = useRef<{ issue: string; repoId: string } | null>(null);
+  const [queued, setQueued] = useState<string | null>(null);
 
-  const repoList = useMemo(() => (live ? repos.repos : [demoRepo]), [live, repos.repos]);
+  // Two conditions, not one. `live` alone said "has content", so the local user with a working
+  // backend and nothing imported got an empty screen instead of the recording.
+  //
+  // "Ready", not "exists": a freshly imported repository appears as `importing` and stays that
+  // way for up to a minute, and keying on mere existence pulled the recording off the screen
+  // exactly during the wait it was there to fill.
+  const demoVisible = !live || (!repos.loading && !repos.repos.some((r) => r.status === "ready"));
+  const repoList = useMemo(
+    () => (demoVisible ? [...repos.repos, demoRepo] : repos.repos),
+    [demoVisible, repos.repos],
+  );
+  const allSessions = useMemo(
+    () => (demoVisible ? [...sessions, demoJob] : sessions),
+    [demoVisible, sessions],
+  );
   // Whatever was imported last is what the user came to work on, so the composer aims there
   // rather than at whichever repo happens to be first in the list.
   const lastImported = repos.repos[0];
@@ -71,9 +118,12 @@ export function WorkspaceProvider({
   }
   // Derived from the live list, never a snapshot: a stored Repo object froze its status, so a
   // repo picked while importing stayed "still indexing" forever.
+  // A real repository beats the recording as the default — the recording is only ever the
+  // fallback when there is nothing of the user's own to aim at.
   const currentRepo =
-    repos.repos.find((r) => r.id === selectedId) ??
+    repoList.find((r) => r.id === selectedId) ??
     repos.repos.find((r) => r.status === "ready") ??
+    repoList[0] ??
     null;
 
   const refreshSessions = useCallback(() => {
@@ -100,8 +150,13 @@ export function WorkspaceProvider({
 
   const deleteSession = useCallback(
     async (id: string) => {
-      // Leaving the router on a deleted session would stream against a 404 forever.
-      if (window.location.pathname === `/app/session/${id}`) router.push("/app");
+      // Leaving the router on a deleted session would stream against a 404 forever. Matched on
+      // the trailing id so both the nested route and the legacy flat one are covered.
+      const path = window.location.pathname;
+      if (path.endsWith(`/s/${id}`) || path === `/app/session/${id}`) {
+        const job = sessions.find((j) => j.id === id);
+        router.push(job ? repoHome(job.repo_id) : "/app");
+      }
       setSessions((prev) => prev.filter((j) => j.id !== id)); // optimistic
       try {
         const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -110,23 +165,37 @@ export function WorkspaceProvider({
         refreshSessions(); // the server disagreed, so put the truth back
       }
     },
-    [refreshSessions, router],
+    [refreshSessions, router, sessions],
   );
 
   const run = useCallback(
-    async (issue: string) => {
-      if (!currentRepo || submitting) return null;
+    async (issue: string, repoId?: string) => {
+      const target = repoId ? (repos.repos.find((r) => r.id === repoId) ?? null) : currentRepo;
+      // The recording has no workspace on disk, so a run against it would 404 in the backend.
+      // Surfaces that show it offer replay instead of Find the code.
+      if (!target || isDemoRepo(target.id) || submitting) return null;
+      // Setup does not have to finish before the user starts thinking. Park the issue and fire
+      // it the moment the graph is ready, turning import-then-write-then-wait into one wait.
+      if (target.status === "importing") {
+        queuedRun.current = { issue, repoId: target.id };
+        setQueued(target.id);
+        setSubmitError(null);
+        return null;
+      }
       setSubmitting(true);
       setSubmitError(null);
       try {
         const created = await apiPost(JobSchema, "/api/jobs", {
-          repo_id: currentRepo.id,
+          repo_id: target.id,
           issue,
           mode: "extract_rerank",
           base_mode: "hybrid",
           client: "web",
         });
         setSessions((prev) => [created, ...prev.filter((j) => j.id !== created.id)]);
+        // Only now. The composer used to clear it on submit, which threw the issue away when
+        // the run failed or was parked behind indexing.
+        setDraft(target.id, "");
         return created.id;
       } catch (e) {
         setSubmitError(messageFor(e));
@@ -135,19 +204,59 @@ export function WorkspaceProvider({
         setSubmitting(false);
       }
     },
-    [currentRepo, submitting],
+    [currentRepo, submitting, repos.repos],
   );
+
+  // The parked run, fired once its repository finishes indexing. The payload is a ref and only
+  // the banner is state: the effect must claim the run exactly once, and a state read would
+  // still hold the previous value on the render that fires it. Navigation happens here because
+  // the page that queued it may be long gone.
+  useEffect(() => {
+    const q = queuedRun.current;
+    // `submitting` guard: `run` refuses while another request is in flight and returns null
+    // without an error, so firing here would have swallowed the issue entirely. Leaving the
+    // ref set means the next render after that request lands tries again — `run` is in the
+    // dependency list and is rebuilt whenever `submitting` changes.
+    if (!q || submitting) return;
+    const repo = repos.repos.find((r) => r.id === q.repoId);
+    if (repo?.status === "importing") return;
+    if (!repo && repos.loading) return; // list in flight; absence proves nothing yet
+    queuedRun.current = null;
+    void (async () => {
+      // Every exit clears the banner. Returning without clearing left "Queued" on screen for
+      // the life of the page against a run that was never going to start.
+      if (!repo || repo.status !== "ready") {
+        setQueued(null);
+        setSubmitError(
+          repo
+            ? "That repository didn't finish importing, so the run never started."
+            : "That repository is no longer here, so the run never started.",
+        );
+        return;
+      }
+      const id = await run(q.issue, q.repoId);
+      setQueued(null);
+      if (id) router.push(repoSession(q.repoId, id));
+    })();
+  }, [repos.repos, repos.loading, run, router, submitting]);
 
   const value: Workspace = {
     live,
+    demoVisible,
     repos,
     repoList,
-    sessions,
+    sessions: allSessions,
+    sessionsFor: (repoId) =>
+      repoId ? allSessions.filter((j) => j.repo_id === repoId) : allSessions,
     sessionsLoaded,
     currentRepo,
-    selectRepo: (r: Repo) => setSelectedId(r.id),
+    selectRepo: (r: Repo) => {
+      setSelectedId(r.id);
+      setLastRepo(r.id);
+    },
     submitting,
     submitError,
+    queuedRepoId: queued,
     run,
     refreshSessions,
     patchSession,

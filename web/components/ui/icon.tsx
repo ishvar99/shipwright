@@ -7,6 +7,12 @@ const PATHS: Record<string, React.ReactNode> = {
   chevron: <path d="m9 6 6 6-6 6" />,
   send: <path d="M5 12h13M13 6l6 6-6 6" />,
   folder: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />,
+  refresh: (
+    <>
+      <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+      <path d="M20 4v5h-5" />
+    </>
+  ),
   fileCode: (
     <>
       <path d="M6 3h8l4 4v14H6z" />

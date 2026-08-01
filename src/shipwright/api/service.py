@@ -120,12 +120,25 @@ def _run_git(
     return r.returncode == 0, (r.stderr or r.stdout)[-400:]
 
 
+def workspace_dir(owner: str, name: str) -> Path:
+    """Owner-scoped only when there is an owner, so a single-user install keeps exactly the
+    layout already on disk and nothing is orphaned. Two owners importing the same repository
+    get two directories instead of silently sharing one.
+
+    `name` is already the on-disk-safe form: each caller keeps the transform it has always
+    used. Normalising them here looked tidier and silently moved every `local:`/`zip:` slug to
+    a new path, which a retry would then re-materialize from scratch.
+    """
+    return WORKSPACES / owner.replace("/", "_") / name if owner else WORKSPACES / name
+
+
 def import_repo(repo_id, token: str = "") -> None:
     """Clone (or adopt a local path) and index. Runs off the request thread. A token, when
     given, is used for exactly one clone and never persisted."""
     with session() as s:
         repo = s.get(Repo, repo_id)
         slug, source, url, path = repo.slug, repo.source, repo.url, repo.path
+        owner = repo.owner
 
     try:
         if source == "local":
@@ -136,10 +149,11 @@ def import_repo(repo_id, token: str = "") -> None:
                 raise RuntimeError("that folder is not a git repository")
             # Shipwright works on its own copy: applying a fix must never mutate the
             # user's checkout.
-            dest = WORKSPACES / slug.replace("/", "__")
+            dest = workspace_dir(owner, slug.replace("/", "__"))
+            dest.parent.mkdir(parents=True, exist_ok=True)
             import_sha = _materialize(src, dest) if not (dest / ".git").exists() else ""
         else:
-            dest = WORKSPACES / slug.replace("/", "__")
+            dest = workspace_dir(owner, slug.replace("/", "__"))
             dest.parent.mkdir(parents=True, exist_ok=True)
             if not (dest / ".git").exists():
                 ok, err = _clone(url, dest, token)
@@ -171,8 +185,10 @@ def import_zip(repo_id, zip_path: str) -> None:
     zp = Path(zip_path)
     try:
         with session() as s:
-            slug = s.get(Repo, repo_id).slug
-        dest = WORKSPACES / slug.replace("/", "__").replace(":", "_")
+            row = s.get(Repo, repo_id)
+            slug, owner = row.slug, row.owner
+        dest = workspace_dir(owner, slug.replace("/", "__").replace(":", "_"))
+        dest.parent.mkdir(parents=True, exist_ok=True)
         validate(zp)
         extract(zp, dest)
         import_sha = _git_init_owned(dest)
@@ -194,6 +210,34 @@ def import_zip(repo_id, zip_path: str) -> None:
     except Exception as e:
         _fail_repo(repo_id, f"Import failed while reading the archive ({type(e).__name__}).")
         zp.unlink(missing_ok=True)
+
+
+def reindex_repo(repo_id) -> None:
+    """Rebuild the code graph for a workspace we already own. Deliberately does not fetch: the
+    index is a snapshot of what is on disk, and what changes on disk is the fixes Shipwright
+    applies. Pulling new commits is a different action with different failure modes."""
+    try:
+        with session() as s:
+            dest = Path(s.get(Repo, repo_id).path)
+        if not dest.is_dir():
+            raise RuntimeError("the workspace for this repository is gone")
+        graph = build(dest)
+        stats = graph.stats()
+        with session() as s:
+            r = s.get(Repo, repo_id)
+            r.symbols = stats["symbols"]
+            r.files = stats["files"]
+            r.status = "ready"
+            ok, ref = _run_git(["rev-parse", "--short", "HEAD"], cwd=dest, timeout=60)
+            r.default_ref = ref.strip() if ok else ""
+    except Exception as e:
+        # Back to ready, not failed. The previous index is still on disk and still correct —
+        # marking the row failed would take the file browser, saves and new sessions down over
+        # a refresh that was optional in the first place.
+        with session() as s:
+            r = s.get(Repo, repo_id)
+            r.status = "ready"
+            r.error = _scrub_creds(f"Re-index failed: {type(e).__name__}: {e}")[:500]
 
 
 def _clone(url: str, dest: Path, token: str) -> tuple[bool, str]:
@@ -454,7 +498,7 @@ def _owned_clone(repo_id) -> Path:
         workspace = WORKSPACES.resolve()
         if current.is_relative_to(workspace):
             return current
-        dest = workspace / repo.slug.replace("/", "__")
+        dest = workspace_dir(repo.owner, repo.slug.replace("/", "__"))
         if not (dest / ".git").exists():
             _materialize(current, dest)
         repo.path = str(dest)
