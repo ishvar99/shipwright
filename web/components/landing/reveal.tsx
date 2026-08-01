@@ -8,7 +8,15 @@ import { cn } from "@/lib/cn";
  * `prefers-reduced-motion: no-preference` query, so this component only ever flips an
  * attribute — nothing here can leave content invisible.
  */
-export function Reveal({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Reveal({
+  children,
+  className,
+  id,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  id?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,7 +35,7 @@ export function Reveal({ children, className }: { children: React.ReactNode; cla
   }, []);
 
   return (
-    <div ref={ref} className={cn("sw-reveal", className)}>
+    <div ref={ref} id={id} className={cn("sw-reveal", className)}>
       {children}
     </div>
   );

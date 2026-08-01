@@ -59,8 +59,8 @@ export function ResultCard({
       <div aria-hidden className="flex items-start gap-3">
         <span className="pt-0.5 text-xs tabular-nums text-subtle">{index + 1}</span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="font-semibold text-fg">{name}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="min-w-0 break-words font-semibold text-fg">{name}</span>
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-medium",

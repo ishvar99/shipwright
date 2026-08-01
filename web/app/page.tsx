@@ -39,6 +39,12 @@ const FEATURES: { icon: IconName; title: string; body: string }[] = [
   },
 ];
 
+const DEMO_BEATS = [
+  "Locates the code to change from a plain-language description.",
+  "Writes the change and shows you the diff before anything moves.",
+  "Applies it to a branch and runs your own test suite against it.",
+];
+
 const STEPS = [
   { n: "1", title: "Connect a repository", body: "Paste a GitHub URL or point at a local folder. Shipwright indexes it in seconds." },
   { n: "2", title: "Describe the issue", body: "In plain language — paste the ticket if you have one." },
@@ -51,13 +57,13 @@ export default function Home() {
 
   return (
     <main>
-      {/* Hero: committed dark — the constellation's habitat — with the brand on a real nav.
-          The nested .dark class re-scopes every token, whatever the site theme. */}
-      <section className="dark sw-hero text-center">
+      {/* Hero: built from tokens only, so it wears whatever theme the site is in and the
+          page reads as one surface top to bottom. */}
+      <section className="sw-hero text-center">
         <HeroVisual />
         <div aria-hidden className="sw-hero-veil" />
 
-        <nav className="sw-hero-nav" aria-label="Primary">
+        <nav className="sw-shell sw-hero-nav" aria-label="Primary">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="grid size-9 place-items-center rounded-[10px] bg-accent text-bg shadow-sm">
               <Icon name="crosshair" size={20} />
@@ -80,8 +86,8 @@ export default function Home() {
           </div>
         </nav>
 
-        <div className="sw-hero-copy mx-auto max-w-4xl px-6">
-          <h1 className="mx-auto max-w-[18ch] text-display font-display text-fg">
+        <div className="sw-hero-copy sw-shell">
+          <h1 className="mx-auto max-w-[17ch] text-display font-display text-fg">
             Describe the bug.{" "}
             <span className="sw-gradient-text">Ship the fix.</span>
           </h1>
@@ -107,7 +113,7 @@ export default function Home() {
         </div>
 
         {/* The proof strip anchors the fold: three claims, all of them checkable. */}
-        <dl className="sw-hero-stats">
+        <dl className="sw-shell sw-hero-stats">
           <div>
             <dt className="text-subtle">Right file, top five</dt>
             <dd className="font-mono text-2xl font-medium tabular-nums text-fg">
@@ -133,24 +139,33 @@ export default function Home() {
         </dl>
       </section>
 
-      {/* The demo: a real recorded session, playing itself, on its own band. */}
+      {/* The demo: a real recorded session, playing itself, with the copy on a rail beside it
+          so the card gets the width instead of the margins. */}
       <section className="sw-band">
-        <Reveal className="mx-auto max-w-4xl px-6 py-20">
-          <div id="demo">
-          <h2 className="text-title text-fg">Watch a session</h2>
-          <p className="mt-2 max-w-[58ch] text-muted">
-            A real run, replayed with the same components the product uses: located, fixed,
-            applied to a branch, and verified by the test suite.
-          </p>
-          <div className="mt-6">
-            <Replay />
+        <Reveal
+          id="demo"
+          className="sw-shell grid gap-10 py-16 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start lg:gap-14"
+        >
+          <div className="lg:sticky lg:top-14">
+            <h2 className="text-title text-fg">Watch a session</h2>
+            <p className="mt-3 text-muted">
+              A real run, replayed with the same components the product uses.
+            </p>
+            <ul className="mt-6 grid gap-3">
+              {DEMO_BEATS.map((b) => (
+                <li key={b} className="flex items-start gap-2.5 text-muted">
+                  <Icon name="check" size={16} className="mt-1 shrink-0 text-ok" />
+                  {b}
+                </li>
+              ))}
+            </ul>
           </div>
-          </div>
+          <Replay />
         </Reveal>
       </section>
 
       {/* What you get. */}
-      <Reveal className="mx-auto max-w-7xl px-6 py-20">
+      <Reveal className="sw-shell py-16">
         <h2 className="text-title text-fg">Built for the whole fix, not just the search</h2>
         <ul className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
@@ -167,7 +182,7 @@ export default function Home() {
 
       {/* How it works. */}
       <section className="sw-band">
-        <Reveal className="mx-auto max-w-6xl px-6 py-20">
+        <Reveal className="sw-shell py-16">
         <h2 className="text-title text-fg">Three steps to a verified fix</h2>
         <ol className="mt-8 grid gap-5 sm:grid-cols-3">
           {STEPS.map((s) => (
@@ -189,7 +204,7 @@ export default function Home() {
         </Reveal>
       </section>
 
-      <footer className="mx-auto max-w-7xl border-t border-hairline px-6 py-10 text-subtle">
+      <footer className="sw-shell border-t border-hairline py-10 text-subtle">
         <p>
           Every number Shipwright claims is measured and published on the{" "}
           <Link href="/evals" className="underline underline-offset-4 hover:text-fg">

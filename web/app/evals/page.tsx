@@ -19,7 +19,7 @@ export default function EvalsPage() {
   const runs = [...data.runs].sort((a, b) => b.n - a.n || b.file5 - a.file5);
 
   return (
-    <main className="register-dense mx-auto max-w-6xl px-6 py-12">
+    <main className="register-dense sw-shell py-12">
       <h1 className="text-title text-fg">Benchmarks</h1>
       <p id="scoring" className="mt-2 max-w-[68ch] text-muted">
         Every run is a full configuration on Loc-Bench, scored strictly: a task counts only

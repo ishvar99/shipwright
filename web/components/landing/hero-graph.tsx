@@ -45,18 +45,20 @@ const VERT = /* glsl */ `
 `;
 
 const FRAG = /* glsl */ `
+  uniform float uHalo;
   varying vec3 vColor;
   varying float vAlpha;
   void main() {
     float d = length(gl_PointCoord - vec2(0.5));
     if (d > 0.5) discard;
     float core = 1.0 - smoothstep(0.28, 0.44, d);
-    float halo = (1.0 - smoothstep(0.10, 0.5, d)) * 0.28;
-    gl_FragColor = vec4(vColor, (core + halo) * vAlpha);
+    // On light the halo becomes haze rather than glow, so it is dialled almost out.
+    float halo = (1.0 - smoothstep(0.10, 0.5, d)) * uHalo;
+    gl_FragColor = vec4(vColor, min(1.0, core + halo) * vAlpha);
   }
 `;
 
-type Palette = { base: THREE.Color; evidence: THREE.Color[]; accent: THREE.Color };
+type Palette = { base: THREE.Color; ink: THREE.Color; evidence: THREE.Color[]; accent: THREE.Color };
 
 function seeded(seed: number) {
   let s = seed;
@@ -77,6 +79,7 @@ function readPalette(host: HTMLElement): Palette {
   };
   const palette = {
     base: resolve("--muted"),
+    ink: resolve("--fg"),
     evidence: ["--evidence-text", "--evidence-graph", "--evidence-dense", "--evidence-path"].map(resolve),
     accent: resolve("--accent"),
   };
@@ -212,7 +215,10 @@ export default function HeroGraph() {
     const material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
-      uniforms: { uPixelRatio: { value: renderer.getPixelRatio() } },
+      uniforms: {
+        uPixelRatio: { value: renderer.getPixelRatio() },
+        uHalo: { value: 0.28 },
+      },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -238,8 +244,19 @@ export default function HeroGraph() {
     scene.add(new THREE.LineSegments(edgeGeometry, edgeMaterial));
 
     let palette = readPalette(el);
+    // Additive blending glows on dark but only ADDS brightness on light, where it washes to
+    // nothing. Light draws normally: crisp ink instead of glow.
+    let light = !el.closest(".dark");
     const applyTheme = () => {
       palette = readPalette(el);
+      light = !el.closest(".dark");
+      const blending = light ? THREE.NormalBlending : THREE.AdditiveBlending;
+      material.blending = blending;
+      material.uniforms.uHalo.value = light ? 0.06 : 0.28;
+      material.needsUpdate = true;
+      edgeMaterial.blending = blending;
+      edgeMaterial.opacity = light ? 0.16 : 0.6;
+      edgeMaterial.needsUpdate = true;
       paint(reduced ? SCAN_END * 0.55 : elapsed);
     };
 
@@ -252,30 +269,33 @@ export default function HeroGraph() {
 
       for (let i = 0; i < COUNT; i += 1) {
         const isCandidate = candidates.has(i);
-        let alpha = nodes[i].hub ? 0.9 : 0.5;
-        scratch.copy(palette.base).multiplyScalar(0.5);
+        // On light the base is ink at low alpha; --muted is too pale to register at all.
+        let alpha = light ? (nodes[i].hub ? 0.45 : 0.26) : nodes[i].hub ? 0.9 : 0.5;
+        if (light) scratch.copy(palette.ink);
+        else scratch.copy(palette.base).multiplyScalar(0.5);
         sizes[i] = baseSize[i];
 
         if (phase < SCAN_END) {
           // A shell expanding from the centre; nodes flare in their evidence hue as it passes.
           const hit = Math.exp(-((wave - radius[i]) ** 2) / 1.4);
           scratch.lerp(palette.evidence[nodes[i].evidence], Math.min(1, hit * 1.4));
-          alpha += hit;
+          alpha += hit * (light ? 0.8 : 1);
         } else if (phase < LOCK_END) {
           const settle = Math.min(1, (phase - SCAN_END) / 0.7);
           if (isCandidate) {
             scratch.lerp(palette.evidence[nodes[i].evidence], 0.95);
-            alpha = 1.15;
+            alpha = light ? 1 : 1.15;
           } else {
-            // The rest genuinely recede, so the shortlist is unmistakable.
+            // The rest genuinely recede, so the shortlist is unmistakable. On light, alpha
+            // alone does it — darkening the colour would make them stand out more, not less.
             alpha *= 1 - 0.72 * settle;
-            scratch.multiplyScalar(1 - 0.3 * settle);
+            if (!light) scratch.multiplyScalar(1 - 0.3 * settle);
           }
         } else {
           const release = (phase - LOCK_END) / (CYCLE_S - LOCK_END);
           if (isCandidate) {
             scratch.lerp(palette.evidence[nodes[i].evidence], 0.95 * (1 - release));
-            alpha = 1.15 - 0.3 * release;
+            alpha = (light ? 1 : 1.15) - 0.3 * release;
           } else {
             alpha *= 0.28 + 0.72 * release;
           }
@@ -294,16 +314,18 @@ export default function HeroGraph() {
         }
 
         colors.set([scratch.r, scratch.g, scratch.b], i * 3);
-        alphas[i] = Math.min(1.6, alpha);
+        alphas[i] = Math.min(light ? 1 : 1.6, alpha);
       }
 
-      // Edges inherit a dimmed blend of their endpoints.
+      // Edges inherit a dimmed blend of their endpoints. Dimming means multiplying toward
+      // black, which on light reads as *more* prominent — so light keeps them at full colour
+      // and lets the material's flat opacity hold them back instead.
       for (let e = 0; e < edgePairs.length; e += 1) {
         const [a, b] = edgePairs[e];
         for (let slot = 0; slot < 2; slot += 1) {
           const n = slot === 0 ? a : b;
           const o = e * 6 + slot * 3;
-          const f = 0.3 * Math.min(1, alphas[n]);
+          const f = light ? 1 : 0.3 * Math.min(1, alphas[n]);
           edgeColors[o] = colors[n * 3] * f;
           edgeColors[o + 1] = colors[n * 3 + 1] * f;
           edgeColors[o + 2] = colors[n * 3 + 2] * f;
