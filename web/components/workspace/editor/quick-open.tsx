@@ -85,6 +85,7 @@ export function QuickOpen({
           aria-label="Go to file"
           className="sw-quickopen-input"
         />
+        {!query && <p className="sw-quickopen-hint">Recently opened</p>}
         <ul id="sw-quickopen-list" role="listbox" aria-label="Files" className="sw-quickopen-list">
           {!results.length && <li className="px-3 py-2 text-subtle">No matching file.</li>}
           {results.map((r, i) => {
@@ -106,7 +107,7 @@ export function QuickOpen({
             );
           })}
         </ul>
-        {!query && <p className="sw-quickopen-hint">Recently opened</p>}
+        <p className="sw-quickopen-hint">↑↓ navigate · ↵ open · esc close</p>
       </div>
     </div>
   );

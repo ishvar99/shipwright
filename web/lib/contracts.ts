@@ -77,6 +77,7 @@ export const JobSchema = z.object({
   status: JobStatusSchema,
   mode: z.string(),
   base_mode: z.string(),
+  client: z.string().default(""),
   model: z.string(),
   issue: z.string(),
   result: JobResultSchema,

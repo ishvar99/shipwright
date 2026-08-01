@@ -17,7 +17,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, cast, delete, func, or_, select
 
 from ..config import settings
 from ..db import session
@@ -76,6 +76,7 @@ class CreateJob(BaseModel):
     issue: str = Field(min_length=8, max_length=20000)
     mode: str = "extract_rerank"
     base_mode: str = "hybrid"
+    client: str = ""
 
 
 def _repo_json(r: Repo) -> dict[str, Any]:
@@ -103,6 +104,7 @@ def _job_json(j: Job, slug: str = "") -> dict[str, Any]:
         "status": j.status,
         "mode": j.mode,
         "base_mode": j.base_mode,
+        "client": j.client,
         # Aliased: the engine is an implementation detail behind this API. Benchmark
         # reporting reads the Run table, which keeps the real name.
         "model": "shipwright-engine" if j.model else "",
@@ -304,6 +306,7 @@ def jobs_create(body: CreateJob, background: BackgroundTasks) -> dict[str, Any]:
             issue=body.issue,
             mode=body.mode,
             base_mode=body.base_mode,
+            client=body.client,
             status=QUEUED,
         )
         s.add(job)
@@ -349,9 +352,16 @@ def actions_create(job_id: str, body: CreateAction, background: BackgroundTasks)
 
 
 @app.get("/api/jobs")
-def jobs_list(limit: int = 25) -> list[dict[str, Any]]:
+def jobs_list(limit: int = 25, kind: str = "", client: str = "") -> list[dict[str, Any]]:
+    """Filters run in SQL, before the limit. Filtering after truncation would let a benchmark
+    sweep fill the page and push every one of the user's own sessions off it."""
     with session() as s:
-        rows = s.scalars(select(Job).order_by(Job.created_at.desc()).limit(limit)).all()
+        q = select(Job)
+        if kind:
+            q = q.where(Job.kind == kind)
+        if client:
+            q = q.where(Job.client == client)
+        rows = s.scalars(q.order_by(Job.created_at.desc()).limit(limit)).all()
         ids = {j.repo_id for j in rows}
         slugs = dict(s.execute(select(Repo.id, Repo.slug).where(Repo.id.in_(ids))).all())
         return [_job_json(j, slugs.get(j.repo_id, "")) for j in rows]
@@ -365,6 +375,23 @@ def jobs_get(job_id: str) -> dict[str, Any]:
             raise HTTPException(404, "That session no longer exists.")
         repo = s.get(Repo, job.repo_id)
         return _job_json(job, repo.slug if repo else "")
+
+
+@app.delete("/api/jobs/{job_id}")
+def jobs_delete(job_id: str) -> dict[str, Any]:
+    """Removing a session removes its events and its action jobs: a job row without its event
+    stream is unreadable, and an orphaned apply job points at a parent that is gone."""
+    with session() as s:
+        job = s.scalars(select(Job).where(cast(Job.id, String).like(f"{job_id}%"))).first()
+        if not job:
+            raise HTTPException(404, "That session no longer exists.")
+        children = s.scalars(
+            select(Job).where(Job.result["parent"].as_string() == str(job.id))
+        ).all()
+        for child in [*children, job]:
+            s.execute(delete(Event).where(Event.job_id == child.id))
+            s.delete(child)
+    return {"ok": True}
 
 
 @app.get("/api/jobs/{job_id}/source")

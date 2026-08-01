@@ -13,6 +13,7 @@
   --soft: color-mix(in oklch, var(--fg) 4%, var(--bg));
   --accent-soft: color-mix(in oklch, var(--accent) 10%, var(--bg));
   --grid-dot: color-mix(in oklch, var(--fg) 9%, var(--bg));
+  --faint: color-mix(in oklch, var(--fg) 35%, var(--bg));
   --glow: color-mix(in oklch, var(--accent) 7%, transparent);
 
   /* Retrieval channels. Hue reinforces the glyph; it is never the only signal. */
@@ -58,6 +59,7 @@
   --soft: #141419;
   --accent-soft: color-mix(in oklch, var(--accent) 15%, var(--bg));
   --grid-dot: color-mix(in oklch, var(--fg) 7%, var(--bg));
+  --faint: color-mix(in oklch, var(--fg) 38%, var(--bg));
   --glow: color-mix(in oklch, var(--accent) 12%, transparent);
 
   --evidence-text: #60a5fa;
@@ -202,9 +204,13 @@
     transition: opacity var(--dur-fast) linear;
   }
 
+  /* `content-visibility: hidden` removes the subtree from the accessibility tree and the tab
+     order as well as from paint — opacity alone left six invisible links tabbable. It still
+     animates, because opacity is what transitions. */
   html[data-sidebar="rail"] .sw-rail-hide {
     opacity: 0;
     pointer-events: none;
+    content-visibility: hidden;
   }
 
   .sw-rail-toggle {
@@ -221,6 +227,17 @@
   .sw-rail-toggle:hover {
     background: var(--soft);
     color: var(--fg);
+  }
+
+  /* Direction comes from the attribute, not React: the server cannot know the stored
+     preference, so rendering it would be a hydration mismatch. */
+  .sw-rail-toggle svg {
+    transition: transform var(--dur-fast);
+    transform: rotate(180deg);
+  }
+
+  html[data-sidebar="rail"] .sw-rail-toggle svg {
+    transform: none;
   }
 
   .workspace-sidebar {
@@ -263,6 +280,53 @@
 
   .sw-session-list > li {
     min-width: 0;
+  }
+
+  .sw-session-group {
+    padding: calc(var(--space-unit) * 2) 8px 2px;
+    color: var(--subtle);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* Delete sits over the row's trailing edge; revealed on hover or keyboard focus so the
+     resting list stays quiet. */
+  .sw-session-row-wrap {
+    position: relative;
+  }
+
+  .sw-session-delete {
+    position: absolute;
+    inset-block: 2px;
+    inset-inline-end: 4px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    border-radius: var(--radius);
+    color: var(--subtle);
+    opacity: 0;
+    transition: opacity var(--dur-fast), color var(--dur-fast), background-color var(--dur-fast);
+  }
+
+  .sw-session-row-wrap:hover .sw-session-delete,
+  .sw-session-delete:focus-visible {
+    opacity: 1;
+  }
+
+  .sw-session-delete:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .sw-skeleton {
+    height: 34px;
+    border-radius: var(--radius);
+    /* The keyframe animates background-position, so it needs a gradient to move. */
+    background-image: linear-gradient(90deg, var(--soft), var(--hairline) 40%, var(--soft) 80%);
+    background-size: 200% 100%;
+    animation: sw-shimmer 1.2s linear infinite;
   }
 
   .sw-session-row {
@@ -360,6 +424,35 @@
     gap: calc(var(--space-unit) * 3);
   }
 
+  /* Muted, not hidden: the composer stays visible so its purpose is obvious, but it stops
+     competing with the action that actually works. */
+  .sw-home-muted h2 {
+    color: var(--subtle);
+  }
+
+  .sw-primary-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding-inline: 14px;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--bg);
+    font-weight: 500;
+    box-shadow: var(--shadow-1);
+    transition: background-color var(--dur-fast);
+  }
+
+  .sw-primary-link:hover {
+    background: var(--accent-hover);
+  }
+
+  .sw-page {
+    max-width: 64rem;
+    margin-inline: auto;
+  }
+
   .sw-home-section {
     display: grid;
     gap: calc(var(--space-unit) * 3);
@@ -436,7 +529,10 @@
     }
   }
 
+  /* Full height, not auto: the editor's grid is height:100%, and an auto-height wrapper
+     between it and the main pane collapses Monaco to nothing. */
   .sw-view {
+    height: 100%;
     animation: sw-rise var(--dur-base) var(--ease-out-quart);
   }
 
@@ -673,6 +769,69 @@
     background: var(--warn-soft);
   }
 
+  .sw-repo-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 22rem;
+    padding: 4px 10px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: var(--soft);
+    color: var(--fg);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: border-color var(--dur-fast), background-color var(--dur-fast);
+  }
+
+  .sw-repo-trigger:hover {
+    border-color: var(--accent);
+  }
+
+  .sw-repo-popover {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    width: min(90vw, 22rem);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-2);
+    overflow: hidden;
+  }
+
+  .sw-repo-filter {
+    width: 100%;
+    padding: calc(var(--space-unit) * 2);
+    border: 0;
+    border-bottom: 1px solid var(--hairline);
+    background: transparent;
+    color: var(--fg);
+    outline: none;
+    font-size: var(--text-ui);
+  }
+
+  .sw-repo-list {
+    max-height: 15rem;
+    overflow-y: auto;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .sw-repo-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px calc(var(--space-unit) * 2);
+    cursor: default;
+  }
+
+  .sw-repo-option-active {
+    background: var(--accent-soft);
+  }
+
   .sw-quickopen-backdrop {
     position: fixed;
     inset: 0;
@@ -681,7 +840,7 @@
     justify-items: center;
     align-content: start;
     padding-top: 12vh;
-    background: color-mix(in oklch, var(--fg) 22%, transparent);
+    background: oklch(20% 0.01 270 / 0.35);
   }
 
   .sw-quickopen {
@@ -948,8 +1107,17 @@
   .sw-diff-del {
     background: var(--danger-soft);
     color: var(--muted);
-    text-decoration: line-through;
-    text-decoration-color: color-mix(in oklch, var(--danger) 45%, transparent);
+  }
+
+  /* Without a separator two hunks concatenate into what reads as broken syntax. */
+  .sw-diff-gap {
+    padding: 2px calc(var(--space-unit) * 2);
+    border-block: 1px solid var(--hairline);
+    background: var(--soft);
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    user-select: none;
   }
 
   /* ---------- splitter (right gutter only) ---------- */
@@ -1021,8 +1189,12 @@
 
   .sw-code-num {
     text-align: right;
-    color: var(--hairline);
+    color: var(--faint);
     user-select: none;
+  }
+
+  .sw-code-lines {
+    mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
   }
 
   .sw-code-target {

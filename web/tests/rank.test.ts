@@ -1,8 +1,10 @@
 import { ancestorsOf, foldTree } from "@/lib/repo-fold";
 import { fuzzyRank } from "@/lib/repo-fuzzy";
+import { groupSessions } from "@/lib/sessions-group";
+import { relativeTime } from "@/lib/sessions";
 import { describe, expect, it } from "vitest";
 import fixture from "@/fixtures/msal-extract-rerank.json";
-import { LocationSchema, type Location } from "@/lib/contracts";
+import { LocationSchema, type Job, type Location } from "@/lib/contracts";
 import { diffStat, parseUnifiedDiff } from "@/lib/results/diff";
 import { basisFor, matchTier, ordering, qualifiedName, rankDelta, topScore } from "@/lib/results/rank";
 
@@ -293,5 +295,43 @@ describe("fuzzyRank", () => {
     const [first] = fuzzyRank("app", ["msal/application.py"]);
     expect(first.hits).toHaveLength(3);
     expect("msal/application.py"[first.hits[0]]).toBe("a");
+  });
+});
+
+describe("groupSessions", () => {
+  /** Only the two fields grouping reads. */
+  const at = (iso: string) => ({ id: iso, created_at: iso }) as unknown as Job;
+  const now = Date.parse("2026-08-01T12:00:00Z");
+
+  it("labels today, yesterday, then a date", () => {
+    const groups = groupSessions(
+      [at("2026-08-01T09:00:00Z"), at("2026-07-31T09:00:00Z"), at("2026-07-20T09:00:00Z")],
+      now,
+    );
+    expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", expect.stringContaining("Jul")]);
+  });
+
+  it("keeps every session and preserves order inside a group", () => {
+    const groups = groupSessions([at("2026-08-01T09:00:00Z"), at("2026-08-01T08:00:00Z")], now);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].sessions).toHaveLength(2);
+  });
+
+  it("returns nothing for no sessions", () => {
+    expect(groupSessions([], now)).toEqual([]);
+  });
+
+  it("reads a timezone-less backend timestamp as UTC, matching relativeTime", () => {
+    // The column is `timestamp without time zone`; parsing it as local time filed sessions
+    // under a day that disagreed with the row's own "5m ago".
+    const justNow = "2026-08-01T11:58:00.000000";
+    const now = Date.parse("2026-08-01T12:00:00Z");
+    expect(groupSessions([at(justNow)], now)[0].label).toBe("Today");
+    expect(relativeTime(justNow, now)).toBe("2m ago");
+  });
+
+  it("does not lose a session with an unparseable date", () => {
+    const groups = groupSessions([at("not-a-date")], now);
+    expect(groups.flatMap((g) => g.sessions)).toHaveLength(1);
   });
 });

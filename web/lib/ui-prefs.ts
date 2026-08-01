@@ -108,8 +108,10 @@ export function readTraceState(): TraceState {
   return document.documentElement.dataset.trace === "collapsed" ? "collapsed" : "open";
 }
 
-export function readSidebarState(): SidebarState {
-  const v = document.documentElement.dataset.sidebar;
+/** Reads the stored preference, not the rendered state. `data-sidebar` is only the CSS switch:
+ * the frame always writes a concrete value there, so it can never report "auto". */
+export function readStoredSidebarPref(): SidebarState {
+  const v = read().sidebar;
   return v === "rail" || v === "expanded" ? v : "auto";
 }
 

@@ -14,9 +14,20 @@ import type { NextConfig } from "next";
  * site actually has: script or style from any other origin, plugin content, framing, and
  * base-tag hijacking. Worth having even without a strict script-src.
  */
+/**
+ * 'unsafe-eval' in development only. React's dev build uses eval() for debugging features
+ * (reconstructing callstacks); blocking it put a permanent error in the dev overlay, which
+ * trains you to ignore the badge and miss a real one. Production is unchanged — React never
+ * uses eval() there, verified by a clean production console.
+ */
+const scriptSrc =
+  process.env.NODE_ENV === "production"
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  scriptSrc,
   // Tailwind and React both emit inline styles; there is no external stylesheet origin.
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
@@ -35,6 +46,8 @@ const csp = [
 ].join("; ");
 
 const config: NextConfig = {
+  // The position badge overlaps the sidebar's theme toggle.
+  devIndicators: false,
   reactStrictMode: true,
   async headers() {
     return [

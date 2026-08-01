@@ -205,8 +205,12 @@ export function RepoView({
   // records where to scroll. The line is a hint — it was computed before any fix was applied,
   // and the workspace may be parked on a fix branch.
   useEffect(() => {
-    if (initialFile) pendingReveal.current = { line: initialLine ?? 1, symbol: initialSymbol };
-  }, [initialFile, initialLine, initialSymbol]);
+    if (!initialFile) return;
+    pendingReveal.current = { line: initialLine ?? 1, symbol: initialSymbol };
+    // A cold deep link never passed through the session view, so the tab is opened here.
+    // Idempotent: openTab promotes an existing tab rather than duplicating it.
+    openTab(repoId, initialFile, { preview: false });
+  }, [initialFile, initialLine, initialSymbol, repoId]);
 
   useEffect(() => {
     if (save.state !== "saved") return;

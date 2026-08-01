@@ -87,9 +87,9 @@ export default function Home() {
         </nav>
 
         <div className="sw-hero-copy sw-shell">
-          <h1 className="mx-auto max-w-[17ch] text-display font-display text-fg">
+          <h1 className="mx-auto max-w-[17ch] text-balance text-display font-display text-fg">
             Describe the bug.{" "}
-            <span className="sw-gradient-text">Ship the fix.</span>
+            <span className="sw-gradient-text whitespace-nowrap">Ship the fix.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-[52ch] text-lg text-muted">
             Shipwright reads your repository, pinpoints the code that needs to change, writes
