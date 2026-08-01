@@ -5,6 +5,7 @@ import { Icon } from "@/components/ui/icon";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
+import { AnswerCard, NoWorkCard } from "@/components/workspace/answer-card";
 import { CodePane } from "@/components/workspace/code-pane";
 import { FixCard } from "@/components/workspace/fix-card";
 import { Composer } from "@/components/workspace/composer";
@@ -263,6 +264,7 @@ export function WorkspaceShell({ live }: { live: boolean }) {
               jobId={view.jobId}
               live={live}
               session={activeSession}
+              onNewSession={() => setView({ kind: "home" })}
               onOpenInEditor={(loc) => {
                 const job = activeSession;
                 if (!job?.repo_id) return;
@@ -291,11 +293,13 @@ function SessionView({
   live,
   session,
   onOpenInEditor,
+  onNewSession,
 }: {
   jobId: string;
   live: boolean;
   session: Job | null;
   onOpenInEditor: (location: Location) => void;
+  onNewSession: () => void;
 }) {
   const makeStream = useCallback(
     () =>
@@ -338,6 +342,9 @@ function SessionView({
         onRetry={retry}
         locations={locations}
         mode={shown?.mode ?? state.mode ?? ""}
+        intent={state.intent ?? shown?.result.intent ?? undefined}
+        answer={state.answerText || (shown?.result.answer ?? "")}
+        onNewSession={onNewSession}
         jobId={jobId}
         live={live}
         onOpenInEditor={onOpenInEditor}
@@ -414,6 +421,9 @@ function SessionBody({
   onRetry,
   locations,
   mode,
+  intent,
+  answer,
+  onNewSession,
   jobId,
   live,
   onOpenInEditor,
@@ -428,6 +438,9 @@ function SessionBody({
   onRetry: () => void;
   locations: readonly Location[];
   mode: string;
+  intent?: "change" | "question" | "other";
+  answer: string;
+  onNewSession: () => void;
   jobId: string;
   live: boolean;
   onOpenInEditor: (location: Location) => void;
@@ -462,6 +475,15 @@ function SessionBody({
           </p>
         )}
 
+        {/* A question is answered, never patched. */}
+        {intent === "question" && (
+          <AnswerCard text={answer} streaming={state.outcome.kind === "pending" && !answer} />
+        )}
+
+        {intent === "other" && state.outcome.kind === "done" && (
+          <NoWorkCard onNewSession={onNewSession} />
+        )}
+
         {(writing || Boolean(fix?.patch)) && (
           <FixCard
             fix={fix}
@@ -479,7 +501,7 @@ function SessionBody({
           <ActionFeed key={a.id} id={a.id} kind={a.kind} live={live} onFinished={onActionFinished} />
         ))}
 
-        {state.outcome.kind === "done" && locations.length === 0 && (
+        {state.outcome.kind === "done" && locations.length === 0 && intent !== "other" && (
           <p className="text-subtle" role="status">
             No matches found. Adding a function name or an error message usually helps.
           </p>

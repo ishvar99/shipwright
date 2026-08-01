@@ -62,6 +62,9 @@ export const JobResultSchema = z.object({
   locations: z.array(LocationSchema).default([]),
   graph: GraphStatsSchema.default({}),
   fix: FixSchema.nullish(),
+  /** change | question | other — absent on sessions recorded before routing existed. */
+  intent: z.enum(["change", "question", "other"]).nullish(),
+  answer: z.string().default(""),
 });
 
 export const JobSchema = z.object({
@@ -202,6 +205,18 @@ export const JobEventSchema = z.discriminatedUnion("type", [
     import_edges: z.number().optional(),
   }),
   z.object({ ...envelope, type: z.literal("engine.started") }),
+  // Routing: what the user actually asked for. Only "change" may end in an edit.
+  z.object({ ...envelope, type: z.literal("intent.started") }),
+  z.object({
+    ...envelope,
+    type: z.literal("intent.ready"),
+    intent: z.enum(["change", "question", "other"]),
+    reason: z.string().default(""),
+  }),
+  z.object({ ...envelope, type: z.literal("answer.started") }),
+  z.object({ ...envelope, type: z.literal("answer.delta"), text: z.string() }),
+  z.object({ ...envelope, type: z.literal("answer.ready") }),
+  z.object({ ...envelope, type: z.literal("answer.failed") }),
   z.object({ ...envelope, type: z.literal("understand.started") }),
   z.object({ ...envelope, type: z.literal("understand.done"), terms: z.number() }),
   z.object({ ...envelope, type: z.literal("search.started"), channels: z.string() }),

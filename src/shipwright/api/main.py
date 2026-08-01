@@ -108,6 +108,9 @@ def _job_json(j: Job, slug: str = "") -> dict[str, Any]:
         "model": "shipwright-engine" if j.model else "",
         "issue": j.issue[:400],
         "result": j.result or {},
+        # How the request was routed: change | question | other.
+        "intent": (j.result or {}).get("intent", ""),
+        "answer": (j.result or {}).get("answer", ""),
         "error": j.error,
         "input_tokens": j.input_tokens,
         "output_tokens": j.output_tokens,

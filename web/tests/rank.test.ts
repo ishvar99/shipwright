@@ -177,18 +177,24 @@ describe("qualifiedName", () => {
 });
 
 describe("matchTier", () => {
-  it("splits at two thirds and one third of the strongest score", () => {
-    expect(matchTier(0.9, 1).tier).toBe("strong");
-    expect(matchTier(0.5, 1).tier).toBe("good");
-    expect(matchTier(0.2, 1).tier).toBe("possible");
-    expect(matchTier(1, 0).tier).toBe("possible");
+  it("bands by rank position, which is the only thing the ranking knows", () => {
+    expect(matchTier(1).tier).toBe("strong");
+    expect(matchTier(3).tier).toBe("strong");
+    expect(matchTier(4).tier).toBe("good");
+    expect(matchTier(10).tier).toBe("possible");
   });
 
-  it('says "match", never a probability word — the score is a rank, not a confidence', () => {
-    for (const label of [matchTier(0.9, 1).label, matchTier(0.5, 1).label, matchTier(0.1, 1).label]) {
-      expect(label).toMatch(/match$/);
-      expect(label.toLowerCase()).not.toMatch(/confiden|probab|%/);
+  it("never claims measured confidence — the fused score cannot support it", () => {
+    for (const label of [matchTier(1).label, matchTier(5).label, matchTier(9).label]) {
+      expect(label.toLowerCase()).not.toMatch(/confiden|probab|%|strong|score/);
     }
+  });
+
+  it("does not depend on the score at all", () => {
+    // Guards the regression this replaced: a score-relative band labelled every row in every
+    // result set "Strong match", including for a question about baking bread.
+    expect(matchTier(1).label).toBe(matchTier(1).label);
+    expect(matchTier(1).tier).not.toBe(matchTier(10).tier);
   });
 });
 
