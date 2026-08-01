@@ -209,6 +209,65 @@
     background: var(--accent-hover);
   }
 
+  /* The implicit grid track sizes to max-content unless both it and its items are pinned to
+     zero — that is what let a long session title stretch the row past the sidebar. */
+  .sw-session-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .sw-session-list > li {
+    min-width: 0;
+  }
+
+  .sw-session-row {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    text-align: left;
+    transition: background-color 150ms;
+  }
+
+  .sw-session-row:hover {
+    background: var(--soft);
+  }
+
+  .sw-session-row[aria-current] {
+    background: var(--accent-soft);
+  }
+
+  .sw-session-title {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+  }
+
+  .sw-session-meta {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit));
+    min-width: 0;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--subtle);
+  }
+
+  .sw-session-meta > .sw-truncate {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .sw-side-item {
     display: flex;
     align-items: center;
@@ -235,40 +294,79 @@
     font-size: var(--text-ui);
   }
 
+  /* One column width for everything on this page: a composer narrower than the cards below
+     it reads as a misalignment rather than a deliberate reading measure. */
   .sw-home {
     display: grid;
-    gap: calc(var(--space-unit) * 6);
-    max-width: 72rem;
+    gap: calc(var(--space-unit) * 7);
+    max-width: 64rem;
     margin-inline: auto;
-    padding-top: 6vh;
+    padding-top: 5vh;
   }
 
-  /* The composer stays a reading-width column even though the page around it is wide. */
   .sw-home-composer {
     display: grid;
     gap: calc(var(--space-unit) * 3);
-    max-width: 56rem;
   }
 
   .sw-home-section {
     display: grid;
-    gap: calc(var(--space-unit) * 2);
+    gap: calc(var(--space-unit) * 3);
   }
 
   .sw-home-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
-    gap: calc(var(--space-unit) * 2);
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: calc(var(--space-unit) * 3);
     list-style: none;
     padding: 0;
+  }
+
+  /* Grid and flex children default to min-width:auto, i.e. min-content — a long title then
+     pushes the track wider than its share and the whole grid overflows. */
+  .sw-home-grid > li {
+    min-width: 0;
   }
 
   .sw-home-card {
     display: grid;
     gap: calc(var(--space-unit));
     padding: calc(var(--space-unit) * 3);
+    min-width: 0;
+    height: 100%;
     text-align: left;
     align-content: start;
+  }
+
+  .sw-home-card > * {
+    min-width: 0;
+  }
+
+  .sw-home-card-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .sw-home-card-meta {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit));
+    min-width: 0;
+    font-size: 0.75rem;
+    color: var(--subtle);
+  }
+
+  .sw-home-card-meta > .sw-truncate {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .sw-drop-overlay {
