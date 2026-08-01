@@ -16,7 +16,9 @@ export const LEFT = { min: 14, max: 26, def: 20 } as const;
 export const RIGHT = { min: 24, max: 36, def: 32 } as const;
 
 export type TraceState = "open" | "collapsed";
-export type Prefs = { left: number; right: number; trace: TraceState };
+/** "auto" collapses to the rail only on the editor route; the other two always win. */
+export type SidebarState = "auto" | "expanded" | "rail";
+export type Prefs = { left: number; right: number; trace: TraceState; sidebar: SidebarState };
 
 export type Side = "left" | "right";
 export type Bounds = { readonly min: number; readonly max: number; readonly def: number };
@@ -37,7 +39,7 @@ export function clampPct(value: unknown, lo: number, hi: number, fallback: numbe
  */
 // Two separate try blocks: a corrupt value must still leave the properties set to defaults,
 // rather than skipping the writes and relying on the var() fallback to cover it.
-export const UI_PREFS_BOOT = `(function(){var p={};try{p=JSON.parse(localStorage.getItem("${PREFS_KEY}")||"{}")||{}}catch(_){}try{var e=document.documentElement,c=function(v,lo,hi,d){v=Number(v);return isFinite(v)?Math.min(hi,Math.max(lo,v)):d};e.style.setProperty("--sw-left",c(p.left,${LEFT.min},${LEFT.max},${LEFT.def})+"%");e.style.setProperty("--sw-right",c(p.right,${RIGHT.min},${RIGHT.max},${RIGHT.def})+"%");if(p.trace==="collapsed"){e.dataset.trace="collapsed"}}catch(_){}})()`;
+export const UI_PREFS_BOOT = `(function(){var p={};try{p=JSON.parse(localStorage.getItem("${PREFS_KEY}")||"{}")||{}}catch(_){}try{var e=document.documentElement,c=function(v,lo,hi,d){v=Number(v);return isFinite(v)?Math.min(hi,Math.max(lo,v)):d};e.style.setProperty("--sw-left",c(p.left,${LEFT.min},${LEFT.max},${LEFT.def})+"%");e.style.setProperty("--sw-right",c(p.right,${RIGHT.min},${RIGHT.max},${RIGHT.def})+"%");if(p.trace==="collapsed"){e.dataset.trace="collapsed"}if(p.sidebar==="rail"||p.sidebar==="expanded"){e.dataset.sidebar=p.sidebar}}catch(_){}})()`;
 
 function read(): Partial<Prefs> {
   try {
@@ -92,6 +94,8 @@ export function applyStoredPrefs(): void {
   root.style.setProperty("--sw-right", `${clampPct(p.right, RIGHT.min, RIGHT.max, RIGHT.def)}%`);
   if (p.trace === "collapsed") root.dataset.trace = "collapsed";
   else delete root.dataset.trace;
+  if (p.sidebar === "rail" || p.sidebar === "expanded") root.dataset.sidebar = p.sidebar;
+  else delete root.dataset.sidebar;
 }
 
 export function setTraceState(state: TraceState): void {
@@ -102,4 +106,15 @@ export function setTraceState(state: TraceState): void {
 
 export function readTraceState(): TraceState {
   return document.documentElement.dataset.trace === "collapsed" ? "collapsed" : "open";
+}
+
+export function readSidebarState(): SidebarState {
+  const v = document.documentElement.dataset.sidebar;
+  return v === "rail" || v === "expanded" ? v : "auto";
+}
+
+export function setSidebarState(state: SidebarState): void {
+  if (state === "auto") delete document.documentElement.dataset.sidebar;
+  else document.documentElement.dataset.sidebar = state;
+  savePrefs({ sidebar: state });
 }

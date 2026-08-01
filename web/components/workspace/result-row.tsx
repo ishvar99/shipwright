@@ -17,7 +17,6 @@ export function ResultCard({
   total,
   basePosition,
   basis,
-  top,
   selected,
   tabbable,
   onSelect,
@@ -28,7 +27,6 @@ export function ResultCard({
   total: number;
   basePosition: number;
   basis: Basis;
-  top: number;
   selected: boolean;
   tabbable: boolean;
   onSelect: () => void;
