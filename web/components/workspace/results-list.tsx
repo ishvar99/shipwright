@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { ResultCard } from "@/components/workspace/result-row";
 import type { Location } from "@/lib/contracts";
 import { useSelection } from "@/lib/results/selection";
-import { ordering, topScore } from "@/lib/results/rank";
+import { ordering } from "@/lib/results/rank";
 
 // The tree is prerendered, so useLayoutEffect would warn on the server; useEffect alone would
 // paint the new order once before inverting, i.e. jump then slide.
@@ -50,7 +50,6 @@ function useFlip(deps: unknown[]) {
 export function ResultsList({ locations, mode }: { locations: readonly Location[]; mode: string }) {
   const { symbol, select, requestFocus } = useSelection();
   const { basis, reranked, basePosition } = ordering(locations, mode);
-  const top = topScore(locations);
   const { ref, reset } = useFlip([locations]);
 
   useEffect(reset, [locations, reset]);
@@ -112,7 +111,6 @@ export function ResultsList({ locations, mode }: { locations: readonly Location[
             total={reranked.length}
             basePosition={basePosition.get(l.symbol) ?? 0}
             basis={basis}
-            top={top}
             selected={l.symbol === symbol}
             tabbable={l.symbol === active}
             onSelect={() => select(l)}
