@@ -83,6 +83,7 @@ class Repo(Base):
     url: Mapped[str] = mapped_column(String(512), default="")
     path: Mapped[str] = mapped_column(String(512), default="")
     default_ref: Mapped[str] = mapped_column(String(128), default="")
+    import_ref: Mapped[str] = mapped_column(String(128), default="")  # commit fix branches base on
     symbols: Mapped[int] = mapped_column(default=0)
     files: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(16), default="importing")

@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
+import { StatusDot } from "@/components/ui/status-dot";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { CodePane } from "@/components/workspace/code-pane";
 import { FixCard } from "@/components/workspace/fix-card";
 import { Composer } from "@/components/workspace/composer";
+import { RepoView } from "@/components/workspace/repo-view";
 import { RepositoriesView } from "@/components/workspace/repositories-view";
 import { ResultsList } from "@/components/workspace/results-list";
 import { Sidebar } from "@/components/workspace/sidebar";
@@ -13,22 +16,31 @@ import { Splitter } from "@/components/workspace/splitter";
 import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { useJobResult } from "@/lib/client/use-job-result";
 import { useRepos } from "@/lib/client/use-repos";
+import { repoDisplayName } from "@/lib/repo-name";
 import { JobListSchema, JobSchema, type Fix, type Job, type Location, type Repo } from "@/lib/contracts";
-import { demoJob, demoRun } from "@/lib/fixtures";
+import { demoJob, demoRepo, demoRun } from "@/lib/fixtures";
 import { SelectionProvider, useSelection } from "@/lib/results/selection";
-import { sessionTitle } from "@/lib/sessions";
+import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
 import { useJobStream } from "@/lib/stream/use-job-stream";
 import type { ActivityState } from "@/lib/stream/reduce";
 import { fixtureEvents, networkEvents } from "@/lib/stream/transport";
+import { anyDirty, openTab } from "@/lib/repo-tabs";
 import { applyStoredPrefs } from "@/lib/ui-prefs";
 
 /** Demo pacing only — the Done line still shows the true recorded wall time. */
 const DEMO_GAP_MS = 2500;
 
-type View = { kind: "home" } | { kind: "repos" } | { kind: "session"; jobId: string; pass: number };
+type View =
+  | { kind: "home" }
+  | { kind: "repos" }
+  | { kind: "session"; jobId: string; pass: number }
+  | { kind: "repo"; repoId: string; slug: string; file?: string; line?: number; symbol?: string };
 
 export function WorkspaceShell({ live }: { live: boolean }) {
   const repos = useRepos(live);
+  // The hosted demo has no backend to poll, so the recorded repo is the whole list — without
+  // it there is no way to reach the file browser at all.
+  const repoList = live ? repos.repos : [demoRepo];
   const [view, setView] = useState<View>({ kind: "home" });
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [sessions, setSessions] = useState<Job[]>(live ? [] : [demoJob]);
@@ -69,6 +81,15 @@ export function WorkspaceShell({ live }: { live: boolean }) {
     }
   };
 
+  useEffect(() => {
+    if (!live) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      if (anyDirty()) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [live]);
+
   const activeJobId = view.kind === "session" ? view.jobId : null;
   const activeSession = sessions.find((j) => j.id === activeJobId) ?? null;
 
@@ -96,24 +117,142 @@ export function WorkspaceShell({ live }: { live: boolean }) {
       />
 
       <div id="session" tabIndex={-1} className="workspace-main">
-        {view.kind === "repos" && <RepositoriesView state={repos} />}
+        {view.kind === "repos" && (
+          <RepositoriesView
+            state={{ ...repos, repos: repoList }}
+            demo={!live}
+            onOpenRepo={(r) => setView({ kind: "repo", repoId: r.id, slug: r.slug })}
+          />
+        )}
+
+        {view.kind === "repo" && (
+          <PanelBoundary label="repository">
+            <RepoView
+              repoId={view.repoId}
+              slug={view.slug}
+              live={live}
+              initialFile={view.file}
+              initialLine={view.line}
+              initialSymbol={view.symbol}
+            />
+          </PanelBoundary>
+        )}
 
         {view.kind === "home" && (
           <div className="sw-home">
-            <h2 className="text-xl font-semibold text-fg">
-              Describe a bug or a change. Shipwright finds where in the code it lives.
-            </h2>
-            <Composer
-              repos={live ? repos.repos : []}
-              repo={currentRepo}
-              onPickRepo={setSelectedRepo}
-              busy={false}
-              onRun={(issue) => void run(issue)}
-              replay={!live}
-              issueText={demoRun.issue}
-              onReplay={() => setView((v) => ({ kind: "session", jobId: demoJob.id, pass: v.kind === "session" ? v.pass + 1 : 0 }))}
-            />
-            {submitError && <p className="text-danger">{submitError}</p>}
+            <div className="sw-home-composer">
+              <h2 className="text-xl font-semibold text-fg">
+                Describe a bug or a change. Shipwright finds where in the code it lives.
+              </h2>
+              <Composer
+                repos={live ? repos.repos : []}
+                repo={currentRepo}
+                onPickRepo={setSelectedRepo}
+                busy={false}
+                onRun={(issue) => void run(issue)}
+                replay={!live}
+                issueText={demoRun.issue}
+                onReplay={() => setView((v) => ({ kind: "session", jobId: demoJob.id, pass: v.kind === "session" ? v.pass + 1 : 0 }))}
+              />
+              {submitError && (
+                <p role="alert" className="text-danger">
+                  {submitError}
+                </p>
+              )}
+            </div>
+
+            {sessions.length > 0 && (
+              <section className="sw-home-section" aria-labelledby="recent-sessions">
+                <h3 id="recent-sessions" className="text-sm font-medium text-subtle">
+                  Recent sessions
+                </h3>
+                <ul className="sw-home-grid">
+                  {sessions.slice(0, 6).map((job) => (
+                    <li key={job.id}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setView((v) => ({
+                            kind: "session",
+                            jobId: job.id,
+                            pass: v.kind === "session" && v.jobId === job.id && !live ? v.pass + 1 : 0,
+                          }))
+                        }
+                        className="sw-card sw-lift sw-home-card w-full"
+                      >
+                        <span className="line-clamp-2 font-medium text-fg">
+                          {sessionTitle(job.issue)}
+                        </span>
+                        <span className="flex items-center gap-2 text-xs text-subtle">
+                          {/* The dot is aria-hidden, so the status needs a text equivalent. */}
+                          <StatusDot tone={SESSION_TONE[job.status]} />
+                          <span className="sr-only">{job.status}</span>
+                          {job.repo_slug && (
+                            <span className="truncate">{repoDisplayName(job.repo_slug)}</span>
+                          )}
+                          <span className="shrink-0">{relativeTime(job.created_at)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <section className="sw-home-section" aria-labelledby="home-repos">
+              <h3 id="home-repos" className="text-sm font-medium text-subtle">
+                Repositories
+              </h3>
+              {repos.error && <p className="text-danger">{repos.error}</p>}
+              <ul className="sw-home-grid">
+                  {repoList.slice(0, 5).map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          r.status === "ready"
+                            ? setView({ kind: "repo", repoId: r.id, slug: r.slug })
+                            : setView({ kind: "repos" })
+                        }
+                        className="sw-card sw-lift sw-home-card w-full"
+                      >
+                        <span className="truncate font-medium text-fg">
+                          {repoDisplayName(r.slug)}
+                        </span>
+                        <span className="text-xs text-subtle">
+                          {r.status === "ready"
+                            ? r.symbols === 0
+                              ? "Browse and edit"
+                              : `${r.symbols.toLocaleString()} functions`
+                            : r.status === "importing"
+                              ? "Importing…"
+                              : "Import failed"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                {live && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => setView({ kind: "repos" })}
+                      className="sw-card sw-lift sw-home-card w-full"
+                    >
+                      <span className="flex items-center gap-2 font-medium text-accent">
+                        <Icon name="plus" size={16} />
+                        Add a repository
+                      </span>
+                      <span className="text-xs text-subtle">GitHub URL, local folder, or .zip</span>
+                    </button>
+                  </li>
+                )}
+              </ul>
+              {!live && (
+                <p className="text-subtle">
+                  Run Shipwright locally to import your own repositories.
+                </p>
+              )}
+            </section>
           </div>
         )}
 
@@ -127,6 +266,21 @@ export function WorkspaceShell({ live }: { live: boolean }) {
               jobId={view.jobId}
               live={live}
               session={activeSession}
+              onOpenInEditor={(loc) => {
+                const job = activeSession;
+                if (!job?.repo_id) return;
+                // Open the tab here: navigation is the action, so the view never writes
+                // store state while reacting to a prop.
+                openTab(job.repo_id, loc.path, { preview: false });
+                setView({
+                  kind: "repo",
+                  repoId: job.repo_id,
+                  slug: job.repo_slug,
+                  file: loc.path,
+                  line: loc.start_line,
+                  symbol: loc.name,
+                });
+              }}
             />
           </PanelBoundary>
         )}
@@ -135,7 +289,17 @@ export function WorkspaceShell({ live }: { live: boolean }) {
   );
 }
 
-function SessionView({ jobId, live, session }: { jobId: string; live: boolean; session: Job | null }) {
+function SessionView({
+  jobId,
+  live,
+  session,
+  onOpenInEditor,
+}: {
+  jobId: string;
+  live: boolean;
+  session: Job | null;
+  onOpenInEditor: (location: Location) => void;
+}) {
   const makeStream = useCallback(
     () =>
       live
@@ -166,7 +330,7 @@ function SessionView({ jobId, live, session }: { jobId: string; live: boolean; s
       };
   const locations = state.outcome.kind === "done" ? (shown?.result.locations ?? []) : [];
   const title = sessionTitle(session?.issue ?? (live ? "" : demoRun.issue)) || "Session";
-  const repoName = (state.repo ?? "").replace(/^local:/, "").split("__").pop() ?? "";
+  const repoName = repoDisplayName(state.repo ?? "");
 
   return (
     <SelectionProvider locations={locations}>
@@ -179,6 +343,7 @@ function SessionView({ jobId, live, session }: { jobId: string; live: boolean; s
         mode={shown?.mode ?? state.mode ?? ""}
         jobId={jobId}
         live={live}
+        onOpenInEditor={onOpenInEditor}
         fix={fix ?? null}
         actions={actions}
         onAction={(kind: ActionKind, symbol?: string) => {
@@ -254,6 +419,7 @@ function SessionBody({
   mode,
   jobId,
   live,
+  onOpenInEditor,
   fix,
   actions,
   onAction,
@@ -267,6 +433,7 @@ function SessionBody({
   mode: string;
   jobId: string;
   live: boolean;
+  onOpenInEditor: (location: Location) => void;
   fix: Fix | null;
   actions: { id: string; kind: string }[];
   onAction: (kind: ActionKind, symbol?: string) => void;
@@ -329,7 +496,12 @@ function SessionBody({
           <Splitter side="right" controls="code-panel" label="code" />
           <aside id="code-panel" aria-label="Code preview" className="sw-code-panel">
             <PanelBoundary label="code">
-              <CodePane jobId={jobId} recorded={live ? null : demoRun.sources} onClose={clear} />
+              <CodePane
+                jobId={jobId}
+                recorded={live ? null : demoRun.sources}
+                onClose={clear}
+                onOpenInEditor={live ? () => onOpenInEditor(location) : undefined}
+              />
             </PanelBoundary>
           </aside>
         </>

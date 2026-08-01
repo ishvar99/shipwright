@@ -1,4 +1,13 @@
-/** Sidebar presentation of a job: a title and a relative time, nothing internal. */
+/** Presentation of a job for lists: a title, a relative time and a tone. Nothing internal. */
+import type { StatusTone } from "@/components/ui/status-dot";
+import type { Job } from "@/lib/contracts";
+
+export const SESSION_TONE: Record<Job["status"], StatusTone> = {
+  queued: "active",
+  running: "active",
+  done: "good",
+  errored: "bad",
+};
 
 const MAX_TITLE = 64;
 

@@ -20,7 +20,12 @@ const csp = [
   // Tailwind and React both emit inline styles; there is no external stylesheet origin.
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
-  "font-src 'self'", // next/font self-hosts Geist, so no Google Fonts origin is needed
+  // next/font self-hosts Geist, so no Google Fonts origin is needed; data: is for Monaco
+  // 0.56, which embeds the codicon font as a data URI inside editor.main.css.
+  "font-src 'self' data:",
+  // Monaco's min build bootstraps its worker through a blob that importScripts() a
+  // same-origin asset. Without blob: the editor silently falls back to the main thread.
+  "worker-src 'self' blob:",
   "connect-src 'self'", // the SSE stream and every fetch are same-origin through the BFF
   "object-src 'none'",
   "base-uri 'none'",
