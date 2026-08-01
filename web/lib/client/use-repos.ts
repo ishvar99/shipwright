@@ -20,7 +20,7 @@ export type ReposState = {
   error: string | null;
   /** Wall-clock ms since an import started, per repo id. */
   elapsed: Record<string, number>;
-  importRepo: (input: { url?: string; path?: string }) => Promise<Repo | null>;
+  importRepo: (input: { url?: string; path?: string; private?: boolean }) => Promise<Repo | null>;
   uploadRepo: (file: File) => Promise<Repo | null>;
   /** 0–1 while bytes are in flight, then null for the indeterminate server-side stage. */
   uploadProgress: number | null;
@@ -52,13 +52,15 @@ export function useRepos(live: boolean): ReposState {
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
-  const importRepo = useCallback(async (input: { url?: string; path?: string }) => {
+  const importRepo = useCallback(async (input: { url?: string; path?: string; private?: boolean }) => {
     setImporting(true);
     setImportError(null);
     try {
       const repo = await apiPost(RepoSchema, "/api/repos/import", {
         url: input.url ?? "",
         path: input.path ?? "",
+        // The BFF reads this to decide whether to attach the user's token server-side.
+        private: input.private ?? false,
       });
       // Insert the returned row rather than refetching: the response is authoritative and a
       // refetch would race the background build.
