@@ -178,17 +178,16 @@ export function WorkspaceShell({ live }: { live: boolean }) {
                             pass: v.kind === "session" && v.jobId === job.id && !live ? v.pass + 1 : 0,
                           }))
                         }
+                        title={sessionTitle(job.issue)}
                         className="sw-card sw-lift sw-home-card w-full"
                       >
-                        <span className="line-clamp-2 font-medium text-fg">
-                          {sessionTitle(job.issue)}
-                        </span>
-                        <span className="flex items-center gap-2 text-xs text-subtle">
+                        <span className="sw-home-card-title">{sessionTitle(job.issue)}</span>
+                        <span className="sw-home-card-meta">
                           {/* The dot is aria-hidden, so the status needs a text equivalent. */}
                           <StatusDot tone={SESSION_TONE[job.status]} />
                           <span className="sr-only">{job.status}</span>
                           {job.repo_slug && (
-                            <span className="truncate">{repoDisplayName(job.repo_slug)}</span>
+                            <span className="sw-truncate">{repoDisplayName(job.repo_slug)}</span>
                           )}
                           <span className="shrink-0">{relativeTime(job.created_at)}</span>
                         </span>
@@ -216,10 +215,8 @@ export function WorkspaceShell({ live }: { live: boolean }) {
                         }
                         className="sw-card sw-lift sw-home-card w-full"
                       >
-                        <span className="truncate font-medium text-fg">
-                          {repoDisplayName(r.slug)}
-                        </span>
-                        <span className="text-xs text-subtle">
+                        <span className="sw-home-card-title">{repoDisplayName(r.slug)}</span>
+                        <span className="sw-home-card-meta">
                           {r.status === "ready"
                             ? r.symbols === 0
                               ? "Browse and edit"
@@ -242,7 +239,7 @@ export function WorkspaceShell({ live }: { live: boolean }) {
                         <Icon name="plus" size={16} />
                         Add a repository
                       </span>
-                      <span className="text-xs text-subtle">GitHub URL, local folder, or .zip</span>
+                      <span className="sw-home-card-meta">GitHub URL, local folder, or .zip</span>
                     </button>
                   </li>
                 )}
