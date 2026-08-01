@@ -29,6 +29,7 @@ from ..codegraph.retrieve import Localizer
 from ..config import settings
 from ..db import session
 from ..fix import FixError, generate_fix
+from ..intent import CHANGE, OTHER, QUESTION, classify
 from ..models import DONE, ERRORED, RUNNING, Event, Job, Repo
 
 WORKSPACES = Path("workspaces")
@@ -236,11 +237,33 @@ def run_localize(job_id) -> None:
         emit(job_id, "graph.ready", **stats)
 
         model_name = settings.loc_model
+        provider = None
         if mode in ("extract", "rerank", "extract_rerank"):
             from ..gateway.ollama import OllamaProvider
 
-            emit(job_id, "engine.started")
             provider = OllamaProvider(model=model_name)
+
+        # Route before working. Retrieval always returns its top-k and the fused score is
+        # rank-derived, so nothing downstream can tell a question from a change request —
+        # which is how a question ended up proposing an edit.
+        emit(job_id, "intent.started")
+        intent, reason = classify(issue, provider)
+        emit(job_id, "intent.ready", intent=intent, reason=reason)
+
+        if intent == OTHER:
+            wall = int((time.perf_counter() - started) * 1000)
+            with session() as s:
+                j = s.get(Job, job_id)
+                j.status = DONE
+                j.model = ""
+                j.result = {"locations": [], "graph": {}, "fix": None, "intent": intent}
+                j.wall_ms = wall
+                j.finished_at = datetime.now(UTC)
+            emit(job_id, "job.done", wall_ms=wall, locations=0)
+            return
+
+        if mode in ("extract", "rerank", "extract_rerank"):
+            emit(job_id, "engine.started")
             ranked, usage = localize_assisted(
                 graph,
                 issue,
@@ -281,16 +304,27 @@ def run_localize(job_id) -> None:
             )
         emit(job_id, "localization.ready", count=len(results))
 
+        # Only a change request may end in an edit. A question gets the same search, and
+        # stops there.
         fix_info = None
-        if mode in ("rerank", "extract_rerank") and results:
+        answer = ""
+        if intent == CHANGE and mode in ("rerank", "extract_rerank") and results:
             fix_info = _fix_stage(job_id, repo_path, issue, results, provider)
+        elif intent == QUESTION and results:
+            answer = _answer_stage(job_id, repo_path, issue, results, provider)
 
         wall = int((time.perf_counter() - started) * 1000)
         with session() as s:
             j = s.get(Job, job_id)
             j.status = DONE
             j.model = model_name
-            j.result = {"locations": results, "graph": stats, "fix": fix_info}
+            j.result = {
+                "locations": results,
+                "graph": stats,
+                "fix": fix_info,
+                "intent": intent,
+                "answer": answer,
+            }
             j.input_tokens = usage.input_tokens if usage else 0
             j.output_tokens = usage.output_tokens if usage else 0
             j.wall_ms = wall
@@ -305,6 +339,44 @@ def run_localize(job_id) -> None:
             j.error = msg[:1000]
             j.finished_at = datetime.now(UTC)
         emit(job_id, "job.failed", error=msg[:400])
+
+
+def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -> str:
+    """A question deserves an answer, not just a list of files. Grounded in the code we
+    actually found, so it cannot invent an architecture the repository does not have."""
+    if not results or model is None:
+        return ""
+    context = []
+    for r in results[:5]:
+        try:
+            window = read_symbol(repo_path, r["path"], r["start_line"], r["end_line"], pad=0)
+        except ValueError:
+            continue
+        body = "\n".join(window["lines"][:40])
+        context.append(f'--- {r["path"]}:{r["start_line"]} ({r["name"]})\n{body}')
+    if not context:
+        return ""
+
+    emit(job_id, "answer.started")
+    prompt = (
+        "Answer the question using only the code below. Be concrete and brief (3-5 "
+        "sentences). Name the files and functions you rely on. If the code shown does not "
+        "answer it, say so plainly.\n\n"
+        f"Question: {issue}\n\nCode:\n" + "\n\n".join(context)[:12000]
+    )
+    try:
+        result = model.generate(
+            [{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=400,
+            timeout=120.0,
+            on_delta=lambda t: emit(job_id, "answer.delta", text=t),
+        )
+        emit(job_id, "answer.ready")
+        return result.text.strip()[:2000]
+    except Exception:  # noqa: BLE001 - the located results are still the product
+        emit(job_id, "answer.failed")
+        return ""
 
 
 def _fix_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -> dict | None:

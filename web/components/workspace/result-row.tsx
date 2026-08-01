@@ -35,7 +35,7 @@ export function ResultCard({
   onActivate: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const tier = matchTier(location.score, top);
+  const tier = matchTier(location.rank);
   const name = qualifiedName(location);
   const delta = rankDelta(basePosition, location.rank);
   const movement =

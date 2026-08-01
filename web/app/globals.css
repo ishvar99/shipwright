@@ -369,6 +369,22 @@
     white-space: nowrap;
   }
 
+  .sw-caret {
+    display: inline-block;
+    width: 7px;
+    height: 1em;
+    margin-left: 2px;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    animation: sw-blink 1s steps(2, start) infinite;
+  }
+
+  @keyframes sw-blink {
+    to {
+      visibility: hidden;
+    }
+  }
+
   .sw-drop-overlay {
     position: absolute;
     inset: calc(var(--space-unit) * -2);

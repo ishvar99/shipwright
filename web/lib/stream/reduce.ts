@@ -80,6 +80,9 @@ export type ActivityState = {
   timeline: TimelineEntry[];
   /** The fix rewrite as it streams in. Reset per attempt. */
   fixText: string;
+  /** Routing decision, and the streamed answer when the request was a question. */
+  intent?: "change" | "question" | "other";
+  answerText: string;
   /** The engine ran. Replaces the model name, which no longer travels to the client. */
   assisted: boolean;
   stages: Record<StageKey, Stage>;
@@ -129,6 +132,7 @@ export function initialState(jobId: string, origin: StreamOrigin, now = 0): Acti
     outcome: { kind: "pending" },
     timeline: [],
     fixText: "",
+    answerText: "",
     assisted: false,
     terminalEventSeen: false,
     seen: new Set(),
@@ -268,6 +272,19 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
       return { ...s, fixText: "" };
     case "fix.delta":
       return { ...s, fixText: s.fixText + e.text };
+    // Routing and answering are narrated, not benchmarked: the trace stages stay the three
+    // the evaluation measures.
+    case "intent.started":
+      return s;
+    case "intent.ready":
+      return { ...s, intent: e.intent };
+    case "answer.started":
+      return { ...s, answerText: "" };
+    case "answer.delta":
+      return { ...s, answerText: s.answerText + e.text };
+    case "answer.ready":
+    case "answer.failed":
+      return s;
     case "candidates.found":
       return { ...s, candidateCount: e.count };
     case "search.started":

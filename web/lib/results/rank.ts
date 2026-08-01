@@ -111,9 +111,14 @@ export type MatchTier = "strong" | "good" | "possible";
 
 /** Customer-facing strength. Deliberately "match", never "confidence": the score is a fused
  * retrieval rank, not a probability, and the wording must not promote it to one. */
-export function matchTier(score: number, top: number): { tier: MatchTier; label: string } {
-  const ratio = top > 0 ? score / top : 0;
-  if (ratio >= 0.66) return { tier: "strong", label: "Strong match" };
-  if (ratio >= 0.33) return { tier: "good", label: "Good match" };
-  return { tier: "possible", label: "Possible match" };
+/**
+ * Ranked position, not measured confidence. The fused score is rank-derived (1/(k+rank)), so
+ * within one result set it spans about 0.77-1.00 whatever the query — an unrelated question
+ * scored "Strong match" just as readily as a real bug report. Position is the only thing the
+ * ranking actually knows, so it is the only thing this claims.
+ */
+export function matchTier(rank: number): { tier: MatchTier; label: string } {
+  if (rank <= 3) return { tier: "strong", label: "Most likely" };
+  if (rank <= 6) return { tier: "good", label: "Worth checking" };
+  return { tier: "possible", label: "Long shot" };
 }

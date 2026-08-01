@@ -27,7 +27,28 @@ type Beat = {
   fact?: (data: Record<string, number | string>) => string | undefined;
 };
 
+const INTENT_FACT: Record<string, string> = {
+  change: "a change request",
+  question: "a question about the code",
+  other: "nothing to change here",
+};
+
 const BEATS: readonly Beat[] = [
+  {
+    key: "intent",
+    opens: ["intent.started"],
+    closes: ["intent.ready"],
+    active: "Reading what you asked for…",
+    done: "Understood what you asked for",
+    fact: (d) => (typeof d.intent === "string" ? INTENT_FACT[d.intent] : undefined),
+  },
+  {
+    key: "answer",
+    opens: ["answer.started"],
+    closes: ["answer.ready"],
+    active: "Writing an answer…",
+    done: "Answered",
+  },
   {
     key: "read",
     opens: ["graph.building"],
