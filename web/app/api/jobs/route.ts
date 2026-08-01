@@ -11,8 +11,14 @@ function scrub(job: Job): Job {
 
 export async function GET(request: NextRequest) {
   try {
-    const limit = request.nextUrl.searchParams.get("limit") ?? undefined;
-    return ok((await callBackend(JobListSchema, "/api/jobs", { query: { limit } })).map(scrub));
+    const q = request.nextUrl.searchParams;
+    // Forwarded so the limit counts only rows the caller will actually show.
+    const query = {
+      limit: q.get("limit") ?? undefined,
+      kind: q.get("kind") ?? undefined,
+      client: q.get("client") ?? undefined,
+    };
+    return ok((await callBackend(JobListSchema, "/api/jobs", { query })).map(scrub));
   } catch (e) {
     return toResponse(e);
   }

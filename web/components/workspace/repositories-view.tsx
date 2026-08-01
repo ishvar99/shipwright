@@ -20,10 +20,12 @@ export function RepositoriesView({
   state,
   demo = false,
   onOpenRepo,
+  onStartSession,
 }: {
   state: ReposState;
   demo?: boolean;
   onOpenRepo?: (repo: Repo) => void;
+  onStartSession?: (repo: Repo) => void;
 }) {
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
@@ -41,7 +43,7 @@ export function RepositoriesView({
 
   return (
     <div
-      className="relative grid gap-4"
+      className="sw-page relative grid gap-4"
       onDragEnter={(e) => {
         if (demo || !e.dataTransfer.types.includes("Files")) return;
         dragDepth.current += 1;
@@ -225,6 +227,19 @@ export function RepositoriesView({
                   </details>
                 )}
               </div>
+              {/* A finished import used to just change some text and leave the user to work out
+                  the next step. */}
+              {r.status === "ready" && onStartSession && (
+                <Button
+                  className="h-7 shrink-0 px-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartSession(r);
+                  }}
+                >
+                  Start a session
+                </Button>
+              )}
               {r.status !== "ready" && <StatusDot tone={r.status === "failed" ? "bad" : "active"} />}
               {/* Retry can only re-run what we can reconstruct: a GitHub URL. A zip's bytes
                   are gone, and a local path is deliberately never sent to the browser. */}

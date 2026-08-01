@@ -22,6 +22,7 @@ export function FixCard({
   fixText,
   writing,
   busy,
+  pendingKind = null,
   live,
   onApply,
   onTest,
@@ -32,6 +33,8 @@ export function FixCard({
   fixText: string;
   writing: boolean;
   busy: boolean;
+  /** Which action is in flight, so the button says what it is doing. */
+  pendingKind?: "apply" | "test" | "fix_retry" | null;
   live: boolean;
   onApply: () => void;
   onTest: () => void;
@@ -86,16 +89,23 @@ export function FixCard({
           </p>
           <div className="overflow-x-auto">
             {f.hunks.map((h, i) => (
-              <pre key={i} className="sw-diff">
-                {h.lines.map((l, j) => (
-                  <div key={j} className={cn("sw-diff-line", `sw-diff-${l.kind}`)}>
-                    <span aria-hidden className="sw-diff-sign">
-                      {l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}
-                    </span>
-                    {l.text || " "}
+              <div key={i}>
+                {i > 0 && (
+                  <div aria-hidden className="sw-diff-gap">
+                    ⋯
                   </div>
-                ))}
-              </pre>
+                )}
+                <pre className="sw-diff">
+                  {h.lines.map((l, j) => (
+                    <div key={j} className={cn("sw-diff-line", `sw-diff-${l.kind}`)}>
+                      <span aria-hidden className="sw-diff-sign">
+                        {l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}
+                      </span>
+                      {l.text || " "}
+                    </div>
+                  ))}
+                </pre>
+              </div>
             ))}
           </div>
         </div>
@@ -106,17 +116,17 @@ export function FixCard({
         {!applied && (
           <Button variant="primary" onClick={onApply} aria-disabled={busy || undefined}>
             <Icon name="check" size={16} />
-            Apply fix
+            {pendingKind === "apply" ? "Applying…" : "Apply fix"}
           </Button>
         )}
         {applied && !tests && (
           <Button variant="primary" onClick={onTest} aria-disabled={busy || undefined}>
-            Run tests
+            {pendingKind === "test" ? "Running tests…" : "Run tests"}
           </Button>
         )}
         {tests && tests.failed > 0 && (fix.attempt ?? 1) < 2 && live && (
           <Button variant="primary" onClick={onRetry} aria-disabled={busy || undefined}>
-            Try again with the failure
+            {pendingKind === "fix_retry" ? "Trying again…" : "Try again with the failure"}
           </Button>
         )}
         <Button variant="ghost" onClick={() => download(fix.patch!, "shipwright-fix.patch")}>

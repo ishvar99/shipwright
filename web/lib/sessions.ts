@@ -20,8 +20,15 @@ export function sessionTitle(issue: string): string {
   return `${cut.slice(0, atWord > 32 ? atWord : MAX_TITLE)}…`;
 }
 
+/** The backend column is `timestamp without time zone`, so the wire string carries no offset and
+ * must be read as UTC. Every consumer has to agree, or a row's day header and its own relative
+ * time disagree about which day it was. */
+export function parseJobTime(iso: string): number {
+  return Date.parse(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
+}
+
 export function relativeTime(iso: string, now: number = Date.now()): string {
-  const then = Date.parse(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
+  const then = parseJobTime(iso);
   if (Number.isNaN(then)) return "";
   const s = Math.max(0, (now - then) / 1000);
   if (s < 60) return "just now";

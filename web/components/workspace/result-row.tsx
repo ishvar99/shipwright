@@ -59,14 +59,12 @@ export function ResultCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <span className="min-w-0 break-words font-semibold text-fg">{name}</span>
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-xs font-medium",
-                tier.tier === "strong" ? "bg-ok-soft text-ok" : "bg-soft text-muted",
-              )}
-            >
-              {tier.label}
-            </span>
+            {/* One glance should identify the single best candidate. */}
+            {location.rank === 1 && (
+              <span className="rounded-full bg-ok-soft px-2 py-0.5 text-xs font-medium text-ok">
+                {tier.label}
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex min-w-0 items-baseline gap-2 font-mono text-xs text-subtle">
             <span className="truncate">{location.path}</span>
@@ -83,11 +81,13 @@ export function ResultCard({
         </div>
         <button
           type="button"
-          tabIndex={-1}
+          aria-expanded={open}
+          aria-label={open ? "Hide the evidence" : "Why this result?"}
           onClick={(e) => {
             e.stopPropagation();
             setOpen((v) => !v);
           }}
+          onKeyDown={(e) => e.stopPropagation()} // the listbox owns arrows; this owns its own keys
           className="rounded p-1 text-subtle transition-colors hover:bg-soft hover:text-fg"
           title={open ? "Hide why" : "Why here?"}
         >

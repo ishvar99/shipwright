@@ -107,6 +107,9 @@ class Job(Base):
     issue: Mapped[str] = mapped_column(String(20000))
     mode: Mapped[str] = mapped_column(String(32), default="extract_rerank")
     base_mode: Mapped[str] = mapped_column(String(32), default="hybrid")
+    # Where the request came from: "web" for the product surface, "" for the harness and CLI.
+    # The sidebar filters on it so a benchmark sweep cannot bury a user's own sessions.
+    client: Mapped[str] = mapped_column(String(16), default="")
     model: Mapped[str] = mapped_column(String(128), default="")
     status: Mapped[str] = mapped_column(String(16), default=QUEUED)
     result: Mapped[dict] = mapped_column(JSONB, default=dict)

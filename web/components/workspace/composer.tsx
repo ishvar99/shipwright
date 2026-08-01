@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
+import { RepoPicker } from "@/components/workspace/repo-picker";
 import type { Repo } from "@/lib/contracts";
 import { repoDisplayName } from "@/lib/repo-name";
 import { cn } from "@/lib/cn";
@@ -18,9 +19,15 @@ const EXAMPLES = [
   "Regional endpoints ignore the configured authority host.",
 ];
 
-function blockedBecause(repo: Repo | null, issue: string, busy: boolean): string | null {
+function blockedBecause(
+  repo: Repo | null,
+  issue: string,
+  busy: boolean,
+  hasRepos: boolean,
+): string | null {
   if (busy) return "Your current session is still running.";
-  if (!repo) return "Choose a repository first.";
+  // With nothing imported, "choose" names an action that does not exist yet.
+  if (!repo) return hasRepos ? "Choose a repository first." : "Import a repository first.";
   if (repo.status === "importing") return "Still indexing this repository — usually under a minute.";
   if (repo.status === "failed") return "This repository didn't import. Retry it from Repositories.";
   if (repo.symbols === 0) return "No Python code found here — Shipwright reads Python today.";
@@ -30,6 +37,9 @@ function blockedBecause(repo: Repo | null, issue: string, busy: boolean): string
   if (len > MAX_CHARS) return "That's longer than we can read — trim it under 20,000 characters.";
   return null;
 }
+
+/** Past this many, a chip row is a wall of pills rather than a choice. */
+const CHIP_LIMIT = 5;
 
 export function Composer({
   repos,
@@ -81,7 +91,7 @@ export function Composer({
     );
   }
 
-  const blocked = blockedBecause(repo, issue, busy);
+  const blocked = blockedBecause(repo, issue, busy, repos.length > 0);
 
   return (
     <form
@@ -95,7 +105,8 @@ export function Composer({
         }
       }}
     >
-      {repos.length > 0 && (
+      {/* Chips while they still fit; a searchable picker once scanning tints stops working. */}
+      {repos.length > 0 && repos.length <= CHIP_LIMIT && (
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Repository">
           {repos.map((r) => (
             <button
@@ -104,17 +115,22 @@ export function Composer({
               onClick={() => onPickRepo(r)}
               aria-pressed={r.id === repo?.id}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                // A check plus a border, not tint alone: two soft washes are not an affordance.
                 r.id === repo?.id
-                  ? "bg-accent-soft text-fg"
-                  : "bg-soft text-muted hover:text-fg",
+                  ? "border-accent bg-accent-soft text-fg"
+                  : "border-hairline bg-soft text-muted hover:text-fg",
               )}
             >
+              {r.id === repo?.id && <Icon name="check" size={12} className="text-accent" />}
               {r.status !== "ready" && <StatusDot tone={r.status === "failed" ? "bad" : "active"} />}
               {repoDisplayName(r.slug)}
             </button>
           ))}
         </div>
+      )}
+      {repos.length > CHIP_LIMIT && (
+        <RepoPicker repos={repos} repo={repo} onPick={onPickRepo} />
       )}
 
       <label htmlFor={id} className="sr-only">
