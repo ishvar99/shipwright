@@ -10,7 +10,9 @@ that reconnects can resume from Last-Event-ID instead of losing the timeline.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import os
 import re
 import subprocess
 import threading
@@ -100,13 +102,26 @@ def emit(job_id, type_: str, **payload) -> None:
         s.add(Event(job_id=job_id, seq=seq, type=type_, payload=payload))
 
 
-def _run_git(args: list[str], cwd: Path | None = None, timeout: int = 1800) -> tuple[bool, str]:
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout)
+def _run_git(
+    args: list[str],
+    cwd: Path | None = None,
+    timeout: int = 1800,
+    env: dict[str, str] | None = None,
+) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, **env} if env else None,
+    )
     return r.returncode == 0, (r.stderr or r.stdout)[-400:]
 
 
-def import_repo(repo_id) -> None:
-    """Clone (or adopt a local path) and index. Runs off the request thread."""
+def import_repo(repo_id, token: str = "") -> None:
+    """Clone (or adopt a local path) and index. Runs off the request thread. A token, when
+    given, is used for exactly one clone and never persisted."""
     with session() as s:
         repo = s.get(Repo, repo_id)
         slug, source, url, path = repo.slug, repo.source, repo.url, repo.path
@@ -126,7 +141,7 @@ def import_repo(repo_id) -> None:
             dest = WORKSPACES / slug.replace("/", "__")
             dest.parent.mkdir(parents=True, exist_ok=True)
             if not (dest / ".git").exists():
-                ok, err = _run_git(["clone", "--depth", "1", url, str(dest)])
+                ok, err = _clone(url, dest, token)
                 if not ok:
                     raise RuntimeError(f"clone failed: {_scrub_creds(err)}")
             ok, import_sha = _run_git(["rev-parse", "HEAD"], cwd=dest, timeout=60)
@@ -178,6 +193,26 @@ def import_zip(repo_id, zip_path: str) -> None:
     except Exception as e:
         _fail_repo(repo_id, f"Import failed while reading the archive ({type(e).__name__}).")
         zp.unlink(missing_ok=True)
+
+
+def _clone(url: str, dest: Path, token: str) -> tuple[bool, str]:
+    """Credentials travel in an auth header supplied through git's environment config, never
+    in the URL (which would land in .git/config and in clone's stderr) and never in argv
+    (which any process on the box can read, base64 or not)."""
+    env = None
+    if token:
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        env = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        }
+    ok, err = _run_git(["clone", "--depth", "1", url, str(dest)], env=env)
+    if ok and token:
+        # The workspace never needs the remote again, and keeping it would keep the
+        # credential path alive.
+        _run_git(["remote", "remove", "origin"], cwd=dest, timeout=60)
+    return ok, err
 
 
 def run_localize(job_id) -> None:

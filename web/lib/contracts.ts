@@ -109,6 +109,22 @@ export const RepoSaveSchema = z.object({
   commit: z.string().nullable(),
 });
 
+/** The user's repositories, as the picker needs them. Straight from GitHub, narrowed. */
+export const GitHubRepoSchema = z.object({
+  full_name: z.string(),
+  private: z.boolean(),
+  updated_at: z.string(),
+  clone_url: z.string(),
+});
+export const GitHubRepoListSchema = z.array(GitHubRepoSchema);
+
+/** Whether Connect GitHub can be offered, and who is connected. Never carries the token. */
+export const GitHubStatusSchema = z.object({
+  configured: z.boolean(),
+  connected: z.boolean(),
+  login: z.string().default(""),
+});
+
 export const SourceSchema = z.object({
   path: z.string(),
   start: z.number(),
@@ -240,6 +256,8 @@ export type Source = z.infer<typeof SourceSchema>;
 export type RepoTree = z.infer<typeof RepoTreeSchema>;
 export type RepoFile = z.infer<typeof RepoFileSchema>;
 export type RepoSave = z.infer<typeof RepoSaveSchema>;
+export type GitHubRepo = z.infer<typeof GitHubRepoSchema>;
+export type GitHubStatus = z.infer<typeof GitHubStatusSchema>;
 export type Analytics = z.infer<typeof AnalyticsSchema>;
 export type AnalyticsRun = z.infer<typeof AnalyticsRunSchema>;
 export type Fix = z.infer<typeof FixSchema>;

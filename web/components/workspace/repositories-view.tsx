@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { GitHubConnect } from "@/components/workspace/github-connect";
 import { StatusDot } from "@/components/ui/status-dot";
 import { firstLine } from "@/lib/errors";
 import { redact } from "@/lib/stream/redact";
@@ -121,6 +122,12 @@ export function RepositoriesView({
               </Button>
             </div>
           </form>
+
+          <GitHubConnect
+            live={!demo}
+            importing={state.importing}
+            onImport={(input) => void state.importRepo(input)}
+          />
 
           <div className="sw-dropzone">
             <input

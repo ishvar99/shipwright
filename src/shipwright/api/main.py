@@ -60,6 +60,8 @@ IMPORT_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sw-import")
 class ImportRepo(BaseModel):
     url: str = Field("", description="https://github.com/owner/name")
     path: str = Field("", description="local directory")
+    # Used once, for the clone, then discarded. Never stored on the repo row.
+    token: str = Field("", description="GitHub access token for a private repository")
 
 
 class CreateAction(BaseModel):
@@ -156,7 +158,7 @@ def repos_import(body: ImportRepo, background: BackgroundTasks) -> dict[str, Any
         s.flush()
         out, repo_id = _repo_json(repo), repo.id
 
-    background.add_task(POOL.submit, import_repo, repo_id)
+    background.add_task(IMPORT_POOL.submit, import_repo, repo_id, body.token)
     return out
 
 
