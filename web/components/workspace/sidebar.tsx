@@ -36,7 +36,7 @@ export function Sidebar({
       </button>
 
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-        <p className="px-2 pb-1 text-xs font-medium text-subtle">Sessions</p>
+        <p className="sw-sessions-heading px-2 pb-1 text-xs font-medium text-subtle">Sessions</p>
         {sessions.length === 0 && (
           <p className="px-2 py-1 text-subtle">Your sessions will appear here.</p>
         )}
@@ -67,7 +67,7 @@ export function Sidebar({
         </ul>
       </div>
 
-      <div className="mt-2 grid gap-1 border-t border-hairline pt-2">
+      <div className="sw-side-footer">
         {/* Shown in demo too: it is the only route to the file browser, which the hosted
             demo can drive from the recording. */}
         <button type="button" onClick={onOpenRepositories} className="sw-side-item">

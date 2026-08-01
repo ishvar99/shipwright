@@ -129,6 +129,9 @@
 
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-swift: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Two durations, used everywhere: colour/hover, and layout/entrance. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
 }
 
 @layer base {
@@ -180,6 +183,44 @@
     height: 100dvh;
     overflow: clip;
     background: var(--bg);
+    /* The track interpolates even though the custom property jumps. */
+    transition: grid-template-columns var(--dur-base) var(--ease-swift);
+  }
+
+  html[data-sidebar="rail"] .workspace {
+    --sidebar-w: 48px;
+  }
+
+  html[data-sidebar="rail"] .workspace-sidebar {
+    overflow: clip;
+    padding-inline: 4px;
+  }
+
+  /* Labels fold away; the icons stay, so the rail keeps wayfinding and one-click return. */
+  .sw-rail-hide {
+    opacity: 1;
+    transition: opacity var(--dur-fast) linear;
+  }
+
+  html[data-sidebar="rail"] .sw-rail-hide {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .sw-rail-toggle {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border-radius: var(--radius);
+    color: var(--subtle);
+    transition: background-color var(--dur-fast), color var(--dur-fast);
+  }
+
+  .sw-rail-toggle:hover {
+    background: var(--soft);
+    color: var(--fg);
   }
 
   .workspace-sidebar {
@@ -266,6 +307,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* An owned class, not utilities: the narrow-viewport rule below has to override this, and
+     Tailwind's utility layer always wins over @layer components regardless of specificity. */
+  .sw-side-footer {
+    display: grid;
+    gap: 4px;
+    margin-top: calc(var(--space-unit) * 2);
+    padding-top: calc(var(--space-unit) * 2);
+    border-top: 1px solid var(--hairline);
   }
 
   .sw-side-item {
@@ -385,6 +436,10 @@
     }
   }
 
+  .sw-view {
+    animation: sw-rise var(--dur-base) var(--ease-out-quart);
+  }
+
   .sw-drop-overlay {
     position: absolute;
     inset: calc(var(--space-unit) * -2);
@@ -473,6 +528,10 @@
     font-size: var(--text-ui);
   }
 
+  .sw-tree-row {
+    transition: background-color var(--dur-fast);
+  }
+
   .sw-tree-row:hover {
     background: var(--soft);
   }
@@ -481,6 +540,21 @@
     background: var(--accent-soft);
     color: var(--fg);
     box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  /* The app had no :active rules at all, so every click felt inert. */
+  .sw-new-session:active,
+  .sw-side-item:active,
+  .sw-session-row:active,
+  .sw-tree-row:active,
+  .sw-tab:active {
+    transform: translateY(0.5px);
+  }
+
+  .sw-side-item:active,
+  .sw-session-row:active,
+  .sw-tree-row:active {
+    background: color-mix(in oklch, var(--fg) 8%, var(--bg));
   }
 
   .sw-tabs {
@@ -506,6 +580,12 @@
     white-space: nowrap;
     cursor: default;
     font-size: var(--text-ui);
+    transition: background-color var(--dur-fast), color var(--dur-fast);
+  }
+
+  .sw-tab:not(.sw-tab-active):hover {
+    background: var(--soft);
+    color: var(--fg);
   }
 
   .sw-tab-active {
@@ -1134,6 +1214,27 @@
       margin: 0;
       padding: 0;
       overflow: visible;
+    }
+    /* The strip cannot host a vertical list: every row collapsed to a one-character sliver
+       and pushed the main content off-screen entirely. Sessions live behind the nav here. */
+    .workspace-sidebar .sw-session-list,
+    .workspace-sidebar .sw-sessions-heading {
+      display: none;
+    }
+    .workspace-sidebar {
+      min-height: 56px;
+    }
+    .sw-side-footer {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+    /* Nothing to animate once the sidebar is a row. */
+    .workspace {
+      transition: none;
     }
     .sw-new-session {
       margin-top: 0;
