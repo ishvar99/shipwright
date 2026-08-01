@@ -18,7 +18,20 @@ export const RIGHT = { min: 24, max: 36, def: 32 } as const;
 export type TraceState = "open" | "collapsed";
 /** "auto" collapses to the rail only on the editor route; the other two always win. */
 export type SidebarState = "auto" | "expanded" | "rail";
-export type Prefs = { left: number; right: number; trace: TraceState; sidebar: SidebarState };
+/** Beyond the furniture: what the user was actually doing. Splitter widths survived a reload
+ * and the half-written issue did not, which is the wrong way round. */
+export type Prefs = {
+  left: number;
+  right: number;
+  trace: TraceState;
+  sidebar: SidebarState;
+  /** Last repository worked in, so /app opens where you left off. */
+  repo: string;
+  /** One unsent issue, tagged with the repository it was written for. */
+  draft: { repo: string; text: string };
+  /** First-run checklist dismissed by hand. */
+  checklistDone: boolean;
+};
 
 export type Side = "left" | "right";
 export type Bounds = { readonly min: number; readonly max: number; readonly def: number };
@@ -119,4 +132,32 @@ export function setSidebarState(state: SidebarState): void {
   if (state === "auto") delete document.documentElement.dataset.sidebar;
   else document.documentElement.dataset.sidebar = state;
   savePrefs({ sidebar: state });
+}
+
+export function readLastRepo(): string {
+  const v = read().repo;
+  return typeof v === "string" ? v : "";
+}
+
+export function setLastRepo(repoId: string): void {
+  savePrefs({ repo: repoId });
+}
+
+/** Tagged with its repository: restoring an issue written about one project into the composer
+ * of another would be worse than losing it. */
+export function readDraft(repoId: string): string {
+  const d = read().draft;
+  return d && d.repo === repoId && typeof d.text === "string" ? d.text : "";
+}
+
+export function setDraft(repoId: string, text: string): void {
+  savePrefs({ draft: { repo: repoId, text } });
+}
+
+export function readChecklistDone(): boolean {
+  return read().checklistDone === true;
+}
+
+export function setChecklistDone(): void {
+  savePrefs({ checklistDone: true });
 }

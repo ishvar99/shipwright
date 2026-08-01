@@ -20,12 +20,10 @@ export function RepositoriesView({
   state,
   demo = false,
   onOpenRepo,
-  onStartSession,
 }: {
   state: ReposState;
   demo?: boolean;
   onOpenRepo?: (repo: Repo) => void;
-  onStartSession?: (repo: Repo) => void;
 }) {
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
@@ -76,7 +74,7 @@ export function RepositoriesView({
         </div>
       )}
 
-      <h1 className="text-lg font-semibold text-fg">Repositories</h1>
+      <h1 className="text-head font-semibold text-fg">Repositories</h1>
 
       {demo ? (
         <p className="sw-card p-5 text-subtle">
@@ -228,16 +226,17 @@ export function RepositoriesView({
                 )}
               </div>
               {/* A finished import used to just change some text and leave the user to work out
-                  the next step. */}
-              {r.status === "ready" && onStartSession && (
+                  the next step. One destination now: the repository's own page is where a
+                  session starts, so "open it" and "work in it" stopped being two things. */}
+              {openable && (
                 <Button
                   className="h-7 shrink-0 px-2"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onStartSession(r);
+                    onOpenRepo?.(r);
                   }}
                 >
-                  Start a session
+                  Open
                 </Button>
               )}
               {r.status !== "ready" && <StatusDot tone={r.status === "failed" ? "bad" : "active"} />}

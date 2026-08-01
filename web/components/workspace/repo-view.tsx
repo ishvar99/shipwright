@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import type { EditorHandle } from "@/components/workspace/editor/monaco-editor";
 import type { Body } from "@/lib/repo-tabs";
 import { ancestorsOf } from "@/lib/repo-fold";
 import { repoDisplayName } from "@/lib/repo-name";
+import { repoHome } from "@/lib/repo-routes";
 import {
   activateTab,
   closeTab,
@@ -248,8 +250,12 @@ export function RepoView({
     <div className="sw-repo">
       <header className="sw-repo-head">
         <div className="flex min-w-0 items-center gap-2">
-          <Icon name="folder" size={16} className="shrink-0 text-subtle" />
-          <span className="truncate font-medium text-fg">{repoDisplayName(slug)}</span>
+          {/* The repository name is the way back to its page, the same as in a session header —
+              the editor is one surface of a repository, not a place of its own. */}
+          <Link href={repoHome(repoId)} className="flex min-w-0 items-center gap-2 hover:text-accent">
+            <Icon name="folder" size={16} className="shrink-0 text-subtle" />
+            <span className="truncate font-medium text-fg">{repoDisplayName(slug)}</span>
+          </Link>
           {active && (
             <>
               <span className="text-subtle">/</span>

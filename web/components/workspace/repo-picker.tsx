@@ -15,10 +15,13 @@ export function RepoPicker({
   repos,
   repo,
   onPick,
+  block = false,
 }: {
   repos: Repo[];
   repo: Repo | null;
   onPick: (repo: Repo) => void;
+  /** Fills its container instead of hugging its label — the sidebar switcher spans the rail. */
+  block?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -55,13 +58,13 @@ export function RepoPicker({
   };
 
   return (
-    <div ref={box} className="relative justify-self-start">
+    <div ref={box} className={cn("relative", block ? "w-full" : "justify-self-start")}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="sw-repo-trigger"
+        className={cn("sw-repo-trigger", block && "w-full")}
       >
         {repo && repo.status !== "ready" && (
           <StatusDot tone={repo.status === "failed" ? "bad" : "active"} />
@@ -69,7 +72,11 @@ export function RepoPicker({
         <span className="sw-truncate">
           {repo ? repoDisplayName(repo.slug) : "Choose a repository"}
         </span>
-        <Icon name="chevron" size={12} className={cn("shrink-0 text-subtle", open && "rotate-90")} />
+        <Icon
+          name="chevron"
+          size={12}
+          className={cn("shrink-0 text-subtle", block && "ml-auto", open && "rotate-90")}
+        />
       </button>
 
       {open && (

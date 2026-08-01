@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { RepoFileSchema } from "@/lib/contracts";
-import { callBackend } from "@/lib/backend";
+import { backendHeaders, callBackend } from "@/lib/backend";
 import { ApiError } from "@/lib/errors";
 import { ok, toResponse } from "@/lib/route-helpers";
 
@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     try {
       upstream = await fetch(new URL(`/api/repos/${encodeURIComponent(id)}/file`, base), {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: await backendHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
         cache: "no-store",

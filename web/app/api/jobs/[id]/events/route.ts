@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { backendHeaders } from "@/lib/backend";
 import { ApiError } from "@/lib/errors";
 import { toResponse } from "@/lib/route-helpers";
 
@@ -24,10 +25,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const cursor = firstInt(header, query);
 
     const upstream = await fetch(new URL(`/api/jobs/${encodeURIComponent(id)}/events`, base), {
-      headers: {
+      headers: await backendHeaders({
         accept: "text/event-stream",
         ...(cursor === null ? {} : { "last-event-id": String(cursor) }),
-      },
+      }),
       signal: request.signal,
       cache: "no-store",
     });

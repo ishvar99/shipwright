@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EvidenceStrip } from "@/components/ui/evidence-strip";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { HeroVisual } from "@/components/landing/hero-visual";
 import { Reveal } from "@/components/landing/reveal";
@@ -79,7 +80,7 @@ export default function Home() {
             </Link>
             <Link
               href="/app"
-              className="inline-flex h-9 items-center rounded-[var(--radius)] bg-accent px-4 font-medium text-bg transition-colors hover:bg-[var(--accent-hover)]"
+              className="inline-flex h-9 items-center rounded-[var(--radius)] bg-ink px-4 font-medium text-ink-fg transition-colors hover:bg-[var(--ink-hover)]"
             >
               Open the workspace
             </Link>
@@ -88,8 +89,10 @@ export default function Home() {
 
         <div className="sw-hero-copy sw-shell">
           <h1 className="mx-auto max-w-[17ch] text-balance text-display font-display text-fg">
-            Describe the bug.{" "}
-            <span className="sw-gradient-text whitespace-nowrap">Ship the fix.</span>
+            {/* Both sentences are nowrap: text-balance otherwise breaks after "Describe the",
+                which is even in length and wrong in meaning. */}
+            <span className="whitespace-nowrap">Describe the bug.</span>{" "}
+            <span className="whitespace-nowrap text-accent">Ship the fix.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-[52ch] text-lg text-muted">
             Shipwright reads your repository, pinpoints the code that needs to change, writes
@@ -98,7 +101,7 @@ export default function Home() {
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/app"
-              className="inline-flex h-12 items-center gap-2 rounded-[var(--radius)] bg-accent px-7 text-base font-medium text-bg shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
+              className="inline-flex h-12 items-center gap-2 rounded-[var(--radius)] bg-ink px-7 text-base font-medium text-ink-fg shadow-sm transition-colors hover:bg-[var(--ink-hover)]"
             >
               Open the workspace
               <Icon name="send" size={16} />
@@ -167,17 +170,31 @@ export default function Home() {
       {/* What you get. */}
       <Reveal className="sw-shell py-16">
         <h2 className="text-title text-fg">Built for the whole fix, not just the search</h2>
-        <ul className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <li key={f.title} className="sw-card sw-lift p-5">
+        {/* Not a three-up: these are not equal. The first is the differentiated claim and gets
+            the width; the rest are supporting text with no card chrome. */}
+        <div className="mt-8 grid gap-5">
+          <div className="sw-card sw-lift grid gap-3 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:items-center">
+            <div>
               <span className="inline-grid size-9 place-items-center rounded-[var(--radius)] bg-accent-soft text-accent">
-                <Icon name={f.icon} size={18} />
+                <Icon name={FEATURES[0].icon} size={18} />
               </span>
-              <p className="mt-3 font-semibold text-fg">{f.title}</p>
-              <p className="mt-1.5 text-muted">{f.body}</p>
-            </li>
-          ))}
-        </ul>
+              <p className="mt-3 text-subhead font-semibold text-fg">{FEATURES[0].title}</p>
+              <p className="mt-1.5 text-muted">{FEATURES[0].body}</p>
+            </div>
+            <EvidenceStrip channels={["bm25", "graph", "dense", "path"]} />
+          </div>
+          <ul className="grid gap-6 sm:grid-cols-2">
+            {FEATURES.slice(1).map((f) => (
+              <li key={f.title}>
+                <p className="flex items-center gap-2 font-semibold text-fg">
+                  <Icon name={f.icon} size={16} className="text-subtle" />
+                  {f.title}
+                </p>
+                <p className="mt-1.5 text-muted">{f.body}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
       </Reveal>
 
       {/* How it works. */}
@@ -196,7 +213,7 @@ export default function Home() {
         <div className="mt-10 text-center">
           <Link
             href="/app"
-            className="inline-flex h-11 items-center gap-2 rounded-[var(--radius)] bg-accent px-6 font-medium text-bg shadow-sm transition-colors hover:bg-[var(--accent-hover)]"
+            className="inline-flex h-11 items-center gap-2 rounded-[var(--radius)] bg-ink px-6 font-medium text-ink-fg shadow-sm transition-colors hover:bg-[var(--ink-hover)]"
           >
             Try it now
           </Link>

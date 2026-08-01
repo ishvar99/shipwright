@@ -1,9 +1,30 @@
 import type { z } from "zod";
 import { parseOrThrow } from "@/lib/contracts";
 import { ApiError, kindFromStatus } from "@/lib/errors";
+import { callerOwner } from "@/lib/owner";
 
 const BASE = process.env.BACKEND_URL ?? "http://localhost:8000";
 const TIMEOUT_MS = 30_000;
+
+/**
+ * The shared secret, added to every backend call. Exported because three routes stream or
+ * forward raw bodies and cannot go through `callBackend` — they must not be the three that
+ * quietly stay unauthenticated. Server-only: this module is never imported by a client
+ * component, so the key cannot reach the browser.
+ */
+export async function backendHeaders(
+  extra?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const key = process.env.SHIPWRIGHT_API_KEY;
+  // Identity is resolved once, here, where the session cookie actually lives. FastAPI trusts
+  // the header only because the shared secret gates the port.
+  const owner = await callerOwner();
+  return {
+    ...(key ? { "x-shipwright-key": key } : {}),
+    ...(owner ? { "x-shipwright-owner": owner } : {}),
+    ...extra,
+  };
+}
 
 type Options = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
@@ -51,7 +72,9 @@ export async function callBackend<T>(
   try {
     res = await fetch(url, {
       method,
-      headers: opts.body ? { "content-type": "application/json" } : undefined,
+      headers: await backendHeaders(
+        opts.body ? { "content-type": "application/json" } : undefined,
+      ),
       body: opts.body ? JSON.stringify(opts.body) : undefined,
       signal: controller.signal,
       cache: "no-store",
