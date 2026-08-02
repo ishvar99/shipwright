@@ -24,16 +24,30 @@ export async function liteEligible(): Promise<boolean> {
   return !(await backendUp());
 }
 
+/** The grounding rules are the whole feature.
+ *
+ * Measured: asked how MSAL's token cache evicts entries, the real backend answered "the code
+ * does not contain eviction logic" — correct. Lite mode, given only the files that happened to
+ * mention the cache, answered "it uses an LRU policy" — invented, because token_cache.py is
+ * not in the recorded bundle at all and nothing told the model to admit that. A confident
+ * wrong answer is worse than no fallback, so the prompt names the evidence boundary and makes
+ * "I can't see that" the required response outside it. */
 const SYSTEM = `You are Shipwright's lite mode. Shipwright normally answers from a fully
-indexed repository, but its analysis backend is not reachable right now, so you are answering
-with general knowledge plus at most a few recorded example files provided below.
+indexed repository, but its analysis backend is not reachable right now. You have only the
+excerpt files listed below — no index, no search, no ability to open anything else.
 
-Rules:
-- Answer questions about code and programming directly and concretely.
-- If example files are provided, ground your answer in them and cite paths like msal/application.py.
-- You cannot modify, apply or test code in this mode. If asked for a change, explain where it
-  would go and what it would look like, and note that applying it needs the full backend.
-- Never mention which AI model or provider you are. You are simply "Shipwright (lite)".`;
+Grounding rules, in priority order:
+1. If the excerpts do not contain what was asked, say so plainly and name what you would need
+   to see. Do NOT fall back on how libraries of this kind usually work. A confident guess is
+   the worst possible answer here.
+2. Never state that the code does something unless you can point at the line in an excerpt
+   that shows it. Cite paths like msal/application.py.
+3. Excerpts may be truncated mid-file. Absence from an excerpt is not evidence of absence from
+   the repository — say "not in the part I can see", never "the code does not do this".
+4. General programming questions that are not about this repository can be answered normally.
+5. You cannot modify, apply or test code here. For a change request, describe what it would
+   look like and note that applying and verifying it needs the full backend.
+6. Never mention which AI model or provider you are. You are simply "Shipwright (lite)".`;
 
 /** Streams the answer as plain text. Provider SSE is parsed HERE so nothing provider-shaped
  * (model names, ids, usage) ever crosses to the browser. */
@@ -49,9 +63,16 @@ export async function askLite(issue: string, context: LiteFile[]): Promise<Reada
         ? [
             {
               role: "system" as const,
-              content: context
-                .map((f) => `Recorded file ${f.path}:\n\`\`\`\n${f.content}\n\`\`\``)
-                .join("\n\n"),
+              // The manifest first: without it the model cannot tell "absent from the repo"
+              // from "absent from the handful of files I was handed".
+              content:
+                `These are the ONLY files you can see (${context.length} of them). Anything ` +
+                `else in the repository is invisible to you:\n` +
+                context.map((f) => `- ${f.path}`).join("\n") +
+                `\n\n` +
+                context
+                  .map((f) => `Excerpt of ${f.path}:\n\`\`\`\n${f.content}\n\`\`\``)
+                  .join("\n\n"),
             },
           ]
         : []),
