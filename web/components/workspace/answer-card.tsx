@@ -21,15 +21,45 @@ export function AnswerCard({ text, streaming }: { text: string; streaming: boole
 }
 
 /** Nothing in the repository to act on. Said plainly, with the two things that do work. */
-export function NoWorkCard({ onNewSession }: { onNewSession?: () => void }) {
+/** The router said "no code work" — but why matters. A capability question gets capabilities,
+ * a symptomless "fix it" gets asked for the symptom, and only noise gets the generic card. */
+const NO_WORK: Record<string, { title: string; body: string }> = {
+  meta: {
+    title: "Here\u2019s what I can do.",
+    body:
+      "Shipwright reads this repository and works from your words. Ask where something lives " +
+      "or how it works, and it answers from the code. Describe a bug or a change, and it " +
+      "finds the exact places, drafts the fix, and proves it against your tests.",
+  },
+  vague: {
+    title: "Tell me what\u2019s broken, and I\u2019ll find it.",
+    body:
+      "\u201CFix it\u201D gives the search nothing to hold on to. Say what happens and where " +
+      "\u2014 an error message, a symptom, a function name \u2014 and Shipwright finds the " +
+      "code behind it.",
+  },
+};
+
+const NO_WORK_DEFAULT = {
+  title: "There\u2019s nothing here for me to work on.",
+  body:
+    "Shipwright works on one repository at a time. Describe a bug or a change you want made " +
+    "and it will find the code and propose a fix, or ask a question about the code and it " +
+    "will answer with the relevant files.",
+};
+
+export function NoWorkCard({
+  reason = "",
+  onNewSession,
+}: {
+  reason?: string;
+  onNewSession?: () => void;
+}) {
+  const copy = NO_WORK[reason] ?? NO_WORK_DEFAULT;
   return (
     <div className="sw-card grid gap-2 p-4">
-      <p className="font-medium text-fg">There&rsquo;s nothing here for me to work on.</p>
-      <p className="text-muted">
-        Shipwright works on one repository at a time. Describe a bug or a change you want made
-        and it will find the code and propose a fix, or ask a question about the code and it
-        will answer with the relevant files.
-      </p>
+      <p className="font-medium text-fg">{copy.title}</p>
+      <p className="text-muted">{copy.body}</p>
       {onNewSession && (
         <div>
           <button

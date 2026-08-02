@@ -20,6 +20,18 @@ export function sessionTitle(issue: string): string {
   return `${cut.slice(0, atWord > 32 ? atWord : MAX_TITLE)}…`;
 }
 
+/** What a finished session produced, as one short fact — the difference between a list of
+ * grey cards and a list that says what happened. Facts only, no adjectives. */
+export function sessionFact(job: Job): string {
+  if (job.status === "queued" || job.status === "running") return "running";
+  if (job.status === "errored") return "didn't finish";
+  const secs = job.wall_ms >= 1000 ? ` · ${Math.round(job.wall_ms / 1000)}s` : "";
+  if (job.result.intent === "question") return `answered${secs}`;
+  if (job.result.intent === "other") return "no code work needed";
+  const n = job.result.locations.length;
+  return n > 0 ? `${n} places found${secs}` : "done";
+}
+
 /** The backend column is `timestamp without time zone`, so the wire string carries no offset and
  * must be read as UTC. Every consumer has to agree, or a row's day header and its own relative
  * time disagree about which day it was. */

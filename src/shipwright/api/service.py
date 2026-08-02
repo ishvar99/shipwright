@@ -300,7 +300,15 @@ def run_localize(job_id) -> None:
                 j = s.get(Job, job_id)
                 j.status = DONE
                 j.model = ""
-                j.result = {"locations": [], "graph": {}, "fix": None, "intent": intent}
+                # The reason travels with the result so the card can answer the subclass:
+                # a capability question gets capabilities, not "nothing to work on".
+                j.result = {
+                    "locations": [],
+                    "graph": {},
+                    "fix": None,
+                    "intent": intent,
+                    "reason": reason,
+                }
                 j.wall_ms = wall
                 j.finished_at = datetime.now(UTC)
             emit(job_id, "job.done", wall_ms=wall, locations=0)

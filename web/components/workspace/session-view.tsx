@@ -96,6 +96,7 @@ export function SessionView({
         mode={shown?.mode ?? state.mode ?? ""}
         intent={state.intent ?? shown?.result.intent ?? undefined}
         answer={state.answerText || (shown?.result.answer ?? "")}
+        noWorkReason={shown?.result.reason ?? ""}
         onNewSession={onNewSession}
         jobId={jobId}
         live={live}
@@ -186,6 +187,7 @@ function SessionBody({
   mode,
   intent,
   answer,
+  noWorkReason,
   onNewSession,
   jobId,
   live,
@@ -207,6 +209,7 @@ function SessionBody({
   mode: string;
   intent?: "change" | "question" | "other";
   answer: string;
+  noWorkReason: string;
   onNewSession: () => void;
   jobId: string;
   live: boolean;
@@ -221,6 +224,14 @@ function SessionBody({
   onActionFinished: (kind: string) => void;
 }) {
   const { location, clear } = useSelection();
+  const { setCodeOpen } = useWorkspace();
+  // The frame collapses the sidebar for the code pane the way it does for the file browser,
+  // but the pane is selection state, not a route — so it is told, not derived. Cleared on
+  // unmount, or leaving the session would keep the sidebar collapsed everywhere.
+  useEffect(() => {
+    setCodeOpen(Boolean(location));
+    return () => setCodeOpen(false);
+  }, [location, setCodeOpen]);
   // The parent localize job is already "done" when the fix card renders, so its outcome could
   // never disable these buttons — the action actually in flight is what matters.
   const actionBusy = pendingAction !== null;
@@ -229,7 +240,10 @@ function SessionBody({
 
   return (
     <div className="sw-session" data-code={location ? "open" : undefined}>
-      <div className="grid min-w-0 content-start gap-5">
+      {/* Explicit minmax(0,1fr): with no template the implicit column sizes to max-content,
+          so a long headline held the track wider than the container and ran under the code
+          pane instead of wrapping. */}
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-5">
         <header className="grid gap-1.5">
           {/* The repository above the issue, and a link: a session is somewhere, and this is
               the way back to it. */}
@@ -256,7 +270,7 @@ function SessionBody({
         )}
 
         {intent === "other" && state.outcome.kind === "done" && (
-          <NoWorkCard onNewSession={onNewSession} />
+          <NoWorkCard reason={noWorkReason} onNewSession={onNewSession} />
         )}
 
         {(writing || Boolean(fix?.patch)) && (

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Icon } from "@/components/ui/icon";
-import { StatusDot } from "@/components/ui/status-dot";
 import { Composer } from "@/components/workspace/composer";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { apiPost, messageFor } from "@/lib/client/api";
@@ -12,7 +11,7 @@ import { RepoSchema } from "@/lib/contracts";
 import { demoJob, demoRepo, demoRun, isDemoRepo } from "@/lib/fixtures";
 import { repoDisplayName } from "@/lib/repo-name";
 import { repoFiles, repoSession } from "@/lib/repo-routes";
-import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
+import { relativeTime } from "@/lib/sessions";
 
 /**
  * Where work on one repository happens. The repository is not a parameter of a session here —
@@ -134,35 +133,15 @@ export function RepoHome({ repoId }: { repoId: string }) {
         </p>
       )}
 
-      <section className="sw-home-section" aria-labelledby="repo-sessions">
-        <h3 id="repo-sessions" className="text-sm font-medium text-subtle">
-          Sessions in this repository
-        </h3>
-        {sessions.length === 0 ? (
-          <p className="text-subtle">
-            Nothing yet — describe a bug above and Shipwright will find where it lives.
-          </p>
-        ) : (
-          <ul className="sw-home-grid">
-            {sessions.slice(0, 6).map((job) => (
-              <li key={job.id}>
-                <Link
-                  href={repoSession(repo.id, job.id)}
-                  title={sessionTitle(job.issue)}
-                  className="sw-card sw-lift sw-home-card w-full"
-                >
-                  <span className="sw-home-card-title">{sessionTitle(job.issue)}</span>
-                  <span className="sw-home-card-meta">
-                    <StatusDot tone={SESSION_TONE[job.status]} />
-                    <span className="sr-only">{job.status}</span>
-                    <span className="shrink-0">{relativeTime(job.created_at)}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* No session grid here: the sidebar beside this page lists exactly these sessions,
+          already scoped to this repository. Two renderings of one list was the launcher's
+          mistake repeated. First-time emptiness gets one quiet line, because the sidebar's
+          own empty copy sits under a heading the user may not have connected to this page. */}
+      {sessions.length === 0 && (
+        <p className="text-subtle">
+          Nothing here yet — your sessions in this repository will collect in the sidebar.
+        </p>
+      )}
     </div>
   );
 }

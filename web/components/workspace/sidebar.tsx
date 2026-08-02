@@ -7,9 +7,8 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { RepoPicker } from "@/components/workspace/repo-picker";
 import type { Job, Repo } from "@/lib/contracts";
 import { isDemoJob } from "@/lib/fixtures";
-import { repoDisplayName } from "@/lib/repo-name";
 import { repoHome, repoSession } from "@/lib/repo-routes";
-import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
+import { SESSION_TONE, sessionTitle } from "@/lib/sessions";
 import { groupSessions } from "@/lib/sessions-group";
 
 /** Navigation is links, not callbacks: every destination is a real address, so middle-click and
@@ -76,14 +75,14 @@ export function Sidebar({
 
       <Link
         href={currentRepo ? repoHome(currentRepo.id) : "/app"}
-        className="sw-new-session mt-2"
+        className="sw-side-item mt-2"
         title="New session"
       >
         <Icon name="plus" size={16} className="shrink-0" />
         <span className="sw-rail-hide">New session</span>
       </Link>
 
-      <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+      <div className="sw-side-scroll mt-4">
         <p className="sw-sessions-heading sw-rail-hide px-2 pb-1 text-xs font-medium text-subtle">
           Sessions
         </p>
@@ -106,29 +105,27 @@ export function Sidebar({
             <ul className="sw-session-list">
               {group.sessions.map((job) => (
                 <li key={job.id} className="sw-session-row-wrap">
+                  {/* One quiet line per session, like every polished nav list: the title.
+                      Status appears only when it is news (running, failed); the slug and
+                      timestamp belong to the pages, not the nav. */}
                   <Link
                     href={repoSession(job.repo_id, job.id)}
                     aria-current={job.id === activeJobId || undefined}
                     title={sessionTitle(job.issue)}
-                    className="sw-session-row"
+                    className="sw-session-row flex items-center gap-2"
                   >
-                    <span className="sw-session-title">{sessionTitle(job.issue)}</span>
-                    <span className="sw-session-meta">
-                      {/* The dot is aria-hidden, so the status needs a text equivalent. */}
-                      <StatusDot tone={SESSION_TONE[job.status]} />
-                      <span className="sr-only">{job.status}</span>
-                      {/* Redundant once the list is one repository's — the switcher above
-                          already names it. */}
-                      {!scoped && job.repo_slug && (
-                        <span className="sw-truncate">{repoDisplayName(job.repo_slug)}</span>
-                      )}
-                      <span className="shrink-0">{relativeTime(job.created_at)}</span>
-                      {isDemoJob(job.id) && (
-                        <span className="shrink-0 rounded-full bg-soft px-1.5 font-medium">
-                          Recorded
-                        </span>
-                      )}
+                    <span className="sw-session-title min-w-0 flex-1">
+                      {sessionTitle(job.issue)}
                     </span>
+                    <span className="sr-only">{job.status}</span>
+                    {job.status !== "done" && (
+                      <StatusDot tone={SESSION_TONE[job.status]} />
+                    )}
+                    {isDemoJob(job.id) && (
+                      <span className="shrink-0 rounded-full bg-soft px-1.5 text-xs font-medium">
+                        Recorded
+                      </span>
+                    )}
                   </Link>
                   {/* The recording has no row in the database to delete. */}
                   {!isDemoJob(job.id) && (
@@ -168,9 +165,7 @@ export function Sidebar({
           <Icon name="folder" size={16} className="shrink-0" />
           <span className="sw-rail-hide">Repositories</span>
         </Link>
-        <div className="sw-rail-hide px-2 py-1">
-          <ThemeToggle />
-        </div>
+        <ThemeToggle />
       </div>
     </nav>
   );
