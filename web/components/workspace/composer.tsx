@@ -13,16 +13,17 @@ import { readDraft, setDraft as saveDraft } from "@/lib/ui-prefs";
 const MIN_CHARS = 8;
 const MAX_CHARS = 20_000;
 
-/** Example prompts for the demo repository — one click to a believable session. */
+/** Example prompts for the demo repository — one click to a believable session. One per
+ * intent, so the breadth (ask, report, request) is shown rather than claimed. */
 const EXAMPLES = [
-  "Token refresh happens on every silent call — cache the authority validation.",
+  "How does the token cache decide what to evict?",
   "get_accounts returns stale results after a cache write.",
-  "Regional endpoints ignore the configured authority host.",
+  "Add a timeout to the regional endpoint lookup.",
 ];
 
 function lengthProblem(issue: string): string | null {
   const len = issue.trim().length;
-  if (len === 0) return "Describe the bug or the change first.";
+  if (len === 0) return "Ask a question or describe a change first.";
   if (len < MIN_CHARS) return "Add a little more detail so the search has something to go on.";
   if (len > MAX_CHARS) return "That's longer than we can read — trim it under 20,000 characters.";
   return null;
@@ -95,7 +96,7 @@ export function Composer({
 
   if (replay) {
     return (
-      <div className="sw-card grid gap-3 p-5">
+      <div className="sw-composer">
         <label htmlFor={id} className="sr-only">
           Recorded request
         </label>
@@ -104,10 +105,10 @@ export function Composer({
           readOnly
           value={issueText ?? ""}
           rows={3}
-          className="sw-textarea"
+          className="sw-composer-input"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary" onClick={onReplay}>
+        <div className="sw-composer-bar">
+          <Button variant="primary" onClick={onReplay} className="ml-auto shrink-0">
             <Icon name="send" size={16} />
             Replay this session
           </Button>
@@ -122,10 +123,12 @@ export function Composer({
   }
 
   const blocked = blockedBecause(repo, issue, busy, repos.length > 0);
+  const dimmed = Boolean(blocked && blocked !== lengthProblem(issue));
 
   return (
+    <div className="grid gap-2">
     <form
-      className="sw-card grid gap-3 p-5"
+      className="sw-composer"
       onSubmit={(e) => {
         e.preventDefault();
         setAttempted(true);
@@ -138,37 +141,11 @@ export function Composer({
         }
       }}
     >
-      {/* Chips while they still fit; a searchable picker once scanning tints stops working. */}
-      {onPickRepo && repos.length > 0 && repos.length <= CHIP_LIMIT && (
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Repository">
-          {repos.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => onPickRepo(r)}
-              aria-pressed={r.id === repo?.id}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-[var(--radius)] border px-3 py-1 text-xs font-medium transition-colors",
-                // A check plus a border, not tint alone: two soft washes are not an affordance.
-                r.id === repo?.id
-                  ? "border-accent bg-accent-soft text-fg"
-                  : "border-hairline bg-soft text-muted hover:text-fg",
-              )}
-            >
-              {r.id === repo?.id && <Icon name="check" size={12} className="text-accent" />}
-              {r.status !== "ready" && <StatusDot tone={r.status === "failed" ? "bad" : "active"} />}
-              {repoDisplayName(r.slug)}
-            </button>
-          ))}
-        </div>
-      )}
-      {onPickRepo && repos.length > CHIP_LIMIT && (
-        <RepoPicker repos={repos} repo={repo} onPick={onPickRepo} />
-      )}
-
       <label htmlFor={id} className="sr-only">
-        Describe the bug or the change
+        Ask about the code or describe a change
       </label>
+      {/* The input first, bare inside the card; the controls sit on a bar beneath it. That is
+          the grammar every chat product has taught: write here, aim and send below. */}
       <textarea
         id={id}
         value={issue}
@@ -177,15 +154,41 @@ export function Composer({
           if (draftKey) saveDraft(draftKey, e.target.value);
         }}
         rows={3}
-        placeholder="Describe the bug or the change — paste the ticket if you have one."
-        className="sw-textarea"
+        placeholder="Describe a bug, a change, or a question about this code."
+        className="sw-composer-input"
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button variant="primary" type="submit" aria-disabled={blocked ? true : undefined}>
-          <Icon name="send" size={16} />
-          Find the code
-        </Button>
+      <div className="sw-composer-bar">
+        {/* Chips while they still fit; a searchable picker once scanning tints stops working. */}
+        {onPickRepo && repos.length > 0 && repos.length <= CHIP_LIMIT && (
+          <div className="flex min-w-0 flex-wrap gap-1.5" role="group" aria-label="Repository">
+            {repos.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => onPickRepo(r)}
+                aria-pressed={r.id === repo?.id}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-[var(--radius)] border px-3 py-1 text-xs font-medium transition-colors",
+                  // A check plus a border, not tint alone: two soft washes are not an affordance.
+                  r.id === repo?.id
+                    ? "border-accent bg-accent-soft text-fg"
+                    : "border-hairline bg-soft text-muted hover:text-fg",
+                )}
+              >
+                {r.id === repo?.id && <Icon name="check" size={12} className="text-accent" />}
+                {r.status !== "ready" && (
+                  <StatusDot tone={r.status === "failed" ? "bad" : "active"} />
+                )}
+                {repoDisplayName(r.slug)}
+              </button>
+            ))}
+          </div>
+        )}
+        {onPickRepo && repos.length > CHIP_LIMIT && (
+          <RepoPicker repos={repos} repo={repo} onPick={onPickRepo} />
+        )}
+
         {attempted && blocked && <span className="text-danger">{blocked}</span>}
         {/* Setup is legible instead of obstructive: the button works, and this says what will
             happen when it is pressed. Independent of `blocked` — a parked run has an empty
@@ -197,22 +200,28 @@ export function Composer({
         ) : repo?.status === "importing" ? (
           <span className="text-subtle">Still indexing — press it anyway and we&apos;ll wait.</span>
         ) : null}
+
+        <Button
+          variant="primary"
+          type="submit"
+          aria-disabled={dimmed ? true : undefined}
+          className="ml-auto shrink-0"
+        >
+          <Icon name="send" size={16} />
+          Ask Shipwright
+        </Button>
       </div>
 
+    </form>
       {showExamples && !issue && (
         <div className="flex flex-wrap gap-1.5">
           {EXAMPLES.map((e) => (
-            <button
-              key={e}
-              type="button"
-              onClick={() => setIssue(e)}
-              className="rounded-full bg-soft px-3 py-1 text-left text-xs text-muted transition-colors hover:text-fg"
-            >
+            <button key={e} type="button" onClick={() => setIssue(e)} className="sw-example">
               {e}
             </button>
           ))}
         </div>
       )}
-    </form>
+    </div>
   );
 }

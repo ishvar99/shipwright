@@ -64,6 +64,9 @@ export const JobResultSchema = z.object({
   fix: FixSchema.nullish(),
   /** change | question | other — absent on sessions recorded before routing existed. */
   intent: z.enum(["change", "question", "other"]).nullish(),
+  /** Why the router said `other` (meta | vague | chitchat | nonsense …): the reply differs by
+   * subclass. Zod strips unknown keys, so without this line the field would vanish here. */
+  reason: z.string().default(""),
   answer: z.string().default(""),
 });
 

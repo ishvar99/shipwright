@@ -54,19 +54,27 @@ _VAGUE = re.compile(
 )
 
 
-def prefilter(issue: str) -> str | None:
-    """A decided intent, or None when the model should look. Pure — the tested part."""
+def prefilter(issue: str) -> tuple[str, str] | None:
+    """A decided (intent, reason), or None when the model should look. Pure — the tested part.
+
+    The reason names WHICH rule fired, because the right reply differs by subclass: "what can
+    you do" deserves a capabilities answer, "fix it" deserves a request for the symptom, and
+    only a keyboard mash deserves "nothing to work on"."""
     text = issue.strip()
+    # Meta before length: "help me" and "who are you" are short AND about the assistant, and
+    # the capabilities answer is the better reply for both.
+    if _META.search(text):
+        return OTHER, "meta"
     if len(text) < 12:
-        return OTHER
+        return OTHER, "chitchat" if _GREETING.match(text) else "vague"
     # Nothing word-like to retrieve on: punctuation, emoji, or a keyboard mash.
     words = re.findall(r"[A-Za-z][A-Za-z_]{2,}", text)
     if not words:
-        return OTHER
-    if _VAGUE.search(text) or _META.search(text):
-        return OTHER
+        return OTHER, "nonsense"
+    if _VAGUE.search(text):
+        return OTHER, "vague"
     if _GREETING.match(text) and len(words) <= 4:
-        return OTHER
+        return OTHER, "chitchat"
     return None
 
 
@@ -75,7 +83,7 @@ def classify(issue: str, model=None) -> tuple[str, str]:
     is unavailable or answers oddly: the safe default is to look, not to edit."""
     decided = prefilter(issue)
     if decided:
-        return decided, "handled without a model"
+        return decided
     if model is None:
         return QUESTION, "no model available"
 

@@ -30,6 +30,11 @@ with size.
 `font-medium text-xs`, weight has stopped meaning anything. Pick the one thing that matters and
 let the rest recede to `font-normal text-subtle`.
 
+**One ink-filled action per screen.** The sidebar's New session button used to out-shout the
+composer's own CTA from the corner scanning starts in. If two filled actions compete, demote
+one to an outline. The same applies to status dots: a wall of green success dots is texture,
+not signal — show a dot only when it says something (running, failed).
+
 ## Radius has semantics
 
 - `9999px` — badges and tags **only**. Never a button, never a control.

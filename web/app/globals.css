@@ -188,6 +188,40 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* One scrollbar everywhere: a thin floating pill, no track, no arrows — the same object
+     in the sessions list, the main pane, the code panes and the tree. The webkit rules are
+     the real styling; the standard properties are scoped to engines without the pseudo,
+     because Chromium silently ignores ::-webkit-scrollbar the moment scrollbar-width is set. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--fg) 22%, transparent);
+    border-radius: 9999px;
+    /* Transparent border + padding-box clip floats the pill off the edge, ChatGPT-style. */
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklch, var(--fg) 38%, transparent);
+    background-clip: padding-box;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in oklch, var(--fg) 30%, transparent) transparent;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -217,7 +251,8 @@
 
   html[data-sidebar="rail"] .workspace-sidebar {
     overflow: clip;
-    padding-inline: 4px;
+    --side-pad: 4px;
+    padding-inline: var(--side-pad);
   }
 
   /* Labels fold away; the icons stay, so the rail keeps wayfinding and one-click return. */
@@ -263,11 +298,25 @@
   }
 
   .workspace-sidebar {
+    /* The sessions rail is a distinct region, and its edge says so — one hairline, present in
+       the rail state too, so the boundary doesn't blink when the sidebar collapses. */
+    border-right: 1px solid var(--hairline);
+    --side-pad: calc(var(--space-unit) * 2);
     display: flex;
     flex-direction: column;
     min-height: 0;
-    padding: calc(var(--space-unit) * 3) calc(var(--space-unit) * 2);
+    padding: calc(var(--space-unit) * 3) var(--side-pad);
     font-size: var(--text-ui);
+  }
+
+  /* The scroller owns the sidebar's full width, so its scrollbar sits on the edge instead of
+     floating 8px inside it; the content keeps its inset through the scroller's own padding. */
+  .sw-side-scroll {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    margin-inline: calc(var(--side-pad) * -1);
+    padding-inline: var(--side-pad);
   }
 
   .sw-new-session {
@@ -278,15 +327,17 @@
     height: 36px;
     padding-inline: 12px;
     border-radius: var(--radius);
-    background: var(--ink);
-    color: var(--ink-fg);
+    /* Quiet, not ink: the composer's Ask button is the page's one filled action, and this
+       used to out-shout it from the corner scanning starts in. */
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--fg);
     font-weight: 500;
-    box-shadow: var(--shadow-1);
-    transition: background-color 150ms;
+    transition: border-color 150ms, background-color 150ms;
   }
 
   .sw-new-session:hover {
-    background: var(--ink-hover);
+    border-color: var(--accent);
   }
 
   /* The implicit grid track sizes to max-content unless both it and its items are pinned to
@@ -431,12 +482,153 @@
     gap: calc(var(--space-unit) * 7);
     max-width: 64rem;
     margin-inline: auto;
-    padding-top: 5vh;
+    /* Room to breathe above the hero — a cramped first row reads as a dashboard, not a place
+       to start. Short screens fall back below. */
+    padding-top: 9vh;
   }
 
   .sw-home-composer {
+    position: relative;
+    display: grid;
+    gap: calc(var(--space-unit) * 4);
+  }
+
+  /* Depth without colour: a faint glow lifts the hero off the dot grid the way the landing
+     page's does, so the page has a focal point instead of eight identical cards. */
+  .sw-home-composer::before {
+    content: "";
+    position: absolute;
+    inset: -18% -8%;
+    background: radial-gradient(55% 65% at 50% 35%, var(--glow), transparent 70%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .sw-home {
+    isolation: isolate; /* keeps the hero glow's z-index:-1 inside this page */
+  }
+
+  /* The composer is the one surface on the page with real presence: a bare input on a card,
+     controls on a bar beneath, and it visibly wakes when writing starts. */
+  .sw-composer {
     display: grid;
     gap: calc(var(--space-unit) * 3);
+    padding: calc(var(--space-unit) * 4);
+    background: var(--surface);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-2);
+    transition: box-shadow var(--dur-base) var(--ease-swift);
+  }
+
+  .sw-composer:focus-within {
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--accent) 45%, transparent),
+      var(--shadow-2);
+  }
+
+  /* Borderless inside the card — the card is the boundary. 1rem even in the dense register:
+     this is the primary input of the product, not a settings field. */
+  .sw-composer-input {
+    width: 100%;
+    min-height: 5.5rem;
+    border: 0;
+    background: transparent;
+    padding: calc(var(--space-unit));
+    font-size: 1rem;
+    line-height: 1.55;
+    color: var(--fg);
+    /* Grows with the text instead of showing the OS drag grip inside the hero card. */
+    resize: none;
+    field-sizing: content;
+    max-height: 16rem;
+  }
+
+  .sw-composer-input::placeholder {
+    color: var(--subtle);
+  }
+
+  .sw-composer-input:focus-visible {
+    outline: none; /* the card's focus-within ring carries the state */
+  }
+
+  /* Example prompts are the best on-ramp on the page: controls at a readable size, not
+     grey confetti. --radius, because pills are for badges. */
+  .sw-example {
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background: var(--soft);
+    padding: 4px 10px;
+    text-align: left;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    transition: color var(--dur-fast) var(--ease-swift), border-color var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-example:hover {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+
+  /* No divider: spacing separates the bar, and the send button is simply docked in the
+     card's corner — the input surface stays one object. */
+  .sw-composer-bar {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit) * 2);
+    min-width: 0;
+  }
+
+  /* The latest session, full width: one row with an outcome, not a tile among equals. */
+  .sw-continue {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit) * 3);
+    padding: calc(var(--space-unit) * 3) calc(var(--space-unit) * 4);
+  }
+
+  .sw-continue-title {
+    display: block;
+    font-size: var(--text-subhead);
+    letter-spacing: var(--text-subhead--letter-spacing, -0.011em);
+    font-weight: 600;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sw-repo-card {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit) * 3);
+    padding: calc(var(--space-unit) * 3);
+    min-width: 0;
+    height: 100%;
+    text-align: left;
+  }
+
+  /* A face per repository, in ink on soft — scannable by shape, no colour spent on it. */
+  .sw-repo-mark {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    background-color: var(--soft);
+    /* The blueprint dot grid, at tile scale: the one surface no template ships. */
+    background-image: var(--surface-texture);
+    background-size: 7px 7px;
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 0.9375rem;
+  }
+
+  .sw-repo-mark-add {
+    background: transparent;
+    border-style: dashed;
+    color: var(--subtle);
   }
 
   /* Same measure and rhythm as the launcher — moving between them should not feel like moving
@@ -446,7 +638,7 @@
     gap: calc(var(--space-unit) * 5);
     max-width: 64rem;
     margin-inline: auto;
-    padding-top: 3vh;
+    padding-top: 6vh;
   }
 
   .sw-repo-home-head {
@@ -628,13 +820,18 @@
   }
 
   .sw-home-card {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: calc(var(--space-unit));
     padding: calc(var(--space-unit) * 3);
     min-width: 0;
     height: 100%;
     text-align: left;
-    align-content: start;
+  }
+
+  /* Outcomes align on one baseline across a row of tiles, whatever the titles wrap to. */
+  .sw-home-card > .sw-home-card-meta {
+    margin-top: auto;
   }
 
   .sw-home-card > * {
@@ -1059,7 +1256,9 @@
 
   .sw-session[data-code="open"] {
     max-width: none;
-    grid-template-columns: minmax(0, 1fr) var(--sw-sep, 16px) clamp(24%, var(--sw-right, 32%), 44%);
+    /* Bounds mirror RIGHT in ui-prefs.ts. The code pane gets the majority by default —
+       once it is open, reading code is the task. */
+    grid-template-columns: minmax(0, 1fr) var(--sw-sep, 16px) clamp(30%, var(--sw-right, 60%), 70%);
   }
 
   .sw-code-panel {
@@ -1220,7 +1419,8 @@
   }
 
   .sw-result-selected {
-    box-shadow: 0 0 0 2px var(--accent), var(--shadow-1);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 1px var(--accent), var(--shadow-1);
   }
 
   /* ---------- fix: streaming draft + diff ---------- */
@@ -1295,7 +1495,15 @@
     background-color: var(--hairline);
   }
 
-  .workspace-sep:focus {
+  /* The splitter focuses itself on pointer-down so arrow keys work right after a drag.
+     [data-pointer] marks that focus as mouse-driven: it must not paint a ring — neither this
+     rule's nor the global :focus-visible one, which some engines apply to programmatic focus.
+     The mark clears on the first keypress, which is when the ring earns its keep. */
+  .workspace-sep[data-pointer] {
+    outline: none;
+  }
+
+  .workspace-sep:focus-visible:not([data-pointer]) {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }

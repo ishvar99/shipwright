@@ -33,6 +33,7 @@ export function Splitter({ side, controls, label }: Props) {
   }, [side]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    delete ref.current?.dataset.pointer; // keyboard took over: the focus ring is wanted now
     const step = e.shiftKey ? BIG_STEP : STEP;
     const now = paneWidthPct(side);
     switch (e.key) {
@@ -73,6 +74,11 @@ export function Splitter({ side, controls, label }: Props) {
 
     // Capture, so a fast drag that leaves the 8px track does not strand the gesture.
     ref.current?.setPointerCapture(e.pointerId);
+    // Focused so arrow keys work right after a drag — but marked as pointer-driven, because
+    // programmatic focus() is treated as focus-visible inconsistently across browsers and the
+    // ring would sit painted across the full pane height after every mouse touch. The mark is
+    // cleared the moment the keyboard takes over, which is when the ring earns its keep.
+    if (ref.current) ref.current.dataset.pointer = "";
     ref.current?.focus({ preventScroll: true });
     document.documentElement.dataset.swResizing = "";
 
@@ -104,6 +110,7 @@ export function Splitter({ side, controls, label }: Props) {
       className="workspace-sep"
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
+      onBlur={() => delete ref.current?.dataset.pointer}
     />
   );
 }

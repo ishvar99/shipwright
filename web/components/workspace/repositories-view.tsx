@@ -207,7 +207,7 @@ export function RepositoriesView({
                 )}
                 <p className="text-xs text-subtle" title={r.ref ? `indexed at ${r.ref}` : undefined}>
                   {/* Say it at import time: otherwise the user only learns Python-only after
-                      writing an issue and pressing Find the code. */}
+                      writing an issue and pressing Ask Shipwright. */}
                   {r.status === "ready" &&
                     (r.symbols === 0
                       ? "No Python found — browse and edit only"

@@ -8,6 +8,8 @@ import {
   parseOrThrow,
 } from "@/lib/contracts";
 import { checklist, checklistComplete, nextStep } from "@/lib/checklist";
+import { sessionFact } from "@/lib/sessions";
+import { pickLiteContext } from "@/lib/lite-context";
 import { parseWorkspacePath, repoFiles, repoHome, repoSession } from "@/lib/repo-routes";
 
 // Fixtures copied from live responses, including the naive (no-offset) timestamps
@@ -220,5 +222,69 @@ describe("first-run checklist", () => {
 
   it("is not complete on the strength of the pre-completed step alone", () => {
     expect(checklistComplete(checklist(base))).toBe(false);
+  });
+});
+
+describe("sessionFact", () => {
+  const base = {
+    id: "j", repo_id: "r", repo_slug: "o/n", kind: "localize", status: "done",
+    mode: "extract_rerank", base_mode: "hybrid", client: "web", model: "", issue: "x",
+    result: { locations: [], graph: {}, fix: null, intent: null, answer: "" },
+    error: "", input_tokens: 0, output_tokens: 0, wall_ms: 21000,
+    created_at: "2026-08-01T10:00:00",
+  };
+  const loc = {
+    rank: 1, symbol: "m.f", path: "a.py", name: "f", kind: "function", signature: "def f()", channels: [],
+    start_line: 1, end_line: 2, score: 1,
+  };
+  const job = (over: object) => parseOrThrow(JobSchema, { ...base, ...over }, "t");
+
+  it("states the outcome per intent, with the wall time", () => {
+    expect(sessionFact(job({ result: { ...base.result, intent: "question" } }))).toBe("answered · 21s");
+    expect(sessionFact(job({ result: { ...base.result, intent: "change", locations: [loc, loc] } })))
+      .toBe("2 places found · 21s");
+    expect(sessionFact(job({ result: { ...base.result, intent: "other" } }))).toBe("no code work needed");
+  });
+
+  it("says running while there is no outcome, and never invents one on failure", () => {
+    expect(sessionFact(job({ status: "running" }))).toBe("running");
+    expect(sessionFact(job({ status: "errored" }))).toBe("didn't finish");
+  });
+
+  // Sessions recorded before intent routing existed have no intent and may have no wall time.
+  it("degrades to plain facts on old rows", () => {
+    expect(sessionFact(job({ wall_ms: 0, result: { ...base.result, locations: [loc] } }))).toBe("1 places found");
+    expect(sessionFact(job({ wall_ms: 0 }))).toBe("done");
+  });
+});
+
+describe("lite context selection", () => {
+  const files = [
+    { path: "msal/token_cache.py", content: "class TokenCache:\n  def evict(self): pass\n" },
+    { path: "msal/application.py", content: "class ClientApplication:\n  def acquire(self): pass\n" },
+    { path: "README.md", content: "# msal\nA library.\n" },
+  ];
+
+  it("picks only files the question actually names", () => {
+    const got = pickLiteContext(files, "how does the token cache evict entries?");
+    expect(got.map((f) => f.path)).toEqual(["msal/token_cache.py"]);
+  });
+
+  it("ranks a path match above a body mention", () => {
+    const got = pickLiteContext(files, "what does application do");
+    expect(got[0].path).toBe("msal/application.py");
+  });
+
+  // A free tier meters tokens, so an unbounded prompt is a failed request, not a slow one.
+  it("truncates to the budget and marks what it cut", () => {
+    const big = [{ path: "big.py", content: `cache ${"x".repeat(50_000)}` }];
+    const [got] = pickLiteContext(big, "cache", { maxTotal: 900, maxPerFile: 900 });
+    expect(got.content.length).toBeLessThan(1_000);
+    expect(got.content).toContain("truncated");
+  });
+
+  it("sends nothing rather than noise when no file relates", () => {
+    expect(pickLiteContext(files, "how do I bake sourdough bread")).toEqual([]);
+    expect(pickLiteContext(files, "?!")).toEqual([]);
   });
 });

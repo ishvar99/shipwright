@@ -39,6 +39,19 @@ type Workspace = {
   submitError: string | null;
   /** A run waiting on its repository to finish indexing, so surfaces can say so. */
   queuedRepoId: string | null;
+  /** The fallback is answering: this deployment has a free-tier model configured AND our own
+   * engine is unreachable. Never both — the real engine always wins when it is up. The rest
+   * is the one in-flight answer, held here so every surface shares it. */
+  liteMode: boolean;
+  liteBusy: boolean;
+  liteText: string;
+  liteError: string | null;
+  liteAsk: (issue: string, repoId?: string) => void;
+  /** A session's code pane is on screen. The frame reads it because the pane is component
+   * state, not a route — and the sidebar should yield width to it the same way it yields to
+   * the file browser. */
+  codeOpen: boolean;
+  setCodeOpen: (open: boolean) => void;
   /** Resolves to the new job id so the caller can navigate to it. `repoId` is what the
    * repository home passes: there the page's repo is the target, not the global selection. */
   run: (issue: string, repoId?: string) => Promise<string | null>;
@@ -86,6 +99,12 @@ export function WorkspaceProvider({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [codeOpen, setCodeOpenState] = useState(false);
+  const [liteMode, setLiteMode] = useState(false);
+  const [liteBusy, setLiteBusy] = useState(false);
+  const [liteText, setLiteText] = useState("");
+  const [liteError, setLiteError] = useState<string | null>(null);
+  const setCodeOpen = useCallback((open: boolean) => setCodeOpenState(open), []);
   // An issue written while the repository is still indexing. Held here rather than in the
   // composer so the run survives navigating away from the page that started it.
   const queuedRun = useRef<{ issue: string; repoId: string } | null>(null);
@@ -142,6 +161,53 @@ export function WorkspaceProvider({
     refreshSessions();
   }, [refreshSessions]);
 
+  // One probe: can this deployment answer without the engine? Booleans only cross the wire.
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/lite/status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: { lite?: boolean; backend?: boolean } | null) => {
+        // Only when the fallback exists AND our own engine does not answer.
+        if (alive && s) setLiteMode(Boolean(s.lite) && !s.backend);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const liteAsk = useCallback((issue: string, repoId?: string) => {
+    setLiteBusy(true);
+    setLiteText("");
+    setLiteError(null);
+    void (async () => {
+      try {
+        const res = await fetch("/api/lite/ask", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ issue, repoId: repoId ?? "" }),
+        });
+        if (!res.ok || !res.body) {
+          const detail = (await res.json().catch(() => null)) as { detail?: string } | null;
+          throw new Error(detail?.detail ?? "Lite answering isn't available right now.");
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let text = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+          setLiteText(text);
+        }
+      } catch (e) {
+        setLiteError(e instanceof Error ? e.message : "Lite answering failed.");
+      } finally {
+        setLiteBusy(false);
+      }
+    })();
+  }, []);
+
   /** A session's own stream knows when it finished; the list does not, so it gets told. Without
    * this every row started in this browser session pulses "running" until a reload. */
   const patchSession = useCallback((id: string, patch: Partial<Job>) => {
@@ -172,7 +238,7 @@ export function WorkspaceProvider({
     async (issue: string, repoId?: string) => {
       const target = repoId ? (repos.repos.find((r) => r.id === repoId) ?? null) : currentRepo;
       // The recording has no workspace on disk, so a run against it would 404 in the backend.
-      // Surfaces that show it offer replay instead of Find the code.
+      // Surfaces that show it offer replay instead of a live run.
       if (!target || isDemoRepo(target.id) || submitting) return null;
       // Setup does not have to finish before the user starts thinking. Park the issue and fire
       // it the moment the graph is ready, turning import-then-write-then-wait into one wait.
@@ -257,6 +323,13 @@ export function WorkspaceProvider({
     submitting,
     submitError,
     queuedRepoId: queued,
+    liteMode,
+    liteBusy,
+    liteText,
+    liteError,
+    liteAsk,
+    codeOpen,
+    setCodeOpen,
     run,
     refreshSessions,
     patchSession,

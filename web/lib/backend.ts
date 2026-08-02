@@ -26,6 +26,33 @@ export async function backendHeaders(
   };
 }
 
+/** Is our engine reachable? Cached briefly per server instance: the answer gates every
+ * fallback decision, and re-asking a dead host on each request would add its full timeout
+ * to every fallback response. 30s staleness is the accepted cost — a backend that just came
+ * up takes up to 30s to be preferred again. */
+let health: { up: boolean; at: number } | null = null;
+const HEALTH_TTL_MS = 30_000;
+const HEALTH_TIMEOUT_MS = 1_500;
+
+export async function backendUp(): Promise<boolean> {
+  // Unset means "this deployment has no backend", which is a configuration fact, not a probe.
+  if (!process.env.BACKEND_URL) return false;
+  if (health && Date.now() - health.at < HEALTH_TTL_MS) return health.up;
+  let up = false;
+  try {
+    const res = await fetch(new URL("/api/health", BASE), {
+      headers: await backendHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    });
+    up = res.ok;
+  } catch {
+    up = false;
+  }
+  health = { up, at: Date.now() };
+  return up;
+}
+
 type Options = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;

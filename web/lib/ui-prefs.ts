@@ -10,13 +10,16 @@
 
 export const PREFS_KEY = "sw.shell.v1";
 
-/** Maxima sum to 62%, so the centre pane keeps a usable width by arithmetic, not measurement.
- * These bounds are mirrored in the `clamp()` in globals.css — keep them in step. */
+/** LEFT is the file tree on the editor route; RIGHT is the session code pane. They live on
+ * different routes, so their bounds are independent. RIGHT defaults to 60: when the pane is
+ * open, reading code is the task, and the results column reads fine at 40. Both are mirrored
+ * in `clamp()`s in globals.css — keep them in step. */
 export const LEFT = { min: 14, max: 26, def: 20 } as const;
-export const RIGHT = { min: 24, max: 36, def: 32 } as const;
+export const RIGHT = { min: 30, max: 70, def: 60 } as const;
 
 export type TraceState = "open" | "collapsed";
-/** "auto" collapses to the rail only on the editor route; the other two always win. */
+/** "auto" collapses to the rail when the surface needs the width — the editor route, or a
+ * session with its code pane open. The other two always win. */
 export type SidebarState = "auto" | "expanded" | "rail";
 /** Beyond the furniture: what the user was actually doing. Splitter widths survived a reload
  * and the half-written issue did not, which is the wrong way round. */

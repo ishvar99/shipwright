@@ -26,13 +26,15 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
     sessionsLoaded,
     currentRepo,
     selectRepo,
+    codeOpen,
     deleteSession,
     showAll,
     setShowAll,
   } = useWorkspace();
   const router = useRouter();
   const pathname = usePathname();
-  // Only the file browser wants the width; the repository home and a session do not.
+  // The file browser always wants the width; a session wants it once its code pane is open.
+  // The repository home and the launcher never do.
   const onEditor = pathname.endsWith("/files");
   const { repoId: routeRepoId, jobId: activeJobId } = parseWorkspacePath(pathname);
   // The URL wins where it says something — including when it names a repository that does not
@@ -58,7 +60,7 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
     setRead(true);
     setPref(readStoredSidebarPref());
   }
-  const railed = pref === "rail" || (pref === "auto" && onEditor);
+  const railed = pref === "rail" || (pref === "auto" && (onEditor || codeOpen));
 
   useEffect(() => {
     applyStoredPrefs();

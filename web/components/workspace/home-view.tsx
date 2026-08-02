@@ -7,11 +7,12 @@ import { cn } from "@/lib/cn";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Composer } from "@/components/workspace/composer";
 import { FirstRun } from "@/components/workspace/first-run";
+import { LiteAnswer } from "@/components/workspace/lite-answer";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { demoJob, demoRepo, demoRun, isDemoJob, isDemoRepo } from "@/lib/fixtures";
 import { repoDisplayName } from "@/lib/repo-name";
 import { repoHome, repoSession } from "@/lib/repo-routes";
-import { SESSION_TONE, relativeTime, sessionTitle } from "@/lib/sessions";
+import { SESSION_TONE, relativeTime, sessionFact, sessionTitle } from "@/lib/sessions";
 
 export function HomeView() {
   const {
@@ -25,14 +26,20 @@ export function HomeView() {
     submitting,
     submitError,
     queuedRepoId,
+    liteMode,
+    liteBusy,
+    liteText,
+    liteError,
+    liteAsk,
     run,
   } = useWorkspace();
   const router = useRouter();
   // With nothing imported, the composer is the wrong hero: it points at the one action the user
   // cannot take, and the only thing that works is a tertiary card at the bottom of the page.
   const empty = live && !repos.repos.length && !repos.loading;
-  // The composer can only replay when the recording is what it is aimed at.
-  const replay = isDemoRepo(currentRepo?.id);
+  // Replay only when there is nothing that can answer: with the fallback configured, the
+  // composer takes real questions even though our own engine is unreachable.
+  const replay = isDemoRepo(currentRepo?.id) && !liteMode;
 
   return (
     <div className="sw-home">
@@ -50,7 +57,8 @@ export function HomeView() {
           <h2 className="text-head font-semibold text-fg">Import a repository to get started</h2>
           <p className="text-muted">
             Paste a GitHub URL, point at a local folder, or drop a .zip anywhere on this page.
-            Shipwright indexes it and then finds the code behind any bug you describe. Meanwhile
+            Shipwright indexes it, then answers questions about it and finds the code behind
+            any bug or change you describe. Meanwhile
             the session below is a real recorded run — open it to see what a finished one looks
             like.
           </p>
@@ -64,15 +72,25 @@ export function HomeView() {
       )}
 
       <div className={cn("sw-home-composer", empty && "sw-home-muted")}>
-        <h2 className="text-head font-semibold text-fg">
-          Describe a bug or a change. Shipwright finds where in the code it lives.
-        </h2>
+        <div className="grid gap-1">
+          <h2 className="text-head font-semibold text-fg">
+            Ask about the code — or change it.
+          </h2>
+          <p className="text-muted">
+            Shipwright answers from the repository, or finds where the change lives and drafts
+            the fix.
+          </p>
+        </div>
         <Composer
           repos={repoList}
           repo={currentRepo}
           onPickRepo={selectRepo}
           busy={submitting}
           onRun={(issue) => {
+            if (liteMode) {
+              liteAsk(issue, currentRepo?.id);
+              return;
+            }
             void run(issue).then((id) => {
               if (id && currentRepo) router.push(repoSession(currentRepo.id, id));
             });
@@ -82,48 +100,55 @@ export function HomeView() {
           queued={queuedRepoId === currentRepo?.id}
           issueText={demoRun.issue}
           onReplay={() => router.push(repoSession(demoRepo.id, demoJob.id))}
+          // The examples name symbols in the recorded repository — under any other repo they
+          // would invite a run about code that is not there.
+          showExamples={currentRepo?.slug === demoRepo.slug}
         />
         {submitError && (
           <p role="alert" className="text-danger">
             {submitError}
           </p>
         )}
+        {liteMode && (liteBusy || liteText || liteError) && (
+          <LiteAnswer busy={liteBusy} text={liteText} error={liteError} />
+        )}
       </div>
 
       {sessions.length > 0 && (
         <section className="sw-home-section" aria-labelledby="recent-sessions">
           <h3 id="recent-sessions" className="text-sm font-medium text-subtle">
-            Recent sessions
+            {isDemoJob(sessions[0].id) ? "See a finished session" : "Pick up where you left off"}
           </h3>
-          <ul className="sw-home-grid">
-            {sessions.slice(0, 6).map((job) => (
-              <li key={job.id}>
-                <Link
-                  href={repoSession(job.repo_id, job.id)}
-                  title={sessionTitle(job.issue)}
-                  className="sw-card sw-lift sw-home-card w-full"
-                >
-                  <span className="sw-home-card-title">{sessionTitle(job.issue)}</span>
-                  <span className="sw-home-card-meta">
-                    {/* The dot is aria-hidden, so the status needs a text equivalent. */}
-                    <StatusDot tone={SESSION_TONE[job.status]} />
-                    <span className="sr-only">{job.status}</span>
-                    {job.repo_slug && (
-                      <span className="sw-truncate">{repoDisplayName(job.repo_slug)}</span>
-                    )}
-                    {/* Named, so nobody mistakes it for a run they started. */}
-                    {isDemoJob(job.id) ? (
-                      <span className="shrink-0 rounded-full bg-soft px-1.5 font-medium">
-                        Recorded
-                      </span>
-                    ) : (
-                      <span className="shrink-0">{relativeTime(job.created_at)}</span>
-                    )}
+          {/* The latest session is a continue row, not the first tile among equals — coming
+              back to it is the most common reason to be on this page at all. */}
+          {/* One continue row; the sidebar already lists the rest. A tile grid here rendered
+              the same sessions a third time on one screen. The outcome leads the meta — it is
+              the row's payoff, and the repo name already appears elsewhere on this page. */}
+          <Link
+            href={repoSession(sessions[0].repo_id, sessions[0].id)}
+            title={sessionTitle(sessions[0].issue)}
+            className="sw-card sw-lift sw-continue"
+          >
+            {sessions[0].status !== "done" && (
+              <StatusDot tone={SESSION_TONE[sessions[0].status]} />
+            )}
+            <span className="sr-only">{sessions[0].status}</span>
+            <span className="min-w-0 grid gap-0.5">
+              <span className="sw-continue-title">{sessionTitle(sessions[0].issue)}</span>
+              <span className="sw-home-card-meta">
+                <span className="shrink-0">{sessionFact(sessions[0])}</span>
+                <span aria-hidden className="shrink-0">·</span>
+                {isDemoJob(sessions[0].id) ? (
+                  <span className="shrink-0 rounded-full bg-soft px-1.5 font-medium">
+                    Recorded
                   </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+                ) : (
+                  <span className="shrink-0">{relativeTime(sessions[0].created_at)}</span>
+                )}
+              </span>
+            </span>
+            <Icon name="chevron" size={16} className="ml-auto shrink-0 text-subtle" />
+          </Link>
         </section>
       )}
 
@@ -132,37 +157,49 @@ export function HomeView() {
           Repositories
         </h3>
         {repos.error && <p className="text-danger">{repos.error}</p>}
-        <ul className="sw-home-grid">
+        <ul className="grid gap-2">
           {repoList.slice(0, 5).map((r) => (
             <li key={r.id}>
               <Link
                 href={r.status === "ready" ? repoHome(r.id) : "/app/repos"}
-                className="sw-card sw-lift sw-home-card w-full"
+                className="sw-card sw-lift sw-repo-card w-full"
               >
-                <span className="sw-home-card-title">{repoDisplayName(r.slug)}</span>
-                <span className="sw-home-card-meta">
-                  {isDemoRepo(r.id)
-                    ? "Recorded example — a real repository and a real session"
-                    : r.status === "ready"
-                    ? r.symbols === 0
-                      ? "Browse and edit"
-                      : `${r.symbols.toLocaleString()} functions`
-                    : r.status === "importing"
-                      ? // The wait is legible from here, not only inside Repositories.
-                        `Importing… ${Math.round((repos.elapsed[r.id] ?? 0) / 1000)}s`
-                      : "Import failed"}
+                <span aria-hidden className="sw-repo-mark">
+                  {repoDisplayName(r.slug).slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0 grid gap-0.5">
+                  <span className="sw-home-card-title">{repoDisplayName(r.slug)}</span>
+                  <span
+                    className={cn(
+                      "sw-home-card-meta",
+                      r.status === "failed" && "text-danger",
+                    )}
+                  >
+                    {isDemoRepo(r.id)
+                      ? "Recorded example — a real repository and a real session"
+                      : r.status === "ready"
+                      ? r.symbols === 0
+                        ? "No Python found — browse and edit"
+                        : `${r.symbols.toLocaleString()} functions`
+                      : r.status === "importing"
+                        ? // The wait is legible from here, not only inside Repositories.
+                          `Importing… ${Math.round((repos.elapsed[r.id] ?? 0) / 1000)}s`
+                        : "Import failed — retry from Repositories"}
+                  </span>
                 </span>
               </Link>
             </li>
           ))}
           {live && (
             <li>
-              <Link href="/app/repos" className="sw-card sw-lift sw-home-card w-full">
-                <span className="flex items-center gap-2 font-medium text-accent">
+              <Link href="/app/repos" className="sw-card sw-lift sw-repo-card w-full">
+                <span aria-hidden className="sw-repo-mark sw-repo-mark-add">
                   <Icon name="plus" size={16} />
-                  Add a repository
                 </span>
-                <span className="sw-home-card-meta">GitHub URL, local folder, or .zip</span>
+                <span className="min-w-0 grid gap-0.5">
+                  <span className="sw-home-card-title">Add a repository</span>
+                  <span className="sw-home-card-meta">GitHub URL, local folder, or .zip</span>
+                </span>
               </Link>
             </li>
           )}
