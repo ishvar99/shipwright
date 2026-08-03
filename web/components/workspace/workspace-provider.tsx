@@ -14,6 +14,16 @@ import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { useRepos, type ReposState } from "@/lib/client/use-repos";
 import { JobListSchema, JobSchema, type Job, type Repo } from "@/lib/contracts";
 import { demoJob, demoRepo, isDemoRepo } from "@/lib/fixtures";
+import { newLocalJob } from "@/lib/local/run";
+import {
+  isLocalJob,
+  isLocalRepo,
+  listLocalJobs,
+  listLocalRepos,
+  deleteLocalJob,
+  saveLocalJob,
+  type LocalRepo,
+} from "@/lib/local/store";
 import { repoHome, repoSession } from "@/lib/repo-routes";
 import { readLastRepo, setDraft, setLastRepo } from "@/lib/ui-prefs";
 
@@ -47,6 +57,10 @@ type Workspace = {
   liteText: string;
   liteError: string | null;
   liteAsk: (issue: string, repoId?: string) => void;
+  /** Repositories stored in this browser. They route to the client pipeline whatever the
+   * backend is doing, because the backend has never heard of them. */
+  localRepos: LocalRepo[];
+  refreshLocal: () => void;
   /** A session's code pane is on screen. The frame reads it because the pane is component
    * state, not a route — and the sidebar should yield width to it the same way it yields to
    * the file browser. */
@@ -104,6 +118,10 @@ export function WorkspaceProvider({
   const [liteBusy, setLiteBusy] = useState(false);
   const [liteText, setLiteText] = useState("");
   const [liteError, setLiteError] = useState<string | null>(null);
+  const [localRepos, setLocalRepos] = useState<LocalRepo[]>([]);
+  const [localJobs, setLocalJobs] = useState<Job[]>([]);
+  const [localNonce, setLocalNonce] = useState(0);
+  const refreshLocal = useCallback(() => setLocalNonce((n) => n + 1), []);
   const setCodeOpen = useCallback((open: boolean) => setCodeOpenState(open), []);
   // An issue written while the repository is still indexing. Held here rather than in the
   // composer so the run survives navigating away from the page that started it.
@@ -116,14 +134,18 @@ export function WorkspaceProvider({
   // "Ready", not "exists": a freshly imported repository appears as `importing` and stays that
   // way for up to a minute, and keying on mere existence pulled the recording off the screen
   // exactly during the wait it was there to fill.
-  const demoVisible = !live || (!repos.loading && !repos.repos.some((r) => r.status === "ready"));
+  const demoVisible =
+    !localRepos.length &&
+    (!live || (!repos.loading && !repos.repos.some((r) => r.status === "ready")));
+  // Local rows sit alongside backend rows in one list; `origin` (encoded in the id prefix)
+  // decides which engine answers, so the two can never contend for the same repository.
   const repoList = useMemo(
-    () => (demoVisible ? [...repos.repos, demoRepo] : repos.repos),
-    [demoVisible, repos.repos],
+    () => [...repos.repos, ...localRepos, ...(demoVisible ? [demoRepo] : [])],
+    [demoVisible, repos.repos, localRepos],
   );
   const allSessions = useMemo(
-    () => (demoVisible ? [...sessions, demoJob] : sessions),
-    [demoVisible, sessions],
+    () => [...sessions, ...localJobs, ...(demoVisible ? [demoJob] : [])],
+    [demoVisible, sessions, localJobs],
   );
   // Whatever was imported last is what the user came to work on, so the composer aims there
   // rather than at whichever repo happens to be first in the list.
@@ -160,6 +182,21 @@ export function WorkspaceProvider({
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
+
+  // IndexedDB is browser-only, so this cannot run during the server render.
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([listLocalRepos(), listLocalJobs()])
+      .then(([repos, jobs]) => {
+        if (!alive) return;
+        setLocalRepos(repos);
+        setLocalJobs(jobs);
+      })
+      .catch(() => undefined); // a blocked or absent IndexedDB just means no local repos
+    return () => {
+      alive = false;
+    };
+  }, [localNonce]);
 
   // One probe: can this deployment answer without the engine? Booleans only cross the wire.
   useEffect(() => {
@@ -211,6 +248,13 @@ export function WorkspaceProvider({
   /** A session's own stream knows when it finished; the list does not, so it gets told. Without
    * this every row started in this browser session pulses "running" until a reload. */
   const patchSession = useCallback((id: string, patch: Partial<Job>) => {
+    if (isLocalJob(id)) {
+      // The local run already wrote the finished row to IndexedDB; re-read rather than merge,
+      // so the list and the store cannot drift.
+      setLocalJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
+      void listLocalJobs().then(setLocalJobs).catch(() => undefined);
+      return;
+    }
     setSessions((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
   }, []);
 
@@ -222,6 +266,11 @@ export function WorkspaceProvider({
       if (path.endsWith(`/s/${id}`) || path === `/app/session/${id}`) {
         const job = sessions.find((j) => j.id === id);
         router.push(job ? repoHome(job.repo_id) : "/app");
+      }
+      if (isLocalJob(id)) {
+        setLocalJobs((prev) => prev.filter((j) => j.id !== id));
+        await deleteLocalJob(id);
+        return;
       }
       setSessions((prev) => prev.filter((j) => j.id !== id)); // optimistic
       try {
@@ -236,6 +285,16 @@ export function WorkspaceProvider({
 
   const run = useCallback(
     async (issue: string, repoId?: string) => {
+      // A local repository never reaches the backend: it only exists in this browser.
+      if (isLocalRepo(repoId ?? currentRepo?.id)) {
+        const repo = repoList.find((r) => r.id === (repoId ?? currentRepo?.id));
+        if (!repo) return null;
+        const job = newLocalJob(repo.id, repo.slug, issue);
+        await saveLocalJob(job);
+        setLocalJobs((prev) => [job, ...prev]);
+        setDraft(repo.id, "");
+        return job.id;
+      }
       const target = repoId ? (repos.repos.find((r) => r.id === repoId) ?? null) : currentRepo;
       // The recording has no workspace on disk, so a run against it would 404 in the backend.
       // Surfaces that show it offer replay instead of a live run.
@@ -270,7 +329,7 @@ export function WorkspaceProvider({
         setSubmitting(false);
       }
     },
-    [currentRepo, submitting, repos.repos],
+    [currentRepo, submitting, repos.repos, repoList],
   );
 
   // The parked run, fired once its repository finishes indexing. The payload is a ref and only
@@ -328,6 +387,8 @@ export function WorkspaceProvider({
     liteText,
     liteError,
     liteAsk,
+    localRepos,
+    refreshLocal,
     codeOpen,
     setCodeOpen,
     run,

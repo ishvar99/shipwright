@@ -34,9 +34,11 @@ export function HomeView() {
     run,
   } = useWorkspace();
   const router = useRouter();
-  // With nothing imported, the composer is the wrong hero: it points at the one action the user
-  // cannot take, and the only thing that works is a tertiary card at the bottom of the page.
-  const empty = live && !repos.repos.length && !repos.loading;
+  // Counted across both origins. Reading `repos.repos` alone meant a repository imported into
+  // this browser did not exist as far as the empty state and the checklist were concerned, so
+  // the page told a user with a repo open to go and import one.
+  const own = repoList.filter((r) => !isDemoRepo(r.id));
+  const empty = !own.length && !repos.loading;
   // Replay only when there is nothing that can answer: with the fallback configured, the
   // composer takes real questions even though our own engine is unreachable.
   const replay = isDemoRepo(currentRepo?.id) && !liteMode;
@@ -46,7 +48,7 @@ export function HomeView() {
       {live && (
         <FirstRun
           exampleVisible={demoVisible}
-          ownRepos={repos.repos.length}
+          ownRepos={own.length}
           ownSessions={sessions.filter((j) => !isDemoJob(j.id)).length}
           exampleHref={repoSession(demoRepo.id, demoJob.id)}
         />

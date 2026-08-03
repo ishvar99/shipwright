@@ -17,6 +17,8 @@ import { repoDisplayName } from "@/lib/repo-name";
 import { repoHome } from "@/lib/repo-routes";
 import { JobSchema, type Fix, type Job, type Location } from "@/lib/contracts";
 import { demoJob, demoRun } from "@/lib/fixtures";
+import { localEvents } from "@/lib/local/run";
+import { isLocalJob } from "@/lib/local/store";
 import { SelectionProvider, useSelection } from "@/lib/results/selection";
 import { sessionTitle } from "@/lib/sessions";
 import { useJobStream } from "@/lib/stream/use-job-stream";
@@ -41,7 +43,10 @@ export function SessionView({
 }) {
   const makeStream = useCallback(
     () =>
-      live
+      // Three sources, one protocol: the network, this browser, and the recording.
+      isLocalJob(jobId)
+        ? localEvents(jobId, session?.repo_id ?? "", session?.issue ?? "", () => Date.now())
+        : live
         ? networkEvents(jobId, () => Date.now())
         : fixtureEvents(
             demoRun.frames,
@@ -49,7 +54,7 @@ export function SessionView({
             () => Date.now(),
             { maxGapMs: DEMO_GAP_MS },
           ),
-    [live, jobId],
+    [live, jobId, session?.repo_id, session?.issue],
   );
   const { state, retry } = useJobStream(jobId, makeStream);
 
@@ -63,8 +68,9 @@ export function SessionView({
   const terminal = state.outcome.kind !== "pending";
   // Gated on `live`: a replayed session's id belongs to no row, so fetching it is a guaranteed
   // 404 whose result is discarded two lines below anyway.
-  const { job } = useJobResult(jobId, terminal && live, null, nonce);
-  const shown = live ? job : demoJob;
+  // A local job has no row on any server; its result arrives through the stream instead.
+  const { job } = useJobResult(jobId, terminal && live && !isLocalJob(jobId), null, nonce);
+  const shown = isLocalJob(jobId) ? session : live ? job : demoJob;
   const fix = live
     ? (job?.result.fix ?? null)
     : demoJob.result.fix && {
