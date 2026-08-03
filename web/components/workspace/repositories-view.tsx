@@ -20,23 +20,36 @@ export function RepositoriesView({
   state,
   demo = false,
   onOpenRepo,
+  local,
 }: {
   state: ReposState;
   demo?: boolean;
   onOpenRepo?: (repo: Repo) => void;
+  /** Present when there is no backend: imports are unzipped and indexed in this browser
+   * instead of being sent anywhere. Same form, different destination. */
+  local?: {
+    busy: string | null;
+    error: string | null;
+    importZip: (file: File) => void;
+    importUrl: (url: string) => void;
+  };
 }) {
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
-  const [local, setLocal] = useState(false);
+  const [useLocalPath, setUseLocalPath] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   // dragenter/leave fire per child element; a counter is what keeps the overlay stable.
   const dragDepth = useRef(0);
 
+  const busy = local ? Boolean(local.busy) : state.importing;
+
   const drop = (file: File | undefined) => {
     dragDepth.current = 0;
     setDragging(false);
-    if (file && !state.importing) void state.uploadRepo(file);
+    if (!file || busy) return;
+    if (local) local.importZip(file);
+    else void state.uploadRepo(file);
   };
 
   return (
@@ -86,8 +99,13 @@ export function RepositoriesView({
             className="sw-card grid gap-3 p-5"
             onSubmit={(e) => {
               e.preventDefault();
-              if (state.importing) return;
-              const input = local && path.trim() ? { path: path.trim() } : { url: url.trim() };
+              if (busy) return;
+              if (local) {
+                local.importUrl(url.trim());
+                setUrl("");
+                return;
+              }
+              const input = useLocalPath && path.trim() ? { path: path.trim() } : { url: url.trim() };
               void state.importRepo(input).then((r) => {
                 if (r) {
                   setUrl("");
@@ -96,7 +114,7 @@ export function RepositoriesView({
               });
             }}
           >
-            {!local ? (
+            {!useLocalPath ? (
               <input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -114,12 +132,14 @@ export function RepositoriesView({
               />
             )}
             <div className="flex items-center gap-3">
-              <Button variant="primary" type="submit" aria-disabled={state.importing || undefined}>
-                {state.importing ? "Adding…" : "Add repository"}
+              <Button variant="primary" type="submit" aria-disabled={busy || undefined}>
+                {local?.busy ?? (state.importing ? "Adding…" : "Add repository")}
               </Button>
-              <Button variant="ghost" type="button" onClick={() => setLocal((v) => !v)}>
-                {local ? "Use a GitHub URL instead" : "Use a local folder instead"}
+              {!local && (
+              <Button variant="ghost" type="button" onClick={() => setUseLocalPath((v) => !v)}>
+                {useLocalPath ? "Use a GitHub URL instead" : "Use a local folder instead"}
               </Button>
+              )}
             </div>
           </form>
 
@@ -179,9 +199,15 @@ export function RepositoriesView({
         </>
       )}
 
-      {state.importError && (
+      {(local?.error ?? state.importError) && (
         <p role="alert" className="text-danger">
-          {firstLine(redact(state.importError))}
+          {firstLine(redact(local?.error ?? state.importError ?? ""))}
+        </p>
+      )}
+      {local && (
+        <p className="text-xs text-subtle">
+          No backend here, so this repository is unzipped and indexed in your browser and stays
+          on this machine. Search works; applying and testing fixes needs the local engine.
         </p>
       )}
 

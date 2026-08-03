@@ -23,11 +23,24 @@ export async function POST(request: NextRequest) {
 
   let issue = "";
   let repoId = "";
+  let given: { path: string; content: string }[] = [];
   try {
     const body: unknown = await request.json();
     if (body && typeof body === "object") {
-      issue = String((body as { issue?: unknown }).issue ?? "").trim();
-      repoId = String((body as { repoId?: unknown }).repoId ?? "");
+      const b = body as { issue?: unknown; repoId?: unknown; context?: unknown };
+      issue = String(b.issue ?? "").trim();
+      repoId = String(b.repoId ?? "");
+      // A local session has already retrieved and ranked; it sends the excerpts it chose
+      // rather than making this route guess from the recorded bundle.
+      if (Array.isArray(b.context)) {
+        given = b.context
+          .slice(0, 8)
+          .map((c) => ({
+            path: String((c as { path?: unknown })?.path ?? ""),
+            content: String((c as { content?: unknown })?.content ?? "").slice(0, 12_000),
+          }))
+          .filter((c) => c.path && c.content);
+      }
     }
   } catch {
     // fall through to the length check
@@ -37,8 +50,8 @@ export async function POST(request: NextRequest) {
 
   // The recorded workspace is the only code lite mode can ground in — used only when the
   // question is about the recorded repository.
-  let context: { path: string; content: string }[] = [];
-  if (isDemoRepo(repoId)) {
+  let context: { path: string; content: string }[] = given;
+  if (!context.length && isDemoRepo(repoId)) {
     const w = await loadDemoWorkspace();
     context = pickLiteContext(
       Object.entries(w.files).map(([path, f]) => ({ path, content: f.content })),

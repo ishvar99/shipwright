@@ -10,6 +10,10 @@ import {
 import { checklist, checklistComplete, nextStep } from "@/lib/checklist";
 import { sessionFact } from "@/lib/sessions";
 import { pickLiteContext } from "@/lib/lite-context";
+import { indexPython, indexRepo } from "@/lib/local/index-repo";
+import { bm25Rank, rrf, tokenize } from "@/lib/local/bm25";
+import { locateLocal } from "@/lib/local/run";
+import { unzip } from "@/lib/local/unzip";
 import { parseWorkspacePath, repoFiles, repoHome, repoSession } from "@/lib/repo-routes";
 
 // Fixtures copied from live responses, including the naive (no-offset) timestamps
@@ -286,5 +290,213 @@ describe("lite context selection", () => {
   it("sends nothing rather than noise when no file relates", () => {
     expect(pickLiteContext(files, "how do I bake sourdough bread")).toEqual([]);
     expect(pickLiteContext(files, "?!")).toEqual([]);
+  });
+});
+
+describe("local index (browser port of the tree-sitter pass)", () => {
+  const src = [
+    "import os",
+    "",
+    "@decorator",
+    "def top_level(a, b):",
+    "    return a + b",
+    "",
+    "class Cache:",
+    "    def __init__(self):",
+    "        self._d = {}",
+    "",
+    "    async def evict(self, key):",
+    "        del self._d[key]",
+    "",
+    "def after(x):",
+    "    return x",
+  ].join("\n");
+
+  it("qualifies methods with their class, like the backend does", () => {
+    const names = indexPython("m/cache.py", src).map((s) => s.name);
+    expect(names).toEqual(["top_level", "Cache", "Cache.__init__", "Cache.evict", "after"]);
+  });
+
+  it("starts a decorated symbol at the def, not the decorator", () => {
+    const top = indexPython("m/cache.py", src).find((s) => s.name === "top_level");
+    expect(top?.start_line).toBe(4);
+  });
+
+  it("ends a symbol where its indented block ends", () => {
+    const init = indexPython("m/cache.py", src).find((s) => s.name === "Cache.__init__");
+    expect(init?.start_line).toBe(8);
+    expect(init?.end_line).toBe(9);
+  });
+
+  it("uses the backend's id convention and never throws on junk", () => {
+    expect(indexPython("a.py", src)[0].id).toBe("a.py:top_level");
+    expect(() => indexPython("a.py", "def (((\n\tnope")).not.toThrow();
+    expect(indexRepo([{ path: "readme.md", content: "# not python" }])).toEqual([]);
+  });
+});
+
+describe("local retrieval (browser port of retrieve.py)", () => {
+  it("splits snake_case and camelCase, as the backend tokenizer does", () => {
+    expect(tokenize("get_accounts fooBar")).toEqual(
+      expect.arrayContaining(["get", "accounts", "foo", "bar"]),
+    );
+  });
+
+  it("ranks the document that actually matches first", () => {
+    const docs = [
+      { id: "a", text: "unrelated helper for parsing dates" },
+      { id: "b", text: "token cache eviction removes expired tokens from the cache" },
+      { id: "c", text: "http client retry logic" },
+    ];
+    expect(bm25Rank(docs, "how does token cache eviction work")[0]).toBe("b");
+  });
+
+  it("excludes non-matching documents rather than ranking them last", () => {
+    const docs = [{ id: "a", text: "alpha" }, { id: "b", text: "beta" }];
+    expect(bm25Rank(docs, "gamma")).toEqual([]);
+  });
+
+  // RRF is what makes two weak signals beat one strong one, exactly as in the backend.
+  it("fuses rankings by reciprocal rank and is deterministic", () => {
+    const fused = rrf([["a", "b", "c"], ["c", "a"]]);
+    expect(fused[0]).toBe("a");
+    expect(fused).toEqual(rrf([["a", "b", "c"], ["c", "a"]]));
+  });
+
+  it("handles empty input without throwing", () => {
+    expect(bm25Rank([], "x")).toEqual([]);
+    expect(rrf([])).toEqual([]);
+  });
+});
+
+describe("local retrieval demotes tests", () => {
+  const sym = (path: string, name: string) => ({
+    id: `${path}:${name}`, path, name, kind: "function",
+    start_line: 1, end_line: 2, text: `def ${name}(): pass  # token cache eviction`, parent: "",
+  });
+  const symbols = [
+    sym("tests/test_cache.py", "test_eviction"),
+    sym("msal/cache.py", "evict"),
+  ];
+
+  // Without the call graph, BM25 alone ranked five test methods above the function the
+  // question was about. This is the compensation, and it must not fire on test questions.
+  it("puts implementation above tests for a bug report", () => {
+    expect(locateLocal(symbols, "token cache eviction is broken")[0].path).toBe("msal/cache.py");
+  });
+
+  it("leaves the order alone when the question is about tests", () => {
+    const got = locateLocal(symbols, "which tests cover token cache eviction");
+    expect(got.map((s) => s.path)).toContain("tests/test_cache.py");
+    expect(got[0].path).toBe("tests/test_cache.py");
+  });
+});
+
+describe("unzip", () => {
+  // Minimal stored-only ZIP writer: real bytes, so these exercise the parser, not a mock.
+  function zip(files: { path: string; body: string }[], mangle?: (b: Uint8Array) => void) {
+    const enc = new TextEncoder();
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i += 1) {
+      let c = i;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[i] = c >>> 0;
+    }
+    const crcOf = (b: Uint8Array) => {
+      let c = 0xffffffff;
+      for (const byte of b) c = table[(c ^ byte) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    };
+    const locals: Uint8Array[] = [];
+    const centrals: Uint8Array[] = [];
+    let offset = 0;
+    for (const f of files) {
+      const name = enc.encode(f.path);
+      const body = enc.encode(f.body);
+      const crc = crcOf(body);
+      const lh = new Uint8Array(30 + name.length + body.length);
+      const lv = new DataView(lh.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, body.length, true);
+      lv.setUint32(22, body.length, true);
+      lv.setUint16(26, name.length, true);
+      lh.set(name, 30);
+      lh.set(body, 30 + name.length);
+      const ch = new Uint8Array(46 + name.length);
+      const cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, body.length, true);
+      cv.setUint32(24, body.length, true);
+      cv.setUint16(28, name.length, true);
+      cv.setUint32(42, offset, true);
+      ch.set(name, 46);
+      locals.push(lh);
+      centrals.push(ch);
+      offset += lh.length;
+    }
+    const cdSize = centrals.reduce((n, c) => n + c.length, 0);
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, offset, true);
+    const out = new Uint8Array(offset + cdSize + 22);
+    let at = 0;
+    for (const b of [...locals, ...centrals, eocd]) {
+      out.set(b, at);
+      at += b.length;
+    }
+    mangle?.(out);
+    return out.buffer;
+  }
+
+  // A repo zipped with its .git had the wrapper prefix computed from the surviving entries,
+  // which deleted a real top-level source directory from every path.
+  it("decides the wrapper directory from the whole archive, not the survivors", async () => {
+    const got = await unzip(
+      zip([
+        { path: ".git/config", body: "[core]" },
+        { path: "src/a.py", body: "def a(): pass" },
+        { path: "src/b.py", body: "def b(): pass" },
+      ]),
+    );
+    expect(got.map((e) => e.path)).toEqual(["src/a.py", "src/b.py"]);
+  });
+
+  it("still hoists a genuine single wrapper", async () => {
+    const got = await unzip(
+      zip([
+        { path: "repo-main/a.py", body: "x = 1" },
+        { path: "repo-main/b.py", body: "y = 2" },
+      ]),
+    );
+    expect(got.map((e) => e.path)).toEqual(["a.py", "b.py"]);
+  });
+
+  // Stripping "proj/" off "proj//a.py" yields "/a.py", which the pre-strip guard never saw.
+  it("rejects a path that only becomes absolute after stripping", async () => {
+    await expect(
+      unzip(zip([{ path: "proj//a.py", body: "x" }, { path: "proj/b.py", body: "y" }])),
+    ).rejects.toThrow(/unsafe/i);
+  });
+
+  it("rejects content that does not match its checksum", async () => {
+    const clean = zip([{ path: "conf.py", body: "DEBUG = False" }]);
+    const tampered = zip([{ path: "conf.py", body: "DEBUG = False" }], (b) => {
+      const i = new TextDecoder().decode(b).indexOf("DEBUG = False");
+      b.set(new TextEncoder().encode("DEBUG = True_"), i);
+    });
+    expect((await unzip(clean))[0].content).toBe("DEBUG = False");
+    await expect(unzip(tampered)).rejects.toThrow();
+  });
+
+  it("refuses path traversal and skips non-text files", async () => {
+    await expect(unzip(zip([{ path: "../escape.py", body: "x" }]))).rejects.toThrow(/unsafe/i);
+    const got = await unzip(zip([{ path: "a.py", body: "x" }, { path: "logo.png", body: " " }]));
+    expect(got.map((e) => e.path)).toEqual(["a.py"]);
   });
 });
