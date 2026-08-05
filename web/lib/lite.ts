@@ -14,6 +14,11 @@ import type { LiteFile } from "@/lib/lite-context";
  * providers is an env edit, not a deploy. Plain fetch — no SDK dependency.
  */
 
+/** Long enough for a cold free-tier model to start; short enough that a dead host is obvious. */
+const HEADERS_MS = 30_000;
+/** Between tokens. Generation that has stalled this long is not coming back. */
+const IDLE_MS = 30_000;
+
 export function liteConfigured(): boolean {
   return Boolean(process.env.FALLBACK_API_URL && process.env.FALLBACK_API_KEY);
 }
@@ -80,16 +85,35 @@ export async function askLite(issue: string, context: LiteFile[]): Promise<Reada
     ],
   };
 
-  const res = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${process.env.FALLBACK_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(55_000),
-  });
+  // Two timeouts, not one. `AbortSignal.timeout` covers the whole fetch INCLUDING the body,
+  // so a single 55s budget killed healthy answers mid-sentence once generation ran long —
+  // a slow stream is not a hung one. This waits `HEADERS_MS` for the response to start, then
+  // switches to an idle timer that every chunk resets.
+  const abort = new AbortController();
+  let idle = setTimeout(() => abort.abort(new Error("upstream_silent")), HEADERS_MS);
+  const resetIdle = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => abort.abort(new Error("upstream_silent")), IDLE_MS);
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${process.env.FALLBACK_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+      signal: abort.signal,
+    });
+  } catch {
+    clearTimeout(idle);
+    throw new Error(abort.signal.aborted ? "upstream_silent" : "upstream_unreachable");
+  }
+  resetIdle();
   if (!res.ok || !res.body) {
+    clearTimeout(idle);
     // 429 is the one failure worth naming: free tiers meter by the day.
     throw new Error(res.status === 429 ? "rate_limited" : `upstream_${res.status}`);
   }
@@ -101,11 +125,24 @@ export async function askLite(issue: string, context: LiteFile[]): Promise<Reada
 
   return new ReadableStream({
     async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
+      let done: boolean;
+      let value: Uint8Array | undefined;
+      try {
+        ({ done, value } = await reader.read());
+      } catch {
+        // The upstream cut out mid-answer. Close cleanly rather than erroring the response:
+        // the browser keeps every token it already rendered, which is worth more than a
+        // truncated stream turning into a bare "network error".
+        clearTimeout(idle);
         controller.close();
         return;
       }
+      if (done) {
+        clearTimeout(idle);
+        controller.close();
+        return;
+      }
+      resetIdle();
       buffer += decoder.decode(value, { stream: true });
       // SSE frames split on blank lines; a chunk can end mid-frame, so keep the tail.
       const frames = buffer.split("\n\n");
@@ -125,6 +162,7 @@ export async function askLite(issue: string, context: LiteFile[]): Promise<Reada
       }
     },
     cancel(reason) {
+      clearTimeout(idle);
       void reader.cancel(reason);
     },
   });

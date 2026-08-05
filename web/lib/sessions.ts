@@ -39,6 +39,12 @@ export function parseJobTime(iso: string): number {
   return Date.parse(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
 }
 
+/** Explicit locale, not the runtime default: Node renders `en-US` while a browser set to en-GB
+ * renders "31 Jul", and the two disagreeing is a hydration failure. `lang="en"` is the app's. */
+export function dayMonth(ms: number): string {
+  return new Date(ms).toLocaleDateString("en", { day: "numeric", month: "short" });
+}
+
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const then = parseJobTime(iso);
   if (Number.isNaN(then)) return "";
@@ -47,5 +53,5 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   if (s < 7 * 86400) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(then).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return dayMonth(then);
 }

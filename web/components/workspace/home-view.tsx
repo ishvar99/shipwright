@@ -11,6 +11,7 @@ import { LiteAnswer } from "@/components/workspace/lite-answer";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { demoJob, demoRepo, demoRun, isDemoJob, isDemoRepo } from "@/lib/fixtures";
 import { repoDisplayName } from "@/lib/repo-name";
+import { isLocalRepo } from "@/lib/local/store";
 import { repoHome, repoSession } from "@/lib/repo-routes";
 import { SESSION_TONE, relativeTime, sessionFact, sessionTitle } from "@/lib/sessions";
 
@@ -42,6 +43,8 @@ export function HomeView() {
   // Replay only when there is nothing that can answer: with the fallback configured, the
   // composer takes real questions even though our own engine is unreachable.
   const replay = isDemoRepo(currentRepo?.id) && !liteMode;
+  // The inline answer belongs to the bare fallback only; a local run gets its own session.
+  const inlineAnswer = liteMode && !isLocalRepo(currentRepo?.id);
 
   return (
     <div className="sw-home">
@@ -89,7 +92,11 @@ export function HomeView() {
           onPickRepo={selectRepo}
           busy={submitting}
           onRun={(issue) => {
-            if (liteMode) {
+            // A local repository has a real index in this browser, so it goes through the
+            // client pipeline — retrieve, rank, then answer from the ranked excerpts. The
+            // bare fallback is only for when there is nothing indexed to search, and taking
+            // it here sent the model no code at all.
+            if (liteMode && !isLocalRepo(currentRepo?.id)) {
               liteAsk(issue, currentRepo?.id);
               return;
             }
@@ -111,7 +118,7 @@ export function HomeView() {
             {submitError}
           </p>
         )}
-        {liteMode && (liteBusy || liteText || liteError) && (
+        {inlineAnswer && (liteBusy || liteText || liteError) && (
           <LiteAnswer busy={liteBusy} text={liteText} error={liteError} />
         )}
       </div>
@@ -145,7 +152,11 @@ export function HomeView() {
                     Recorded
                   </span>
                 ) : (
-                  <span className="shrink-0">{relativeTime(sessions[0].created_at)}</span>
+                  // suppressHydrationWarning: this page is prerendered, so "3d ago" is computed
+                  // at build time and again on hydration. The two can never agree.
+                  <span className="shrink-0" suppressHydrationWarning>
+                    {relativeTime(sessions[0].created_at)}
+                  </span>
                 )}
               </span>
             </span>

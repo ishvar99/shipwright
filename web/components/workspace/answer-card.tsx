@@ -4,7 +4,16 @@ import { Icon } from "@/components/ui/icon";
 
 /** A question gets an answer grounded in the code that was found — and never an edit. The
  * ranked locations below it are the evidence for what it says. */
-export function AnswerCard({ text, streaming }: { text: string; streaming: boolean }) {
+export function AnswerCard({
+  text,
+  streaming,
+  waitingNote,
+}: {
+  text: string;
+  streaming: boolean;
+  /** Shown only before the first token, in place of an empty box. */
+  waitingNote?: string;
+}) {
   if (!text && !streaming) return null;
   return (
     <div className="sw-card grid gap-2 p-4">
@@ -12,10 +21,20 @@ export function AnswerCard({ text, streaming }: { text: string; streaming: boole
         <Icon name="crosshair" size={14} />
         Answer
       </p>
-      <p className="whitespace-pre-wrap text-fg">
-        {text}
-        {streaming && <span className="sw-caret" aria-hidden />}
-      </p>
+      {/* A blinking 7px caret is not feedback for a 20-second wait — it rendered as an empty
+          box. Before the first token the card says what it is doing; after it, the caret is
+          enough because text is visibly arriving. */}
+      {!text && streaming ? (
+        <p className="flex items-center gap-2 text-muted" role="status">
+          <span className="sw-thinking" aria-hidden />
+          {waitingNote ?? "Thinking…"}
+        </p>
+      ) : (
+        <p className="whitespace-pre-wrap text-fg">
+          {text}
+          {streaming && <span className="sw-caret" aria-hidden />}
+        </p>
+      )}
     </div>
   );
 }
