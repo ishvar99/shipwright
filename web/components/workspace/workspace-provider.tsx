@@ -231,11 +231,18 @@ export function WorkspaceProvider({
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let text = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          text += decoder.decode(value, { stream: true });
-          setLiteText(text);
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            text += decoder.decode(value, { stream: true });
+            setLiteText(text);
+          }
+        } catch {
+          // Cut off mid-answer. Keep every token already on screen and say so — replacing a
+          // half-written answer with "network error" threw away the useful part.
+          if (text) setLiteError("The answer was cut short. Ask again for the rest.");
+          else throw new Error("The answering service stopped responding.");
         }
       } catch (e) {
         setLiteError(e instanceof Error ? e.message : "Lite answering failed.");

@@ -70,7 +70,11 @@ export function RepoHome({ repoId }: { repoId: string }) {
       <header className="sw-repo-home-head">
         <div className="min-w-0">
           <h2 className="text-head font-semibold text-fg">{repoDisplayName(repo.slug)}</h2>
-          <p className="mt-1 text-subtle">{facts.join(" · ")}</p>
+          {/* Contains a relative time, which a prerendered page cannot compute to match the
+              client. Declared, not suppressed globally. */}
+          <p className="mt-1 text-subtle" suppressHydrationWarning>
+            {facts.join(" · ")}
+          </p>
         </div>
         <div className="sw-repo-home-actions">
           <Link href={repoFiles(repo.id)} className="sw-quiet-button">

@@ -308,7 +308,14 @@ describe("groupSessions", () => {
       [at("2026-08-01T09:00:00Z"), at("2026-07-31T09:00:00Z"), at("2026-07-20T09:00:00Z")],
       now,
     );
-    expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", expect.stringContaining("Jul")]);
+    expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", "Jul 20"]);
+  });
+
+  // Exact, not stringContaining("Jul"): the label is rendered on the server and again in the
+  // browser, so a label that follows the host locale ("20 Jul" under en-GB) is a hydration failure.
+  it("labels a date the same way regardless of the host locale", () => {
+    expect(groupSessions([at("2026-07-20T09:00:00Z")], now)[0].label).toBe("Jul 20");
+    expect(relativeTime("2026-07-20T09:00:00Z", now)).toBe("Jul 20");
   });
 
   it("keeps every session and preserves order inside a group", () => {

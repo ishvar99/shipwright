@@ -361,10 +361,11 @@ export default function HeroGraph() {
 
     let raf = 0;
     let running = false;
-    const clock = new THREE.Clock();
+    const timer = new THREE.Timer();
     let elapsed = 0;
     const loop = () => {
-      elapsed += Math.min(clock.getDelta(), 0.05);
+      timer.update();
+      elapsed += Math.min(timer.getDelta(), 0.05);
       // Sway, not spin: a full rotation would drag modules across the headline.
       scene.rotation.y = Math.sin(elapsed * 0.05) * 0.2 + pointer.x * 0.05;
       scene.rotation.x = Math.sin(elapsed * 0.037) * 0.07 + pointer.y * 0.035;
@@ -374,12 +375,12 @@ export default function HeroGraph() {
     const start = () => {
       if (running || reduced) return;
       running = true;
-      clock.start();
+      timer.reset();
       raf = requestAnimationFrame(loop);
     };
     const stop = () => {
       running = false;
-      clock.stop();
+      timer.disconnect?.();
       cancelAnimationFrame(raf);
     };
 

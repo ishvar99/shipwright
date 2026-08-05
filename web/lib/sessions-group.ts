@@ -1,5 +1,5 @@
 import type { Job } from "@/lib/contracts";
-import { parseJobTime } from "@/lib/sessions";
+import { dayMonth, parseJobTime } from "@/lib/sessions";
 
 export type SessionGroup = { label: string; sessions: Job[] };
 
@@ -23,7 +23,7 @@ export function groupSessions(sessions: readonly Job[], now: number = Date.now()
         ? "Today"
         : delta === 1
           ? "Yesterday"
-          : new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+          : dayMonth(ms);
     const last = out[out.length - 1];
     if (last && last.label === label) last.sessions.push(s);
     else out.push({ label, sessions: [s] });

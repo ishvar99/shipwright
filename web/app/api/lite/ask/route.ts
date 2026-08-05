@@ -4,8 +4,10 @@ import { loadDemoWorkspace, isDemoRepo } from "@/lib/fixtures";
 import { askLite, liteConfigured } from "@/lib/lite";
 import { pickLiteContext } from "@/lib/lite-context";
 
-// Streaming a full answer takes longer than Vercel's default function budget.
-export const maxDuration = 60;
+// A streamed answer outlives the default function budget. 300s is the Vercel ceiling on the
+// free plan for streaming responses; the idle timeout in lib/lite.ts is what actually ends a
+// stalled run, so this only has to be larger than a slow-but-working answer.
+export const maxDuration = 300;
 
 const bad = (status: number, detail: string) => NextResponse.json({ detail }, { status });
 

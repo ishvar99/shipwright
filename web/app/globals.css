@@ -858,6 +858,29 @@
     color: var(--subtle);
   }
 
+  /* A small pulsing dot beside the beat: enough motion to read as "working", no spinner and
+     no fake progress bar. The global reduced-motion rule already flattens it. */
+  .sw-thinking {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background: var(--accent);
+    animation: sw-pulse 1.1s var(--ease-swift) infinite;
+  }
+
+  @keyframes sw-pulse {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+
   .sw-caret {
     display: inline-block;
     width: 7px;
