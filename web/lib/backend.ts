@@ -1,7 +1,8 @@
+import { headers } from "next/headers";
 import type { z } from "zod";
 import { parseOrThrow } from "@/lib/contracts";
 import { ApiError, kindFromStatus } from "@/lib/errors";
-import { callerOwner } from "@/lib/owner";
+import { callerOwner, signedIn } from "@/lib/owner";
 
 const BASE = process.env.BACKEND_URL ?? "http://localhost:8000";
 const TIMEOUT_MS = 30_000;
@@ -86,6 +87,14 @@ export async function callBackend<T>(
   path: string,
   opts: Options = {},
 ): Promise<T> {
+  // Every proxied call runs on the caller's behalf with the shared secret attached, so the
+  // workspace gate covers all of them at this one chokepoint — a signed-out curl to POST
+  // /api/jobs would otherwise spend real engine time as the anonymous owner. Off, like the
+  // page gate, when OAuth is unconfigured. The health probe stays open: it carries no
+  // identity and gating it would misreport the engine as down to signed-out probes.
+  if (!(await signedIn(await headers()))) {
+    throw new ApiError("signed_out", "Sign in to use this.");
+  }
   const method = opts.method ?? "GET";
   const url = new URL(path, BASE);
   for (const [key, value] of Object.entries(opts.query ?? {})) {

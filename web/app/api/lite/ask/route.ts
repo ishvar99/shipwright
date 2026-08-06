@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { backendUp } from "@/lib/backend";
-import { loadDemoWorkspace, isDemoRepo } from "@/lib/fixtures";
 import { askLite, liteConfigured } from "@/lib/lite";
-import { pickLiteContext } from "@/lib/lite-context";
+import { signedIn } from "@/lib/owner";
 
 // A streamed answer outlives the default function budget. 300s is the Vercel ceiling on the
 // free plan for streaming responses; the idle timeout in lib/lite.ts is what actually ends a
@@ -16,6 +15,8 @@ const bad = (status: number, detail: string) => NextResponse.json({ detail }, { 
  * route refuses, so the fallback can never silently shadow the real product.
  */
 export async function POST(request: NextRequest) {
+  // The one route that spends the free-tier quota, so the gate covers it too.
+  if (!(await signedIn(request.headers))) return bad(401, "Sign in to use this.");
   if (!liteConfigured()) {
     return bad(503, "Lite answers aren't configured on this deployment.");
   }
@@ -24,18 +25,16 @@ export async function POST(request: NextRequest) {
   }
 
   let issue = "";
-  let repoId = "";
-  let given: { path: string; content: string }[] = [];
+  let context: { path: string; content: string }[] = [];
   try {
     const body: unknown = await request.json();
     if (body && typeof body === "object") {
-      const b = body as { issue?: unknown; repoId?: unknown; context?: unknown };
+      const b = body as { issue?: unknown; context?: unknown };
       issue = String(b.issue ?? "").trim();
-      repoId = String(b.repoId ?? "");
       // A local session has already retrieved and ranked; it sends the excerpts it chose
       // rather than making this route guess from the recorded bundle.
       if (Array.isArray(b.context)) {
-        given = b.context
+        context = b.context
           .slice(0, 8)
           .map((c) => ({
             path: String((c as { path?: unknown })?.path ?? ""),
@@ -49,16 +48,9 @@ export async function POST(request: NextRequest) {
   }
   if (issue.length < 8) return bad(400, "Ask a question or describe a change first.");
   if (issue.length > 20_000) return bad(400, "That's longer than we can read.");
-
-  // The recorded workspace is the only code lite mode can ground in — used only when the
-  // question is about the recorded repository.
-  let context: { path: string; content: string }[] = given;
-  if (!context.length && isDemoRepo(repoId)) {
-    const w = await loadDemoWorkspace();
-    context = pickLiteContext(
-      Object.entries(w.files).map(([path, f]) => ({ path, content: f.content })),
-      issue,
-    );
+  // No excerpts means no grounding — refusing beats a model guessing about unseen code.
+  if (!context.length) {
+    return bad(400, "Nothing to ground an answer in — ask from a repository session.");
   }
 
   try {

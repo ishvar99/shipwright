@@ -40,6 +40,8 @@ export function GitHubConnect({
     }
   };
 
+  // Sessions are stateless, so "disconnect GitHub" IS signing out — and with the workspace
+  // gated on that same session, the reload lands on /signin. The label must say so.
   const disconnect = async () => {
     await fetch("/api/auth/sign-out", {
       method: "POST",
@@ -96,8 +98,12 @@ export function GitHubConnect({
         <p className="font-medium text-fg">
           Connected{status.login ? ` as ${status.login}` : ""}
         </p>
-        <Button onClick={() => void disconnect()} className="ml-auto h-7 px-2">
-          Disconnect
+        <Button
+          onClick={() => void disconnect()}
+          title="Ends your Shipwright session too — sign-in and GitHub access are one session."
+          className="ml-auto h-7 px-2"
+        >
+          Sign out
         </Button>
       </div>
 

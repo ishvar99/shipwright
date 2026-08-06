@@ -51,6 +51,10 @@ export function ResultCard({
         location.start_line > 0 ? `, line ${location.start_line}` : ""
       }. ${tier.label}.`}
       className={cn("sw-result", selected && "sw-result-selected")}
+      // Same pattern as the splitter: a mouse click focuses the row (tabindex), and some
+      // engines paint :focus-visible for it. The mark suppresses that ring; keyboard
+      // navigation clears it, which is when the ring means something.
+      onPointerDown={(e) => e.currentTarget.setAttribute("data-pointer", "")}
       onClick={onSelect}
       onDoubleClick={onActivate}
     >

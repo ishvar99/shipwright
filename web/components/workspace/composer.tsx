@@ -61,7 +61,7 @@ export function Composer({
   onReplay,
   hosted = false,
   queued = false,
-  showExamples = true,
+  showExamples = false,
 }: {
   /** Omitted where the repository is the page itself, which is what removes the chip row. */
   repos?: Repo[];
@@ -159,8 +159,10 @@ export function Composer({
       />
 
       <div className="sw-composer-bar">
-        {/* Chips while they still fit; a searchable picker once scanning tints stops working. */}
-        {onPickRepo && repos.length > 0 && repos.length <= CHIP_LIMIT && (
+        {/* Chips while they still fit; a searchable picker once scanning tints stops working.
+            None at all for a single repository — a one-item "choice" is furniture, and the
+            sidebar already names the repo. */}
+        {onPickRepo && repos.length > 1 && repos.length <= CHIP_LIMIT && (
           <div className="flex min-w-0 flex-wrap gap-1.5" role="group" aria-label="Repository">
             {repos.map((r) => (
               <button
@@ -170,10 +172,12 @@ export function Composer({
                 aria-pressed={r.id === repo?.id}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-[var(--radius)] border px-3 py-1 text-xs font-medium transition-colors",
-                  // A check plus a border, not tint alone: two soft washes are not an affordance.
+                  // The selected chip keeps its border — a check plus a border, not tint
+                  // alone. Unselected ones drop theirs (transparent, so nothing shifts):
+                  // a bordered pill inside the composer's own ring was outline on outline.
                   r.id === repo?.id
-                    ? "border-accent bg-accent-soft text-fg"
-                    : "border-hairline bg-soft text-muted hover:text-fg",
+                    ? "border-accent bg-accent-soft text-fg hover:bg-soft"
+                    : "border-transparent bg-soft text-muted hover:text-fg",
                 )}
               >
                 {r.id === repo?.id && <Icon name="check" size={12} className="text-accent" />}

@@ -1,19 +1,45 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
+
+/** Counts up while the answer is pending. The elapsed second is the one real fact available
+ * before the first token, and a wait you can see progressing reads very differently from one
+ * that might be broken. */
+function useElapsed(active: boolean): number {
+  const [secs, setSecs] = useState(0);
+  const startedAt = useRef(0);
+
+  useEffect(() => {
+    if (!active) return;
+    // A ref, not state: the baseline is written once per run and reading the clock during
+    // render is impure. The interval is the only thing that touches state.
+    startedAt.current = Date.now();
+    const id = setInterval(
+      () => setSecs(Math.round((Date.now() - startedAt.current) / 1000)),
+      500,
+    );
+    return () => {
+      clearInterval(id);
+      setSecs(0); // so the next run does not flash the previous run's total
+    };
+  }, [active]);
+
+  return active ? secs : 0;
+}
 
 /** A question gets an answer grounded in the code that was found — and never an edit. The
  * ranked locations below it are the evidence for what it says. */
-export function AnswerCard({
-  text,
-  streaming,
-  waitingNote,
-}: {
-  text: string;
-  streaming: boolean;
-  /** Shown only before the first token, in place of an empty box. */
-  waitingNote?: string;
-}) {
+export function AnswerCard({ text, streaming }: { text: string; streaming: boolean }) {
+  const secs = useElapsed(streaming && !text);
+  // Named beats: the model is the only slow part, and the first call is the slowest.
+  const note =
+    secs < 4
+      ? "Reading the code…"
+      : secs < 12
+        ? `Thinking… ${secs}s`
+        : `Thinking… ${secs}s · the first answer is slowest while the model warms up`;
+
   if (!text && !streaming) return null;
   return (
     <div className="sw-card grid gap-2 p-4">
@@ -27,7 +53,7 @@ export function AnswerCard({
       {!text && streaming ? (
         <p className="flex items-center gap-2 text-muted" role="status">
           <span className="sw-thinking" aria-hidden />
-          {waitingNote ?? "Thinking…"}
+          {note}
         </p>
       ) : (
         <p className="whitespace-pre-wrap text-fg">
@@ -84,7 +110,7 @@ export function NoWorkCard({
           <button
             type="button"
             onClick={onNewSession}
-            className="text-accent underline underline-offset-4"
+            className="text-accent underline underline-offset-4 transition-colors hover:text-fg"
           >
             Start a new session
           </button>

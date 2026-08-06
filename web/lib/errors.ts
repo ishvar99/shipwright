@@ -7,6 +7,7 @@ export type ErrorKind =
   | "backend_error"
   | "contract_mismatch"
   | "model_unavailable"
+  | "signed_out"
   | "timeout";
 
 export class ApiError extends Error {
@@ -72,6 +73,8 @@ export function statusFromKind(kind: ErrorKind): number {
       return 409;
     case "timeout":
       return 504;
+    case "signed_out":
+      return 401;
     case "backend_unreachable":
       return 503;
     default:

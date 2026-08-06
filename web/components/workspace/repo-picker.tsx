@@ -91,7 +91,12 @@ export function RepoPicker({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") setOpen(false);
+              if (e.key === "Escape") {
+                // Consumed, so surfaces listening on window (the tour) know this Escape
+                // closed the popover and was not meant for them.
+                e.preventDefault();
+                setOpen(false);
+              }
               if (e.key === "ArrowDown") {
                 e.preventDefault();
                 setIndex((i) => Math.min(i + 1, matches.length - 1));

@@ -13,7 +13,7 @@ import {
 import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { useRepos, type ReposState } from "@/lib/client/use-repos";
 import { JobListSchema, JobSchema, type Job, type Repo } from "@/lib/contracts";
-import { demoJob, demoRepo, isDemoRepo } from "@/lib/fixtures";
+import { isDemoRepo } from "@/lib/fixtures";
 import { newLocalJob } from "@/lib/local/run";
 import {
   isLocalJob,
@@ -28,16 +28,11 @@ import { repoHome, repoSession } from "@/lib/repo-routes";
 import { readLastRepo, setDraft, setLastRepo } from "@/lib/ui-prefs";
 
 type Workspace = {
-  /** There is a backend to talk to. This is NOT "there is something to show" — see `demoVisible`,
-   * which is the distinction that used to be missing. */
+  /** There is a backend to talk to. This is NOT "there is something to show". */
   live: boolean;
-  /** The recording is on screen: either there is no backend at all, or there is one and nothing
-   * has been imported yet. Somebody who clones this and runs it locally is in the second case,
-   * and used to be shown an empty app while a finished session sat unused in the bundle. */
-  demoVisible: boolean;
   repos: ReposState;
-  /** Real repositories, plus the recorded one whenever it is visible — without it there is no
-   * way to reach the file browser or the finished session at all. */
+  /** The user's repositories, both origins. The recording lives in no list — it is reached
+   * only through the welcome tour, and its routes resolve by id prefix. */
   repoList: Repo[];
   sessions: Job[];
   /** The sidebar and the repository home both show one repository's work, not the firehose. */
@@ -49,14 +44,9 @@ type Workspace = {
   submitError: string | null;
   /** A run waiting on its repository to finish indexing, so surfaces can say so. */
   queuedRepoId: string | null;
-  /** The fallback is answering: this deployment has a free-tier model configured AND our own
-   * engine is unreachable. Never both — the real engine always wins when it is up. The rest
-   * is the one in-flight answer, held here so every surface shares it. */
+  /** This deployment has a free-tier model configured AND our own engine is unreachable.
+   * Never both — the real engine always wins when it is up. */
   liteMode: boolean;
-  liteBusy: boolean;
-  liteText: string;
-  liteError: string | null;
-  liteAsk: (issue: string, repoId?: string) => void;
   /** Repositories stored in this browser. They route to the client pipeline whatever the
    * backend is doing, because the backend has never heard of them. */
   localRepos: LocalRepo[];
@@ -115,9 +105,6 @@ export function WorkspaceProvider({
   const [showAll, setShowAll] = useState(false);
   const [codeOpen, setCodeOpenState] = useState(false);
   const [liteMode, setLiteMode] = useState(false);
-  const [liteBusy, setLiteBusy] = useState(false);
-  const [liteText, setLiteText] = useState("");
-  const [liteError, setLiteError] = useState<string | null>(null);
   const [localRepos, setLocalRepos] = useState<LocalRepo[]>([]);
   const [localJobs, setLocalJobs] = useState<Job[]>([]);
   const [localNonce, setLocalNonce] = useState(0);
@@ -128,25 +115,13 @@ export function WorkspaceProvider({
   const queuedRun = useRef<{ issue: string; repoId: string } | null>(null);
   const [queued, setQueued] = useState<string | null>(null);
 
-  // Two conditions, not one. `live` alone said "has content", so the local user with a working
-  // backend and nothing imported got an empty screen instead of the recording.
-  //
-  // "Ready", not "exists": a freshly imported repository appears as `importing` and stays that
-  // way for up to a minute, and keying on mere existence pulled the recording off the screen
-  // exactly during the wait it was there to fill.
-  const demoVisible =
-    !localRepos.length &&
-    (!live || (!repos.loading && !repos.repos.some((r) => r.status === "ready")));
   // Local rows sit alongside backend rows in one list; `origin` (encoded in the id prefix)
   // decides which engine answers, so the two can never contend for the same repository.
   const repoList = useMemo(
-    () => [...repos.repos, ...localRepos, ...(demoVisible ? [demoRepo] : [])],
-    [demoVisible, repos.repos, localRepos],
+    () => [...repos.repos, ...localRepos],
+    [repos.repos, localRepos],
   );
-  const allSessions = useMemo(
-    () => [...sessions, ...localJobs, ...(demoVisible ? [demoJob] : [])],
-    [demoVisible, sessions, localJobs],
-  );
+  const allSessions = useMemo(() => [...sessions, ...localJobs], [sessions, localJobs]);
   // Whatever was imported last is what the user came to work on, so the composer aims there
   // rather than at whichever repo happens to be first in the list.
   const lastImported = repos.repos[0];
@@ -159,8 +134,6 @@ export function WorkspaceProvider({
   }
   // Derived from the live list, never a snapshot: a stored Repo object froze its status, so a
   // repo picked while importing stayed "still indexing" forever.
-  // A real repository beats the recording as the default — the recording is only ever the
-  // fallback when there is nothing of the user's own to aim at.
   const currentRepo =
     repoList.find((r) => r.id === selectedId) ??
     repos.repos.find((r) => r.status === "ready") ??
@@ -211,45 +184,6 @@ export function WorkspaceProvider({
     return () => {
       alive = false;
     };
-  }, []);
-
-  const liteAsk = useCallback((issue: string, repoId?: string) => {
-    setLiteBusy(true);
-    setLiteText("");
-    setLiteError(null);
-    void (async () => {
-      try {
-        const res = await fetch("/api/lite/ask", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ issue, repoId: repoId ?? "" }),
-        });
-        if (!res.ok || !res.body) {
-          const detail = (await res.json().catch(() => null)) as { detail?: string } | null;
-          throw new Error(detail?.detail ?? "Lite answering isn't available right now.");
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let text = "";
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            text += decoder.decode(value, { stream: true });
-            setLiteText(text);
-          }
-        } catch {
-          // Cut off mid-answer. Keep every token already on screen and say so — replacing a
-          // half-written answer with "network error" threw away the useful part.
-          if (text) setLiteError("The answer was cut short. Ask again for the rest.");
-          else throw new Error("The answering service stopped responding.");
-        }
-      } catch (e) {
-        setLiteError(e instanceof Error ? e.message : "Lite answering failed.");
-      } finally {
-        setLiteBusy(false);
-      }
-    })();
   }, []);
 
   /** A session's own stream knows when it finished; the list does not, so it gets told. Without
@@ -374,7 +308,6 @@ export function WorkspaceProvider({
 
   const value: Workspace = {
     live,
-    demoVisible,
     repos,
     repoList,
     sessions: allSessions,
@@ -390,10 +323,6 @@ export function WorkspaceProvider({
     submitError,
     queuedRepoId: queued,
     liteMode,
-    liteBusy,
-    liteText,
-    liteError,
-    liteAsk,
     localRepos,
     refreshLocal,
     codeOpen,

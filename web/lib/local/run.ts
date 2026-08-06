@@ -81,8 +81,11 @@ function toLocation(s: LocalSymbol, rank: number, score: number): Location {
   };
 }
 
-const frame = (type: string, payload: Record<string, unknown> = {}): Frame => {
-  const data = JSON.stringify({ type, ...payload });
+/** One event, in the exact wire shape the reducer validates. `seq` is not decoration: the
+ * envelope schema requires it, and frames without it were quarantined wholesale — the feed
+ * stayed empty, and the "silent" stream was retried with a fresh model call each time. */
+export const localFrame = (seq: number, type: string, payload: Record<string, unknown> = {}): Frame => {
+  const data = JSON.stringify({ type, seq, ...payload });
   return { raw: `data: ${data}`, data, comment: false };
 };
 
@@ -105,6 +108,9 @@ export function localEvents(
       stopped = true;
     },
     run(_from, dispatch) {
+      let seq = 0;
+      const frame = (type: string, payload: Record<string, unknown> = {}): Frame =>
+        localFrame((seq += 1), type, payload);
       const emit = (f: Frame) => {
         if (!stopped) dispatch({ kind: "frame", frame: f, at: now() });
       };
@@ -118,6 +124,10 @@ export function localEvents(
           if (stopped) return;
 
           emit(frame("job.started", { repo: repo.slug, mode: "local", base: "bm25" }));
+          // Declared up front — the local pipeline always answers. Without this the reducer
+          // never learns the intent mid-run, so the answer card (and its "Reading the
+          // code…" beat) could not mount until the whole run had finished.
+          emit(frame("intent.ready", { intent: "question" }));
           emit(frame("graph.building"));
           const symbols = repo.symbols_index;
           emit(
@@ -129,7 +139,8 @@ export function localEvents(
             }),
           );
 
-          emit(frame("search.started"));
+          // Payloads the schema requires, truthfully: BM25 is the only channel here.
+          emit(frame("search.started", { channels: "bm25" }));
           const pool = locateLocal(symbols, issue);
           emit(frame("candidates.found", { count: pool.length }));
           if (!pool.length) {
@@ -138,7 +149,7 @@ export function localEvents(
             return;
           }
 
-          emit(frame("rank.started"));
+          emit(frame("rank.started", { pool: pool.length }));
           const locations = pool
             .slice(0, TOP_K)
             .map((s, i) => toLocation(s, i + 1, 1 / (1 + i)));

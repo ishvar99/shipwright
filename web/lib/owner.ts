@@ -24,3 +24,15 @@ export async function callerOwner(): Promise<string> {
     return "";
   }
 }
+
+/** The workspace gate, for the layout and the quota-spending routes. Same philosophy as the
+ * password gate: OAuth env unset means the gate is off, so bare local dev never bricks. */
+export async function signedIn(h: Headers): Promise<boolean> {
+  if (!githubConfigured) return true;
+  try {
+    return Boolean((await auth.api.getSession({ headers: h }))?.user);
+  } catch {
+    // A malformed or expired cookie is "signed out", not an error page.
+    return false;
+  }
+}

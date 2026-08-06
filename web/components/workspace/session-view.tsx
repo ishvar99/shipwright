@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
@@ -18,8 +19,11 @@ import { repoHome } from "@/lib/repo-routes";
 import { JobSchema, type Fix, type Job, type Location } from "@/lib/contracts";
 import { demoJob, demoRun } from "@/lib/fixtures";
 import { localEvents } from "@/lib/local/run";
-import { isLocalJob } from "@/lib/local/store";
+import { getLocalFile, isLocalJob } from "@/lib/local/store";
+import { sourceKey } from "@/lib/client/use-source";
 import { SelectionProvider, useSelection } from "@/lib/results/selection";
+import { Tour, useTourStep } from "@/components/workspace/tour";
+import { TOUR_STEPS } from "@/lib/tour";
 import { sessionTitle } from "@/lib/sessions";
 import { useJobStream } from "@/lib/stream/use-job-stream";
 import type { ActivityState } from "@/lib/stream/reduce";
@@ -34,9 +38,12 @@ export function SessionView({
   session,
   onOpenInEditor,
   onNewSession,
+  tour = false,
 }: {
   jobId: string;
   live: boolean;
+  /** Guided-replay narration over this session — only ever true for the recorded demo. */
+  tour?: boolean;
   session: Job | null;
   onOpenInEditor: (location: Location, repoId: string, slug: string) => void;
   onNewSession: () => void;
@@ -71,18 +78,62 @@ export function SessionView({
   // A local job has no row on any server; its result arrives through the stream instead.
   const { job } = useJobResult(jobId, terminal && live && !isLocalJob(jobId), null, nonce);
   const shown = isLocalJob(jobId) ? session : live ? job : demoJob;
-  const fix = live
-    ? (job?.result.fix ?? null)
-    : demoJob.result.fix && {
-        ...demoJob.result.fix,
-        applied_branch: demoStage === "proposed" ? undefined : demoJob.result.fix.applied_branch,
-        tests: demoStage === "tested" ? demoJob.result.fix.tests : undefined,
-      };
-  const locations = state.outcome.kind === "done" ? (shown?.result.locations ?? []) : [];
+  // Three origins, like `shown`. A local run never drafts a fix, and the missing branch here
+  // put the recording's MSAL patch on every browser-run session.
+  const fix = isLocalJob(jobId)
+    ? (session?.result.fix ?? null)
+    : live
+      ? (job?.result.fix ?? null)
+      : demoJob.result.fix && {
+          ...demoJob.result.fix,
+          applied_branch: demoStage === "proposed" ? undefined : demoJob.result.fix.applied_branch,
+          tests: demoStage === "tested" ? demoJob.result.fix.tests : undefined,
+        };
+  // Memoised: the sources effect below keys on this, and a fresh [] per render would re-read
+  // IndexedDB on every frame of the stream.
+  const shownLocations = shown?.result.locations;
+  const locations = useMemo(
+    () => (state.outcome.kind === "done" ? (shownLocations ?? []) : []),
+    [state.outcome.kind, shownLocations],
+  );
+
+  // The code pane's sources, by origin: the backend serves live jobs, the bundle serves the
+  // recording — and a local job's files are already in this browser, so slice them here.
+  // Without this branch a local session's pane consulted the DEMO bundle and told the user
+  // their own file was "not part of the recording".
+  const [localSources, setLocalSources] = useState<Record<string, unknown>>({});
+  const localRepoId = session?.repo_id ?? "";
+  useEffect(() => {
+    if (!isLocalJob(jobId) || !localRepoId || !locations.length) return;
+    let alive = true;
+    void Promise.all(
+      locations.map(async (loc) => {
+        // Per-file, so one failed read costs one pane, not all of them.
+        try {
+          const file = await getLocalFile(localRepoId, loc.path);
+          if (!file) return null;
+          const lines = file.content
+            .split("\n")
+            .slice(loc.start_line - 1, loc.end_line || loc.start_line);
+          return [sourceKey(loc), { path: loc.path, start: loc.start_line, lines }] as const;
+        } catch {
+          return null; // a miss falls back to the pane's own "not here" state
+        }
+      }),
+    ).then((entries) => {
+      if (alive) setLocalSources(Object.fromEntries(entries.filter((e) => e !== null)));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [jobId, localRepoId, locations]);
   // Prefer the job we fetched over the sidebar row: the row is absent for anything past the
   // 25-row page, for harness sessions once "show all" is off, and for one just deleted.
+  // The recorded issue is the fallback for the recording alone, never for a local row.
   const title =
-    sessionTitle(shown?.issue ?? session?.issue ?? (live ? "" : demoRun.issue)) || "Session";
+    sessionTitle(
+      shown?.issue ?? session?.issue ?? (live || isLocalJob(jobId) ? "" : demoRun.issue),
+    ) || "Session";
   const repoName = repoDisplayName(state.repo ?? "");
 
   // The row's dot is its only state signal; without this it pulses "running" forever.
@@ -91,9 +142,36 @@ export function SessionView({
     patchSession(jobId, { status: state.outcome.kind === "failed" ? "errored" : "done" });
   }, [state.outcome.kind, jobId, patchSession]);
 
+  // The guided replay. Facts come from the stream, so the narration keeps pace with what is
+  // actually on screen; dismissing just drops the query param and leaves a plain session.
+  const router = useRouter();
+  const pathname = usePathname();
+  const tourActive = tour && !live && !isLocalJob(jobId);
+  // Inert facts when the tour is off, so its dwell timers never run on real sessions.
+  const step = useTourStep(
+    tourActive
+      ? {
+          fixStarted: state.timeline.some((t) => t.type === "fix.started"),
+          terminal: state.outcome.kind !== "pending",
+        }
+      : { fixStarted: false, terminal: false },
+  );
+  const tourTarget = tourActive ? (TOUR_STEPS[step]?.target ?? null) : null;
+
   return (
     <SelectionProvider locations={locations}>
+      {/* scroll:false — the reader dismissed mid-page to keep exploring; yanking them to the
+          top would lose the very place the closing step told them to look at. */}
+      {tourActive && (
+        <Tour step={step} onDismiss={() => router.replace(pathname, { scroll: false })} />
+      )}
       <SessionBody
+        tourOpen={tourActive}
+        tourTarget={tourTarget}
+        // Origin order matters: a local job stays local even on a deployment that HAS a
+        // backend (live is config, not origin) — testing `live` first sent the pane to
+        // GET /api/jobs/local-…/source, which no backend has heard of.
+        recordedSources={isLocalJob(jobId) ? localSources : live ? null : demoRun.sources}
         title={title}
         repoName={repoName}
         state={state}
@@ -206,9 +284,19 @@ function SessionBody({
   actionError,
   onAction,
   onActionFinished,
+  tourOpen = false,
+  tourTarget = null,
+  recordedSources = null,
 }: {
   title: string;
   repoName: string;
+  /** The narrator card is up, so the page needs scroll clearance beneath the content. */
+  tourOpen?: boolean;
+  /** The section the tour narrator is talking about, ringed so the eye lands there. */
+  tourTarget?: "issue" | "fix" | "results" | null;
+  /** The code pane's offline sources: the bundle for the recording, IndexedDB slices for a
+   * local job, null for live (the backend serves those). */
+  recordedSources?: Record<string, unknown> | null;
   state: ActivityState;
   onRetry: () => void;
   locations: readonly Location[];
@@ -245,11 +333,17 @@ function SessionBody({
     !state.timeline.some((t) => ["fix.ready", "fix.failed"].includes(t.type));
 
   return (
-    <div className="sw-session" data-code={location ? "open" : undefined}>
+    <div
+      className="sw-session"
+      data-code={location ? "open" : undefined}
+      data-tour={tourOpen || undefined}
+    >
       {/* Explicit minmax(0,1fr): with no template the implicit column sizes to max-content,
           so a long headline held the track wider than the container and ran under the code
           pane instead of wrapping. */}
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-5">
+        {/* No ring on the headline: an outline around bare text reads as a rendering glitch,
+            not a highlight. The narrator's copy carries step one; the rings are for cards. */}
         <header className="grid gap-1.5">
           {/* The repository above the issue, and a link: a session is somewhere, and this is
               the way back to it. */}
@@ -280,17 +374,19 @@ function SessionBody({
         )}
 
         {(writing || Boolean(fix?.patch)) && (
-          <FixCard
-            fix={fix}
-            fixText={state.fixText}
-            writing={writing}
-            busy={actionBusy}
-            pendingKind={pendingAction}
-            live={live}
-            onApply={() => onAction("apply")}
-            onTest={() => onAction("test")}
-            onRetry={() => onAction("fix_retry")}
-          />
+          <div data-tour-ring={tourTarget === "fix" || undefined}>
+            <FixCard
+              fix={fix}
+              fixText={state.fixText}
+              writing={writing}
+              busy={actionBusy}
+              pendingKind={pendingAction}
+              live={live}
+              onApply={() => onAction("apply")}
+              onTest={() => onAction("test")}
+              onRetry={() => onAction("fix_retry")}
+            />
+          </div>
         )}
 
         {actionError && (
@@ -309,7 +405,12 @@ function SessionBody({
           </p>
         )}
 
-        <ResultsList locations={locations} mode={mode} />
+        {/* Guarded like ResultsList itself — an empty wrapper is still a grid row. */}
+        {locations.length > 0 && (
+          <div data-tour-ring={tourTarget === "results" || undefined}>
+            <ResultsList locations={locations} mode={mode} />
+          </div>
+        )}
       </div>
 
       {location && (
@@ -319,7 +420,7 @@ function SessionBody({
             <PanelBoundary label="code">
               <CodePane
                 jobId={jobId}
-                recorded={live ? null : demoRun.sources}
+                recorded={recordedSources}
                 onClose={clear}
                 onOpenInEditor={live && repoId ? () => onOpenInEditor(location, repoId, repoSlug) : undefined}
               />

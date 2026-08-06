@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Sidebar } from "@/components/workspace/sidebar";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
-import { isDemoRepo } from "@/lib/fixtures";
+import { demoRepo, isDemoRepo } from "@/lib/fixtures";
 import { parseWorkspacePath, repoHome } from "@/lib/repo-routes";
 import { anyDirty } from "@/lib/repo-tabs";
 import {
@@ -40,8 +40,11 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
   // The URL wins where it says something — including when it names a repository that does not
   // exist, where falling back to the selection would label the page with an unrelated repo.
   // Elsewhere the selection carries over so the switcher is never blank on /app.
+  // The recording lives in no list, so it resolves by prefix — same rule as repo-home. Without
+  // this the sidebar read "Choose a repository" beside a playing tour.
   const shownRepo = routeRepoId
-    ? (repoList.find((r) => r.id === routeRepoId) ?? null)
+    ? (repoList.find((r) => r.id === routeRepoId) ??
+      (isDemoRepo(routeRepoId) ? demoRepo : null))
     : currentRepo;
   // Scoped only when the URL names a repository. On the launcher you are not inside one, and
   // narrowing the sidebar to a fallback selection made it claim "no sessions in this
@@ -60,7 +63,18 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
     setRead(true);
     setPref(readStoredSidebarPref());
   }
-  const railed = pref === "rail" || (pref === "auto" && (onEditor || codeOpen));
+  // Content yields regardless of the stored preference: one toggle press months ago should not
+  // mean the code pane arrives squeezed beside a full sidebar forever. The override is the
+  // escape hatch — transient, per pane, never persisted.
+  const yielding = onEditor || codeOpen;
+  const [expandOverride, setExpandOverride] = useState(false);
+  // Adjusted during render, same as the pref read above: the next pane starts railed again.
+  const [wasYielding, setWasYielding] = useState(yielding);
+  if (wasYielding !== yielding) {
+    setWasYielding(yielding);
+    if (!yielding) setExpandOverride(false);
+  }
+  const railed = pref === "rail" || (yielding && !expandOverride);
 
   useEffect(() => {
     applyStoredPrefs();
@@ -80,13 +94,23 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
     if (routeRepoId && !isDemoRepo(routeRepoId)) setLastRepo(routeRepoId);
   }, [routeRepoId]);
 
-  // Derived from what is on screen, not from the stored preference: on the editor route "auto"
-  // already renders railed, so mapping auto->rail made the first click a no-op.
+  // Derived from what is on screen, not from the stored preference: on the editor route the
+  // yield already renders railed, so mapping the preference alone made the first click a
+  // no-op. Expanding over a yielded pane is the transient override, not a stored choice —
+  // otherwise pressing it once would resurrect the squeezed layout permanently.
   const toggle = useCallback(() => {
+    if (railed && yielding) {
+      setExpandOverride(true);
+      return;
+    }
+    if (!railed && yielding && expandOverride) {
+      setExpandOverride(false);
+      return;
+    }
     const next: SidebarState = railed ? "expanded" : "rail";
     setPref(next);
     setSidebarState(next);
-  }, [railed]);
+  }, [railed, yielding, expandOverride]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

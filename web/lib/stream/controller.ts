@@ -1,4 +1,6 @@
 import { JobSchema } from "@/lib/contracts";
+import { isDemoJob } from "@/lib/fixtures";
+import { isLocalJob } from "@/lib/local/store";
 import {
   initialState,
   reduce,
@@ -87,6 +89,10 @@ export function createController(
   };
 
   const fetchJob = async (): Promise<void> => {
+    // Rows the backend has never heard of — a browser-run job or the recording. Their stream
+    // is the only source of truth, and the refetch the reducer requests on job.done would be
+    // a guaranteed error against the proxy.
+    if (isLocalJob(jobId) || isDemoJob(jobId)) return;
     try {
       const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" });
       if (!res.ok) return;

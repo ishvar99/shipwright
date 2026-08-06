@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { RepoFileSchema } from "@/lib/contracts";
 import { backendHeaders, callBackend } from "@/lib/backend";
 import { ApiError } from "@/lib/errors";
+import { signedIn } from "@/lib/owner";
 import { ok, toResponse } from "@/lib/route-helpers";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +28,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const base = process.env.BACKEND_URL;
   try {
+    // Raw pass-through, so the callBackend gate does not cover it — gate it by hand.
+    if (!(await signedIn(request.headers))) throw new ApiError("signed_out", "Sign in to use this.");
     if (!base) throw new ApiError("backend_unreachable", "This deployment has no live backend");
     const { id } = await params;
     const body: unknown = await request.json();
