@@ -7,9 +7,7 @@ import {
   SourceSchema,
   parseOrThrow,
 } from "@/lib/contracts";
-import { checklist, checklistComplete, nextStep } from "@/lib/checklist";
 import { sessionFact } from "@/lib/sessions";
-import { pickLiteContext } from "@/lib/lite-context";
 import { indexPython, indexRepo } from "@/lib/local/index-repo";
 import { bm25Rank, rrf, tokenize } from "@/lib/local/bm25";
 import { locateLocal } from "@/lib/local/run";
@@ -198,37 +196,6 @@ describe("workspace routes", () => {
   });
 });
 
-describe("first-run checklist", () => {
-  const base = { exampleVisible: true, ownRepos: 0, ownSessions: 0, exampleHref: "/x" };
-
-  it("arrives with the first step already complete", () => {
-    const [first, ...rest] = checklist(base);
-    expect(first.done).toBe(true);
-    expect(rest.map((i) => i.done)).toEqual([false, false]);
-  });
-
-  // Someone who imported before the recording was ever on screen has still seen enough.
-  it("counts the example as seen once the user has a repository of their own", () => {
-    expect(checklist({ ...base, exampleVisible: false, ownRepos: 1 })[0].done).toBe(true);
-    expect(checklist({ ...base, exampleVisible: false })[0].done).toBe(false);
-  });
-
-  it("points at the first unfinished step", () => {
-    expect(nextStep(checklist(base))?.id).toBe("import");
-    expect(nextStep(checklist({ ...base, ownRepos: 2 }))?.id).toBe("ship");
-  });
-
-  it("is complete, and so hidden, once a session of the user's own exists", () => {
-    const done = checklist({ ...base, ownRepos: 1, ownSessions: 1 });
-    expect(checklistComplete(done)).toBe(true);
-    expect(nextStep(done)).toBeNull();
-  });
-
-  it("is not complete on the strength of the pre-completed step alone", () => {
-    expect(checklistComplete(checklist(base))).toBe(false);
-  });
-});
-
 describe("sessionFact", () => {
   const base = {
     id: "j", repo_id: "r", repo_slug: "o/n", kind: "localize", status: "done",
@@ -259,37 +226,6 @@ describe("sessionFact", () => {
   it("degrades to plain facts on old rows", () => {
     expect(sessionFact(job({ wall_ms: 0, result: { ...base.result, locations: [loc] } }))).toBe("1 places found");
     expect(sessionFact(job({ wall_ms: 0 }))).toBe("done");
-  });
-});
-
-describe("lite context selection", () => {
-  const files = [
-    { path: "msal/token_cache.py", content: "class TokenCache:\n  def evict(self): pass\n" },
-    { path: "msal/application.py", content: "class ClientApplication:\n  def acquire(self): pass\n" },
-    { path: "README.md", content: "# msal\nA library.\n" },
-  ];
-
-  it("picks only files the question actually names", () => {
-    const got = pickLiteContext(files, "how does the token cache evict entries?");
-    expect(got.map((f) => f.path)).toEqual(["msal/token_cache.py"]);
-  });
-
-  it("ranks a path match above a body mention", () => {
-    const got = pickLiteContext(files, "what does application do");
-    expect(got[0].path).toBe("msal/application.py");
-  });
-
-  // A free tier meters tokens, so an unbounded prompt is a failed request, not a slow one.
-  it("truncates to the budget and marks what it cut", () => {
-    const big = [{ path: "big.py", content: `cache ${"x".repeat(50_000)}` }];
-    const [got] = pickLiteContext(big, "cache", { maxTotal: 900, maxPerFile: 900 });
-    expect(got.content.length).toBeLessThan(1_000);
-    expect(got.content).toContain("truncated");
-  });
-
-  it("sends nothing rather than noise when no file relates", () => {
-    expect(pickLiteContext(files, "how do I bake sourdough bread")).toEqual([]);
-    expect(pickLiteContext(files, "?!")).toEqual([]);
   });
 });
 

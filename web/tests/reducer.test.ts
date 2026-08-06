@@ -6,6 +6,8 @@ import { createDecoder, feed } from "@/lib/stream/frames";
 import { redact } from "@/lib/stream/redact";
 import { activeElapsedMs, doneSummary, failureCopy, narrate } from "@/lib/stream/narrative";
 import { relativeTime, sessionTitle } from "@/lib/sessions";
+import { TOUR_STEPS, tourStep } from "@/lib/tour";
+import { localFrame } from "@/lib/local/run";
 import {
   MAX_RECONNECTS,
   activeStage,
@@ -682,5 +684,70 @@ describe("session presentation", () => {
     expect(relativeTime("2026-07-31T11:20:00", now)).toBe("40m ago");
     expect(relativeTime("2026-07-31T03:00:00", now)).toBe("9h ago");
     expect(relativeTime("2026-07-28T12:00:00", now)).toBe("3d ago");
+  });
+});
+
+describe("guided tour sequencing", () => {
+  it("walks the recorded run's real order: issue, fix, then evidence at the end", () => {
+    // Results render only when the run completes, and the fix streams in mid-run — the
+    // steps must follow what is on screen, not the abstract pipeline order.
+    expect(tourStep({ fixStarted: false, terminal: false })).toBe(0);
+    expect(tourStep({ fixStarted: true, terminal: false })).toBe(1);
+    expect(tourStep({ fixStarted: true, terminal: true })).toBe(3);
+  });
+
+  it("lets terminal win even if the fix fact was never seen", () => {
+    // A replay resumed near the end may fold every frame in one batch.
+    expect(tourStep({ fixStarted: false, terminal: true })).toBe(3);
+  });
+
+  it("never regresses across a monotonic fact sequence", () => {
+    const seq = [
+      { fixStarted: false, terminal: false },
+      { fixStarted: true, terminal: false },
+      { fixStarted: true, terminal: true },
+    ];
+    const steps = seq.map(tourStep);
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps);
+  });
+
+  it("earns only steps that exist, and every step names a target the page renders", () => {
+    expect(tourStep({ fixStarted: true, terminal: true })).toBeLessThan(TOUR_STEPS.length);
+    const targets = TOUR_STEPS.map((s) => s.target);
+    expect(targets.slice(0, -1).every(Boolean)).toBe(true); // narrated steps point somewhere
+    expect(targets[targets.length - 1]).toBeNull(); // the closing card points at the CTA
+  });
+});
+
+describe("local run frames", () => {
+  // Every shape the browser pipeline emits, exactly as run.ts emits it. Frames the schema
+  // rejects are quarantined wholesale — which showed as an empty feed and, worse, as the
+  // reducer "reconnecting" a stream that was never broken, re-running the model each time.
+  const SHAPES: [string, Record<string, unknown>][] = [
+    ["job.started", { repo: "o/n", mode: "local", base: "bm25" }],
+    ["intent.ready", { intent: "question" }],
+    ["graph.building", {}],
+    ["graph.ready", { files: 2, symbols: 4, call_edges: 0, import_edges: 0 }],
+    ["search.started", { channels: "bm25" }],
+    ["candidates.found", { count: 7 }],
+    ["rank.started", { pool: 7 }],
+    ["localization.ready", { count: 5 }],
+    ["answer.started", {}],
+    ["answer.delta", { text: "The" }],
+    ["answer.ready", {}],
+    ["job.done", { wall_ms: 1200, locations: 5 }],
+    ["job.failed", { error: "nothing matched" }],
+  ];
+
+  it("emits only frames the wire schema accepts", () => {
+    SHAPES.forEach(([type, payload], i) => {
+      const r = parseFrame(localFrame(i + 1, type, payload));
+      expect(r.ok, `${type}: ${r.ok ? "" : r.reason}`).toBe(true);
+    });
+  });
+
+  it("numbers frames so a replayed duplicate is recognisable", () => {
+    const r = parseFrame(localFrame(3, "answer.delta", { text: "x" }));
+    expect(r.ok && r.event.seq).toBe(3);
   });
 });

@@ -7,6 +7,13 @@ const clientSecret = process.env.GITHUB_CLIENT_SECRET ?? "";
  * build and boot. Every surface checks this before offering to connect. */
 export const githubConfigured = Boolean(clientId && clientSecret);
 
+// The gate is only as strong as this secret: sessions are JWE cookies, so anyone holding the
+// published dev fallback could mint one and walk through signedIn(). Refusing to boot beats
+// silently running a forgeable gate. Without OAuth the gate is off and the fallback is fine.
+if (githubConfigured && !process.env.BETTER_AUTH_SECRET) {
+  throw new Error("Set BETTER_AUTH_SECRET when GitHub OAuth is configured — sessions are signed with it.");
+}
+
 /**
  * Stateless by design — this app has no database and wants none. Better Auth auto-enables
  * cookie sessions when no adapter is configured; `jwe` encrypts them, which matters because

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { backendHeaders } from "@/lib/backend";
 import { ApiError } from "@/lib/errors";
+import { signedIn } from "@/lib/owner";
 import { toResponse } from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
@@ -12,6 +13,8 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const base = process.env.BACKEND_URL;
   try {
+    // Raw pass-through, so the callBackend gate does not cover it — gate it by hand.
+    if (!(await signedIn(request.headers))) throw new ApiError("signed_out", "Sign in to use this.");
     if (!base) {
       // No backend in this deployment, so a stream can never open. Failing here is what makes
       // the deployed site select a recorded run instead of reconnect-looping.

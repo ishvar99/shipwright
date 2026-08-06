@@ -4,9 +4,9 @@ import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { AccountRow } from "@/components/workspace/account-row";
 import { RepoPicker } from "@/components/workspace/repo-picker";
 import type { Job, Repo } from "@/lib/contracts";
-import { isDemoJob } from "@/lib/fixtures";
 import { repoHome, repoSession } from "@/lib/repo-routes";
 import { SESSION_TONE, sessionTitle } from "@/lib/sessions";
 import { groupSessions } from "@/lib/sessions-group";
@@ -121,24 +121,16 @@ export function Sidebar({
                     {job.status !== "done" && (
                       <StatusDot tone={SESSION_TONE[job.status]} />
                     )}
-                    {isDemoJob(job.id) && (
-                      <span className="shrink-0 rounded-full bg-soft px-1.5 text-xs font-medium">
-                        Recorded
-                      </span>
-                    )}
                   </Link>
-                  {/* The recording has no row in the database to delete. */}
-                  {!isDemoJob(job.id) && (
-                    <button
-                      type="button"
-                      aria-label={`Delete ${sessionTitle(job.issue)}`}
-                      title="Delete session"
-                      onClick={() => onDelete(job.id)}
-                      className="sw-session-delete"
-                    >
-                      <Icon name="x" size={12} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    aria-label={`Delete ${sessionTitle(job.issue)}`}
+                    title="Delete session"
+                    onClick={() => onDelete(job.id)}
+                    className="sw-session-delete"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
                 </li>
               ))}
             </ul>
@@ -166,6 +158,7 @@ export function Sidebar({
           <span className="sw-rail-hide">Repositories</span>
         </Link>
         <ThemeToggle />
+        <AccountRow />
       </div>
     </nav>
   );

@@ -11,10 +11,13 @@ import { openTab } from "@/lib/repo-tabs";
 
 export default function Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ repoId: string; jobId: string }>;
+  searchParams: Promise<{ tour?: string }>;
 }) {
   const { repoId, jobId } = use(params);
+  const { tour } = use(searchParams);
   const { live, sessions } = useWorkspace();
   const router = useRouter();
   return (
@@ -27,6 +30,8 @@ export default function Page({
         // Per session, not per app: the recording can now sit beside real rows, and it must
         // replay from the bundle rather than stream against a job the backend never had.
         live={live && !isDemoJob(jobId)}
+        // Only the recorded demo narrates: the tour is onboarding, not a session feature.
+        tour={tour === "1" && isDemoJob(jobId)}
         session={sessions.find((j) => j.id === jobId) ?? null}
         onNewSession={() => router.push(repoHome(repoId))}
         onOpenInEditor={(loc, jobRepoId, slug) => {

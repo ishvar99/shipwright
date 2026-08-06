@@ -56,6 +56,10 @@ export function FixCard({
   const files = parseUnifiedDiff(fix.patch);
   const applied = Boolean(fix.applied_branch);
   const tests = fix.tests ?? null;
+  // Replay only: the recorded demo advances by clicking these, and nothing on the screen said
+  // so. A game-style pulse marks the next step; live runs stay quiet — a real apply is a
+  // decision, not a beat to be nudged through.
+  const nudge = !live && !busy;
 
   return (
     <div className="sw-card overflow-hidden">
@@ -114,13 +118,23 @@ export function FixCard({
       {actions && (
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3">
         {!applied && (
-          <Button variant="primary" onClick={onApply} aria-disabled={busy || undefined}>
+          <Button
+            variant="primary"
+            onClick={onApply}
+            aria-disabled={busy || undefined}
+            className={cn(nudge && "sw-tap-hint")}
+          >
             <Icon name="check" size={16} />
             {pendingKind === "apply" ? "Applying…" : "Apply fix"}
           </Button>
         )}
         {applied && !tests && (
-          <Button variant="primary" onClick={onTest} aria-disabled={busy || undefined}>
+          <Button
+            variant="primary"
+            onClick={onTest}
+            aria-disabled={busy || undefined}
+            className={cn(nudge && "sw-tap-hint")}
+          >
             {pendingKind === "test" ? "Running tests…" : "Run tests"}
           </Button>
         )}

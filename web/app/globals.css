@@ -163,6 +163,13 @@
     border-color: var(--hairline);
   }
 
+  /* Tailwind v4 preflight leaves buttons on the arrow cursor. Every enabled button here is
+     clickable, so say so once at the base. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
   body {
     background: var(--bg);
     color: var(--fg);
@@ -317,27 +324,6 @@
     overflow-y: auto;
     margin-inline: calc(var(--side-pad) * -1);
     padding-inline: var(--side-pad);
-  }
-
-  .sw-new-session {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: calc(var(--space-unit) * 3);
-    height: 36px;
-    padding-inline: 12px;
-    border-radius: var(--radius);
-    /* Quiet, not ink: the composer's Ask button is the page's one filled action, and this
-       used to out-shout it from the corner scanning starts in. */
-    border: 1px solid var(--hairline);
-    background: var(--surface);
-    color: var(--fg);
-    font-weight: 500;
-    transition: border-color 150ms, background-color 150ms;
-  }
-
-  .sw-new-session:hover {
-    border-color: var(--accent);
   }
 
   /* The implicit grid track sizes to max-content unless both it and its items are pinned to
@@ -614,7 +600,6 @@
     width: 36px;
     height: 36px;
     flex-shrink: 0;
-    border: 1px solid var(--hairline);
     border-radius: var(--radius);
     background-color: var(--soft);
     /* The blueprint dot grid, at tile scale: the one surface no template ships. */
@@ -627,7 +612,8 @@
 
   .sw-repo-mark-add {
     background: transparent;
-    border-style: dashed;
+    /* Its own full border: it used to inherit width from .sw-repo-mark, whose border is gone. */
+    border: 1px dashed var(--hairline);
     color: var(--subtle);
   }
 
@@ -698,61 +684,191 @@
     padding: calc(var(--space-unit) * 5);
   }
 
-  .sw-firstrun {
+  /* The launcher with nothing imported: one designed moment, not a stack of cards. Sits in
+     the upper third — dead-centring reads as a dialog, this reads as a page. */
+  .sw-welcome {
     display: grid;
+    justify-items: center;
+    text-align: center;
     gap: calc(var(--space-unit) * 3);
-    padding: calc(var(--space-unit) * 4);
+    max-width: 34rem;
+    margin: 12vh auto 0;
   }
 
-  .sw-firstrun-list {
-    display: grid;
-    gap: calc(var(--space-unit) * 2);
-    list-style: none;
-    padding: 0;
-    counter-reset: none;
-  }
-
-  .sw-firstrun-item {
-    display: flex;
-    align-items: center;
-    gap: calc(var(--space-unit) * 2);
+  .sw-welcome-head {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
     color: var(--fg);
   }
 
-  /* Done steps recede rather than vanish — the point of a pre-completed first item is that you
-     can see it is already ticked. */
-  .sw-firstrun-item.is-done {
+  .sw-welcome-sub {
+    color: var(--muted);
+    max-width: 28rem;
+  }
+
+  .sw-welcome > .sw-primary-link {
+    margin-top: calc(var(--space-unit) * 2);
+  }
+
+  .sw-welcome-tour {
     color: var(--subtle);
-    text-decoration: line-through;
+    text-decoration: underline;
+    text-underline-offset: 4px;
     text-decoration-color: var(--hairline);
-  }
-
-  .sw-firstrun-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    flex-shrink: 0;
-    border: 1px solid var(--hairline);
-    border-radius: 9999px; /* a state marker, which is exactly what a pill radius is for */
-    color: var(--ok);
-  }
-
-  .is-done > .sw-firstrun-mark {
-    border-color: var(--ok);
-  }
-
-  .sw-firstrun-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--fg);
     transition: color var(--dur-fast) var(--ease-swift);
   }
 
-  .sw-firstrun-link:hover {
+  .sw-welcome-tour:hover {
+    color: var(--fg);
+  }
+
+  /* The guided-replay narrator: one fixed card, like a player's caption bar. It never covers
+     the section it describes because those live in the upper flow of the page. */
+  .sw-tour-card {
+    position: fixed;
+    bottom: calc(var(--space-unit) * 6);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    display: grid;
+    gap: calc(var(--space-unit));
+    width: min(calc(100vw - 32px), 30rem);
+    padding: calc(var(--space-unit) * 3) calc(var(--space-unit) * 4);
+    background: var(--surface);
+    border-radius: var(--radius-card, 12px);
+    box-shadow: var(--shadow-2);
+  }
+
+  .sw-tour-step {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: calc(var(--space-unit) * 2);
+    font-size: 0.75rem;
+    color: var(--subtle);
+  }
+
+  .sw-tour-title {
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .sw-tour-body {
+    color: var(--muted);
+  }
+
+  .sw-tour-actions {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space-unit) * 3);
+    margin-top: calc(var(--space-unit));
+  }
+
+  .sw-tour-skip {
+    color: var(--subtle);
+    transition: color var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-tour-skip:hover {
+    color: var(--fg);
+  }
+
+  /* The section the narrator is talking about. An offset outline, not motion — it breathes
+     around bare text (the issue header) as well as cards, and is reduced-motion safe. */
+  [data-tour-ring] {
+    border-radius: var(--radius-card, 12px);
+    outline: 2px solid var(--accent);
+    outline-offset: 6px;
+  }
+
+  /* While the narrator is up, the page can always scroll its content clear of it. */
+  .sw-session[data-tour] {
+    padding-bottom: 12rem;
+  }
+
+  /* A result opened mid-tour makes the code the reader's focus: the narrator yields rather
+     than sit over the sticky pane's bottom edge, and returns the moment the pane closes. */
+  body:has(.sw-session[data-code]) .sw-tour-card {
+    display: none;
+  }
+
+  /* The "click here to proceed" beat from games: a ring swells out of the button and fades.
+     Replay-only — fix-card attaches it — and the global reduced-motion rule flattens it. */
+  .sw-tap-hint {
+    position: relative;
+  }
+
+  .sw-tap-hint::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    pointer-events: none;
+    animation: sw-tap 1.8s var(--ease-swift) infinite;
+  }
+
+  @keyframes sw-tap {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 55%, transparent);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 12px transparent;
+    }
+  }
+
+  /* Sign-in: a toll booth, not a destination. One card, centred, nothing else. */
+  .sw-signin {
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    padding: calc(var(--space-unit) * 4);
+  }
+
+  .sw-signin-card {
+    display: grid;
+    justify-items: start;
+    gap: calc(var(--space-unit) * 3);
+    width: min(100%, 24rem);
+    padding: calc(var(--space-unit) * 5);
+    background: var(--surface);
+    border-radius: var(--radius-card, 16px);
+    box-shadow: var(--shadow-2);
+  }
+
+  /* Who is signed in, at sidebar-footer weight. */
+  .sw-account {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+
+  .sw-account-mark {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background: var(--accent-soft);
     color: var(--accent);
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+
+  .sw-account-out {
+    color: var(--subtle);
+    transition: color var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-account-out:hover {
+    color: var(--danger);
   }
 
   .sw-session-repo {
@@ -1007,7 +1123,6 @@
   }
 
   /* The app had no :active rules at all, so every click felt inert. */
-  .sw-new-session:active,
   .sw-side-item:active,
   .sw-session-row:active,
   .sw-tree-row:active,
@@ -1203,7 +1318,13 @@
     align-items: center;
     gap: 6px;
     padding: 6px calc(var(--space-unit) * 2);
-    cursor: default;
+    cursor: pointer;
+  }
+
+  /* Real :hover too, not only the mouse-move-driven active index: feedback survives
+     keyboard scrolling and the first frame after the pointer settles. */
+  .sw-repo-option:hover {
+    background: var(--accent-soft);
   }
 
   .sw-repo-option-active {
@@ -1253,7 +1374,11 @@
     align-items: baseline;
     gap: calc(var(--space-unit));
     padding: calc(var(--space-unit)) calc(var(--space-unit) * 2);
-    cursor: default;
+    cursor: pointer;
+  }
+
+  .sw-quickopen-item:hover {
+    background: var(--accent-soft);
   }
 
   .sw-quickopen-item-active {
@@ -1414,6 +1539,9 @@
   /* ---------- results ---------- */
   .sw-rows {
     display: grid;
+    /* Pinned, not implicit: an auto column grows to the widest card's single-line
+       max-content, which beside the code pane pushed every row under it. */
+    grid-template-columns: minmax(0, 1fr);
     gap: calc(var(--space-unit) * 2);
     margin: 0;
     padding: 0;
@@ -1426,7 +1554,7 @@
     border-radius: var(--radius-card, 12px);
     box-shadow: var(--shadow-1);
     padding: calc(var(--space-unit) * 3);
-    cursor: default;
+    cursor: pointer;
     will-change: transform;
     transition: box-shadow 150ms;
     animation: sw-rise 300ms var(--ease-out-quart) backwards;
@@ -1439,6 +1567,12 @@
   .sw-result:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+
+  /* Mouse-driven focus never earns the ring — the selected style already answers "which
+     one did I click". Cleared on keyboard navigation, where the ring is the answer. */
+  .sw-result[data-pointer]:focus-visible {
+    outline: none;
   }
 
   .sw-result-selected {
@@ -1503,7 +1637,9 @@
 
   /* ---------- splitter (right gutter only) ---------- */
   .workspace-sep {
-    background: transparent;
+    /* A faint line at rest: a fully invisible handle is a feature nobody finds. Hover and
+       drag still brighten it to the full hairline. */
+    background: color-mix(in oklch, var(--hairline) 55%, transparent);
     background-clip: content-box;
     padding-inline: calc((var(--sw-sep, 16px) - 2px) / 2);
     cursor: col-resize;
@@ -1776,10 +1912,6 @@
     /* Nothing to animate once the sidebar is a row. */
     .workspace {
       transition: none;
-    }
-    .sw-new-session {
-      margin-top: 0;
-      white-space: nowrap;
     }
     .workspace-main {
       overflow: visible;

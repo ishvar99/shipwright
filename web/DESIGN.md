@@ -110,3 +110,31 @@ Bad: describing what a control is. Never "seamlessly". Never explain the button;
 Skeletons, not spinners, wherever layout is known. Never show empty-state copy while a fetch is
 in flight — "nothing here" is not yet known. A wait over 10 seconds must be narrated with named
 beats and real facts, not a progress bar with no information in it.
+
+## Buttons are pointer, always
+
+Tailwind v4's preflight leaves `<button>` on the arrow cursor, and the app had zero
+`cursor: pointer` anywhere. One base rule fixes every button:
+`button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer }`. Clickable pick
+rows (`.sw-result`, `.sw-repo-option`, `.sw-quickopen-item`) are pointer too. Tree rows and
+editor tabs stay on the arrow — that is the editor convention. Do not add per-component
+cursor utilities; the base rule is the mechanism.
+
+## The demo is a tour, not a row
+
+The recorded run lives in no list and is never preselected. It is reachable two ways only:
+the welcome view's guided replay (`?tour=1`) and deep links, which resolve by the `demo-` id
+prefix. Injecting it into `repoList`/`sessions` is what made the launcher arrive pointed at
+a repository the user never chose.
+
+## The welcome view is the empty state
+
+"No repositories" renders the welcome view — there is no `welcomed` flag, no dismissal to
+persist, nothing to migrate. If a state needs a flag to know whether to show itself, first
+check whether the state is simply derivable.
+
+## One message, one place
+
+The launcher audit found "recorded session" said five ways and "import a repository" four
+ways on a single screen. Before adding explanatory copy, search for where the same sentence
+already renders. The composer's placeholder is the composer's explanation.

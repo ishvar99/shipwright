@@ -3,6 +3,7 @@ import { ok, toResponse } from "@/lib/route-helpers";
 import { RepoSchema, parseOrThrow } from "@/lib/contracts";
 import { backendHeaders } from "@/lib/backend";
 import { ApiError } from "@/lib/errors";
+import { signedIn } from "@/lib/owner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ const MAX_BYTES = 150 * 1024 * 1024;
 export async function POST(request: NextRequest) {
   const base = process.env.BACKEND_URL;
   try {
+    // Raw pass-through, so the callBackend gate does not cover it — gate it by hand.
+    if (!(await signedIn(request.headers))) throw new ApiError("signed_out", "Sign in to use this.");
     if (!base) throw new ApiError("backend_unreachable", "This deployment has no live backend");
 
     // content-length covers the whole multipart body, so allow for the boundary envelope;

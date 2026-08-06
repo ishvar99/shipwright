@@ -32,8 +32,6 @@ export type Prefs = {
   repo: string;
   /** One unsent issue, tagged with the repository it was written for. */
   draft: { repo: string; text: string };
-  /** First-run checklist dismissed by hand. */
-  checklistDone: boolean;
 };
 
 export type Side = "left" | "right";
@@ -155,12 +153,4 @@ export function readDraft(repoId: string): string {
 
 export function setDraft(repoId: string, text: string): void {
   savePrefs({ draft: { repo: repoId, text } });
-}
-
-export function readChecklistDone(): boolean {
-  return read().checklistDone === true;
-}
-
-export function setChecklistDone(): void {
-  savePrefs({ checklistDone: true });
 }

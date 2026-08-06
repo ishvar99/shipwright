@@ -1,5 +1,7 @@
 import { backendUp } from "@/lib/backend";
-import type { LiteFile } from "@/lib/lite-context";
+
+/** One excerpt the model may ground in: already retrieved and ranked by the caller. */
+export type LiteFile = { path: string; content: string };
 
 /**
  * Lite mode: answering without the backend.

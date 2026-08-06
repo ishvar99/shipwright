@@ -61,9 +61,12 @@ export function ResultsList({ locations, mode }: { locations: readonly Location[
     const next = reranked[Math.max(0, Math.min(reranked.length - 1, to))];
     if (!next) return;
     select(next);
-    ref.current
-      ?.querySelector<HTMLElement>(`[data-symbol="${CSS.escape(next.symbol)}"]`)
-      ?.focus({ preventScroll: true });
+    const row = ref.current?.querySelector<HTMLElement>(
+      `[data-symbol="${CSS.escape(next.symbol)}"]`,
+    );
+    // Keyboard navigation is where the focus ring earns its keep — clear the pointer mark.
+    row?.removeAttribute("data-pointer");
+    row?.focus({ preventScroll: true });
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
@@ -91,7 +94,10 @@ export function ResultsList({ locations, mode }: { locations: readonly Location[
   };
 
   return (
-    <section className="grid gap-2">
+    // Explicit minmax(0,1fr): a bare grid's implicit auto column grows to its content's
+    // max-content — the longest unwrapped card line — and beside the code pane that painted
+    // every card under it. Same fix the session's content column already carries.
+    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <h2 className="text-fg">
         Where to look
         <span className="text-subtle"> · {locations.length} places, most likely first</span>

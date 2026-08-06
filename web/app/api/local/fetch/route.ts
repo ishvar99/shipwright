@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { signedIn } from "@/lib/owner";
 
 export const maxDuration = 60;
 
@@ -12,6 +13,10 @@ export const maxDuration = 60;
  * a credential this deployment does not own.
  */
 export async function POST(request: NextRequest) {
+  // Proxied bandwidth is spent on the caller's behalf — the workspace gate covers it.
+  if (!(await signedIn(request.headers))) {
+    return NextResponse.json({ detail: "Sign in to use this." }, { status: 401 });
+  }
   let url = "";
   try {
     const body: unknown = await request.json();
