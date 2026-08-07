@@ -242,6 +242,15 @@
 
 @layer components {
   /* ---------- app shell: sidebar + centre, code panel on demand ---------- */
+  /* The workspace is a fixed shell: it is exactly one viewport tall and `.workspace-main`
+     owns the only scrollbar on the page. Pinning the viewport is what makes that true — a
+     long session leaked its height past the shell and the window grew a second, redundant
+     bar right beside the real one. Scoped to the shell, so the landing page and /evals
+     still scroll the document normally. */
+  body:has(.workspace) {
+    overflow: hidden;
+  }
+
   .workspace {
     display: grid;
     grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
@@ -1620,6 +1629,23 @@
     grid-template-columns: minmax(0, 1fr) var(--sw-sep, 16px) clamp(30%, var(--sw-right, 60%), 70%);
   }
 
+  /* Split view: each column scrolls itself, so a scrollbar always sits beside the content
+     it moves. Letting the whole pane scroll instead put the thread's scrollbar at the far
+     right of the window — 26px from the code pane's own — two bars stacked at the edge,
+     the outer one moving content on the other side of the screen. */
+  .sw-session[data-code="open"] {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .sw-session[data-code="open"] .sw-session-content {
+    min-height: 0;
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding-right: calc(var(--space-unit));
+  }
+
   .sw-code-panel {
     min-width: 0;
     min-height: 0;
@@ -1637,6 +1663,15 @@
     min-height: calc(100dvh - var(--space-unit) * 12);
     display: flex;
     flex-direction: column;
+  }
+
+  /* Its column no longer scrolls under it, so it is simply full height. */
+  .sw-session[data-code="open"] .sw-code-panel {
+    position: static;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    align-self: stretch;
   }
 
   /* ---------- surfaces ---------- */
@@ -2150,8 +2185,23 @@
       padding-top: 2vh; /* above the fold is worth less on a short screen */
       gap: calc(var(--space-unit) * 4);
     }
+    /* Narrow: the shell stops being fixed — `.workspace` is auto-height and the document
+       scrolls again, so the viewport pin and the per-column scrollers must all stand down.
+       One scrollbar here too, just the page's. */
+    body:has(.workspace) {
+      overflow: visible;
+    }
     .sw-session[data-code="open"] {
       grid-template-columns: minmax(0, 1fr);
+      height: auto;
+    }
+    .sw-session[data-code="open"] .sw-session-content {
+      height: auto;
+      overflow: visible;
+      padding-right: 0;
+    }
+    .sw-session[data-code="open"] .sw-code-panel {
+      height: auto;
     }
     /* One column: the tree becomes a bounded strip above the editor rather than a sliver
        beside it, and the separator goes with the other separators below. */

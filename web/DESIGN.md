@@ -157,3 +157,19 @@ tracked, subtle. A section header set at card-title size separates nothing.
 Model output renders through components/ui/markdown.tsx — hand-rolled, no dependency.
 Streaming rules it must keep: an unterminated fence degrades to a code block, an indented
 bullet is its item's sub-point (never a new list), and non-http link targets render as code.
+
+## One scrollbar per scrollable region
+
+The workspace is a fixed shell: `.workspace` is exactly `100dvh`, the viewport is pinned
+(`body:has(.workspace) { overflow: hidden }`), and scrolling belongs to regions inside it.
+A long session used to leak its height past the shell, so the window grew a second bar
+beside the real one.
+
+In the split view each column scrolls itself — the thread via `.sw-session-content`, the
+file via `.sw-code-lines` — so a scrollbar always sits beside the content it moves. Letting
+the outer pane scroll instead put the thread's scrollbar at the far right of the window,
+26px from the code pane's own, moving content on the other side of the screen.
+
+Below 64rem the shell stops being fixed (`.workspace` goes auto-height), so every one of
+these rules stands down and the document scrolls again. Anything that pins the viewport
+must be released there too.
