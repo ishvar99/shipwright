@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { PanelBoundary } from "@/components/ui/panel-boundary";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
@@ -48,11 +49,15 @@ export function SessionView({
   onOpenInEditor: (location: Location, repoId: string, slug: string) => void;
   onNewSession: () => void;
 }) {
+  // A follow-up re-keys the stream: same job, next turn. The reducer resets, so the feed
+  // narrates the new search honestly; completed turns render from the stored row.
+  const [followUp, setFollowUp] = useState<string | null>(null);
+  const [turnNonce, setTurnNonce] = useState(0);
   const makeStream = useCallback(
     () =>
       // Three sources, one protocol: the network, this browser, and the recording.
       isLocalJob(jobId)
-        ? localEvents(jobId, session?.repo_id ?? "", session?.issue ?? "", () => Date.now())
+        ? localEvents(jobId, session?.repo_id ?? "", followUp ?? session?.issue ?? "", () => Date.now())
         : live
         ? networkEvents(jobId, () => Date.now())
         : fixtureEvents(
@@ -61,7 +66,8 @@ export function SessionView({
             () => Date.now(),
             { maxGapMs: DEMO_GAP_MS },
           ),
-    [live, jobId, session?.repo_id, session?.issue],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- turnNonce restarts on purpose
+    [live, jobId, session?.repo_id, session?.issue, followUp, turnNonce],
   );
   const { state, retry } = useJobStream(jobId, makeStream);
 
@@ -142,6 +148,17 @@ export function SessionView({
     patchSession(jobId, { status: state.outcome.kind === "failed" ? "errored" : "done" });
   }, [state.outcome.kind, jobId, patchSession]);
 
+  // A new turn renders below everything already on screen, so the page walks to it — once,
+  // when it starts. Deliberately not a continuous follow: that fights a reader who scrolled
+  // up on purpose, which on a long thread is most of them.
+  useEffect(() => {
+    if (!turnNonce) return;
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document
+      .querySelector("[data-turn-pending]")
+      ?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  }, [turnNonce]);
+
   // The guided replay. Facts come from the stream, so the narration keeps pace with what is
   // actually on screen; dismissing just drops the query param and leaves a plain session.
   const router = useRouter();
@@ -190,6 +207,17 @@ export function SessionView({
         mode={shown?.mode ?? state.mode ?? ""}
         intent={state.intent ?? shown?.result.intent ?? undefined}
         answer={state.answerText || (shown?.result.answer ?? "")}
+        turns={isLocalJob(jobId) ? (session?.result.turns ?? []) : []}
+        pendingQuestion={followUp}
+        onFollowUp={
+          isLocalJob(jobId)
+            ? (q: string) => {
+                patchSession(jobId, { status: "running" });
+                setFollowUp(q);
+                setTurnNonce((n) => n + 1);
+              }
+            : undefined
+        }
         noWorkReason={shown?.result.reason ?? ""}
         onNewSession={onNewSession}
         jobId={jobId}
@@ -237,6 +265,57 @@ export function SessionView({
 }
 
 type ActionKind = "apply" | "test" | "fix_retry";
+
+/** The follow-up input: the composer's card and grammar, none of its chrome — the repository
+ * and the session are already decided, so the only control left is the question. */
+function FollowUpBox({ onAsk }: { onAsk: (q: string) => void }) {
+  const [q, setQ] = useState("");
+  const ready = q.trim().length >= 8;
+  const send = () => {
+    if (!ready) return;
+    onAsk(q.trim());
+    setQ("");
+  };
+  return (
+    <form
+      className="sw-composer sw-followup"
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+    >
+      <label className="sr-only" htmlFor="followup">
+        Ask a follow-up
+      </label>
+      <textarea
+        id="followup"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        rows={2}
+        placeholder="Ask a follow-up…"
+        className="sw-composer-input"
+      />
+      <div className="sw-composer-bar">
+        <Button
+          variant="primary"
+          type="submit"
+          aria-disabled={!ready || undefined}
+          title="⌘⏎ to send"
+          className="ml-auto shrink-0"
+        >
+          <Icon name="send" size={16} />
+          Ask
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 function ActionFeed({
   id,
@@ -297,9 +376,18 @@ function SessionBody({
   tourOpen = false,
   tourTarget = null,
   recordedSources = null,
+  turns = [],
+  pendingQuestion = null,
+  onFollowUp,
 }: {
   title: string;
   repoName: string;
+  /** Completed conversation turns (local sessions). Empty everywhere else. */
+  turns?: { issue: string; answer: string }[];
+  /** The in-flight follow-up's question, shown above its streaming answer. */
+  pendingQuestion?: string | null;
+  /** Present only where follow-ups work: browser-local sessions. */
+  onFollowUp?: (q: string) => void;
   /** The narrator card is up, so the page needs scroll clearance beneath the content. */
   tourOpen?: boolean;
   /** The section the tour narrator is talking about, ringed so the eye lands there. */
@@ -374,9 +462,28 @@ function SessionBody({
           </p>
         )}
 
-        {/* A question is answered, never patched. */}
+        {/* A question is answered, never patched. The thread: completed turns from the
+            stored row, then the in-flight turn from the stream. `answer` mirrors the latest
+            stored turn once a run completes, so the stream card yields to the stored one
+            without a flash — and single-turn sessions (backend, demo) fall out unchanged. */}
         {intent === "question" && (
-          <AnswerCard text={answer} streaming={state.outcome.kind === "pending" && !answer} />
+          <>
+            {turns.map((t, i) => (
+              <div key={i} className="grid gap-5">
+                {i > 0 && <p className="sw-turn-q">{t.issue}</p>}
+                <AnswerCard text={t.answer} streaming={false} />
+              </div>
+            ))}
+            {(state.outcome.kind === "pending" ||
+              (answer && turns[turns.length - 1]?.answer !== answer)) && (
+              <div data-turn-pending className="grid gap-5">
+                {pendingQuestion && turns.length > 0 && (
+                  <p className="sw-turn-q">{pendingQuestion}</p>
+                )}
+                <AnswerCard text={answer} streaming={state.outcome.kind === "pending" && !answer} />
+              </div>
+            )}
+          </>
         )}
 
         {intent === "other" && state.outcome.kind === "done" && (
@@ -421,6 +528,8 @@ function SessionBody({
             <ResultsList locations={locations} mode={mode} />
           </div>
         )}
+
+        {onFollowUp && state.outcome.kind !== "pending" && <FollowUpBox onAsk={onFollowUp} />}
       </div>
 
       {location && (

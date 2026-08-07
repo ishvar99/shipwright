@@ -1,4 +1,5 @@
 import { backendUp } from "@/lib/backend";
+import type { Turn } from "@/lib/turns";
 
 /** One excerpt the model may ground in: already retrieved and ranked by the caller. */
 export type LiteFile = { path: string; content: string };
@@ -54,11 +55,17 @@ Grounding rules, in priority order:
 4. General programming questions that are not about this repository can be answered normally.
 5. You cannot modify, apply or test code here. For a change request, describe what it would
    look like and note that applying and verifying it needs the full backend.
-6. Never mention which AI model or provider you are. You are simply "Shipwright (lite)".`;
+6. Never mention which AI model or provider you are. You are simply "Shipwright (lite)".
+7. Earlier turns of this conversation are context you may rely on; the excerpts always
+   belong to the CURRENT question's search.`;
 
 /** Streams the answer as plain text. Provider SSE is parsed HERE so nothing provider-shaped
  * (model names, ids, usage) ever crosses to the browser. */
-export async function askLite(issue: string, context: LiteFile[]): Promise<ReadableStream> {
+export async function askLite(
+  issue: string,
+  context: LiteFile[],
+  history: Turn[] = [],
+): Promise<ReadableStream> {
   const base = (process.env.FALLBACK_API_URL ?? "").replace(/\/$/, "");
   const body = {
     model: process.env.FALLBACK_MODEL ?? "",
@@ -66,6 +73,13 @@ export async function askLite(issue: string, context: LiteFile[]): Promise<Reada
     temperature: 0.2,
     messages: [
       { role: "system", content: SYSTEM },
+      // The conversation so far, as real turns — the model may resolve "that function"
+      // against them. The excerpts below are THIS turn's search; earlier turns' code is
+      // deliberately not resent (the history cap protects the free tier's token budget).
+      ...history.flatMap((t) => [
+        { role: "user" as const, content: t.q },
+        { role: "assistant" as const, content: t.a },
+      ]),
       ...(context.length
         ? [
             {
