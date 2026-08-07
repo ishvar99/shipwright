@@ -439,7 +439,7 @@ function SessionBody({
       {/* Explicit minmax(0,1fr): with no template the implicit column sizes to max-content,
           so a long headline held the track wider than the container and ran under the code
           pane instead of wrapping. */}
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-5">
+      <div className="sw-session-content grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-5">
         {/* No ring on the headline: an outline around bare text reads as a rendering glitch,
             not a highlight. The narrator's copy carries step one; the rings are for cards. */}
         <header className="grid gap-1.5">
