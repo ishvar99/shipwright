@@ -68,6 +68,18 @@ export const JobResultSchema = z.object({
    * subclass. Zod strips unknown keys, so without this line the field would vanish here. */
   reason: z.string().default(""),
   answer: z.string().default(""),
+  /** The conversation, for multi-turn local sessions. `issue`/`answer`/`locations` above
+   * always mirror the LATEST turn, so single-turn consumers (and every backend row, which
+   * has no turns) never change. Defaults keep pre-feature rows parsing. */
+  turns: z
+    .array(
+      z.object({
+        issue: z.string(),
+        answer: z.string(),
+        locations: z.array(LocationSchema).default([]),
+      }),
+    )
+    .default([]),
 });
 
 export const JobSchema = z.object({

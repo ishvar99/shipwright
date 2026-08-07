@@ -1,7 +1,8 @@
 import type { Job, Location } from "@/lib/contracts";
 import { bm25Rank, rrf, tokenize } from "@/lib/local/bm25";
 import type { LocalSymbol } from "@/lib/local/index-repo";
-import { getLocalRepo, newLocalId, saveLocalJob } from "@/lib/local/store";
+import { getLocalJob, getLocalRepo, newLocalId, saveLocalJob } from "@/lib/local/store";
+import { capHistory, retrievalQuery } from "@/lib/turns";
 import type { Frame } from "@/lib/stream/frames";
 import type { JobStream } from "@/lib/stream/transport";
 
@@ -113,6 +114,10 @@ export const localFrame = (seq: number, type: string, payload: Record<string, un
 /**
  * Runs the pipeline and dispatches frames as each stage completes. Deterministic stages land
  * immediately; only the model call takes real time, which is the honest shape of the work.
+ *
+ * `issue` is THIS turn's question. Prior turns are read from the stored row, so a follow-up
+ * re-runs the whole pipeline — fresh retrieval, fresh evidence — and the model additionally
+ * receives the conversation so far.
  */
 export function localEvents(
   jobId: string,
@@ -142,7 +147,34 @@ export function localEvents(
         try {
           const repo = await getLocalRepo(repoId);
           if (!repo) throw new Error("That repository is no longer stored in this browser.");
+          const row = await getLocalJob(jobId);
+          // Prior turns; a completed pre-feature row becomes turn one retroactively.
+          const prior =
+            row?.result.turns?.length
+              ? row.result.turns
+              : row?.result.answer
+                ? [{ issue: row.issue, answer: row.result.answer, locations: row.result.locations }]
+                : [];
           if (stopped) return;
+
+          // Reopening a finished conversation is a read, not a run: everything below would
+          // re-search and re-spend a model call to recompute what the row already holds —
+          // and with turns, append the re-answer as a duplicate. Narrate the stored facts
+          // and hand the row over.
+          if (row && row.status === "done" && prior.length && issue === row.issue) {
+            const repoStats = { files: repo.files, symbols: repo.symbols_index.length };
+            emit(frame("job.started", { repo: repo.slug, mode: "local", base: "bm25" }));
+            emit(frame("intent.ready", { intent: "question" }));
+            emit(frame("graph.building"));
+            emit(frame("graph.ready", { ...repoStats, call_edges: 0, import_edges: 0 }));
+            emit(frame("search.started", { channels: "bm25" }));
+            emit(frame("candidates.found", { count: row.result.locations.length }));
+            emit(frame("localization.ready", { count: row.result.locations.length }));
+            emit(frame("job.done", { wall_ms: row.wall_ms, locations: row.result.locations.length }));
+            dispatch({ kind: "job", job: row });
+            dispatch({ kind: "ended", at: now() });
+            return;
+          }
 
           emit(frame("job.started", { repo: repo.slug, mode: "local", base: "bm25" }));
           // Declared up front — the local pipeline always answers. Without this the reducer
@@ -162,7 +194,18 @@ export function localEvents(
 
           // Payloads the schema requires, truthfully: BM25 is the only channel here.
           emit(frame("search.started", { channels: "bm25" }));
-          const pool = locateLocal(symbols, issue);
+          // The previous question rides along: a follow-up's pronouns have no BM25 tokens.
+          let pool = locateLocal(symbols, retrievalQuery(issue, prior.at(-1)?.issue));
+          // Some follow-ups are about the conversation, not the codebase — "which of these
+          // would you change first?" tokenises to nothing searchable. Carrying the previous
+          // turn's evidence beats failing the thread: the question is about what was already
+          // found, and the answer must still be grounded in real code.
+          if (!pool.length && prior.length) {
+            const byId = new Map(symbols.map((s) => [s.id, s]));
+            pool = (prior[prior.length - 1].locations ?? [])
+              .map((l) => byId.get(l.symbol))
+              .filter((s): s is LocalSymbol => Boolean(s));
+          }
           emit(frame("candidates.found", { count: pool.length }));
           if (!pool.length) {
             emit(frame("job.failed", { error: "Nothing in this repository matched that." }));
@@ -186,7 +229,11 @@ export function localEvents(
           const res = await fetch("/api/lite/ask", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ issue, context }),
+            body: JSON.stringify({
+              issue,
+              context,
+              history: capHistory(prior.map((t) => ({ q: t.issue, a: t.answer }))),
+            }),
           });
           if (!res.ok || !res.body) {
             const d = (await res.json().catch(() => null)) as { detail?: string } | null;
@@ -206,6 +253,7 @@ export function localEvents(
           emit(frame("answer.ready"));
 
           const wall = Math.round(now() - started);
+          const turns = [...prior, { issue, answer, locations }];
           const job: Job = {
             id: jobId,
             repo_id: repoId,
@@ -216,20 +264,23 @@ export function localEvents(
             base_mode: "bm25",
             client: "web",
             model: "",
-            issue,
+            // The FIRST question stays the session's name; this turn's lives in its entry.
+            issue: row?.issue ?? issue,
             result: {
+              // Latest turn mirrored at the top level, so single-turn consumers never change.
               locations,
               graph: { files: repo.files, symbols: symbols.length },
               fix: null,
               intent: "question",
               reason: "",
               answer,
+              turns,
             },
             error: "",
             input_tokens: 0,
             output_tokens: 0,
             wall_ms: wall,
-            created_at: new Date().toISOString(),
+            created_at: row?.created_at ?? new Date().toISOString(),
           };
           await saveLocalJob(job);
           emit(frame("job.done", { wall_ms: wall, locations: locations.length }));
@@ -257,7 +308,7 @@ export function newLocalJob(repoId: string, repoSlug: string, issue: string): Jo
     client: "web",
     model: "",
     issue,
-    result: { locations: [], graph: {}, fix: null, intent: null, reason: "", answer: "" },
+    result: { locations: [], graph: {}, fix: null, intent: null, reason: "", answer: "", turns: [] },
     error: "",
     input_tokens: 0,
     output_tokens: 0,

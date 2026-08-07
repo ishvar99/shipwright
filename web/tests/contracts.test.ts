@@ -115,6 +115,29 @@ describe("JobSchema", () => {
   });
 });
 
+describe("JobSchema turns", () => {
+  it("defaults turns for every pre-feature and backend row", () => {
+    expect(JobSchema.parse(job).result.turns).toEqual([]);
+  });
+
+  it("round-trips a conversation", () => {
+    const parsed = JobSchema.parse({
+      ...job,
+      result: {
+        ...job.result,
+        answer: "second answer",
+        turns: [
+          { issue: "first?", answer: "first answer", locations: [location] },
+          { issue: "second?", answer: "second answer" },
+        ],
+      },
+    });
+    expect(parsed.result.turns).toHaveLength(2);
+    expect(parsed.result.turns[0].locations).toHaveLength(1);
+    expect(parsed.result.turns[1].locations).toEqual([]); // defaulted per turn
+  });
+});
+
 describe("SourceSchema", () => {
   it("parses a source snippet", () => {
     const parsed = SourceSchema.parse({ path: "a.py", start: 45, lines: ["x = 1", "y = 2"] });

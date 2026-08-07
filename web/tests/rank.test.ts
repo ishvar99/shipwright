@@ -1,6 +1,7 @@
 import { ancestorsOf, foldTree } from "@/lib/repo-fold";
 import { fuzzyRank } from "@/lib/repo-fuzzy";
 import { groupSessions } from "@/lib/sessions-group";
+import { MAX_TURNS, capHistory, retrievalQuery } from "@/lib/turns";
 import { relativeTime } from "@/lib/sessions";
 import { describe, expect, it } from "vitest";
 import fixture from "@/fixtures/msal-extract-rerank.json";
@@ -340,5 +341,32 @@ describe("groupSessions", () => {
   it("does not lose a session with an unparseable date", () => {
     const groups = groupSessions([at("not-a-date")], now);
     expect(groups.flatMap((g) => g.sessions)).toHaveLength(1);
+  });
+});
+
+describe("multi-turn budgets", () => {
+  it("keeps the last turns whole and clips only answers", () => {
+    const turns = Array.from({ length: 6 }, (_, i) => ({
+      q: `question ${i}`,
+      a: "a".repeat(3000),
+    }));
+    const capped = capHistory(turns);
+    expect(capped).toHaveLength(MAX_TURNS);
+    expect(capped[0].q).toBe("question 2"); // oldest beyond the window dropped whole
+    expect(capped[0].a.length).toBeLessThanOrEqual(2001);
+    expect(capped[0].a.endsWith("…")).toBe(true);
+  });
+
+  it("lets a follow-up's search lean on the previous question", () => {
+    // "how is that validated?" carries no searchable nouns; the antecedent does.
+    const q = retrievalQuery("how is that validated?", "where does the token cache evict entries");
+    expect(q).toContain("token cache");
+    expect(q.startsWith("how is that validated?")).toBe(true);
+    expect(retrievalQuery("first question")).toBe("first question");
+  });
+
+  it("clips a long antecedent so it cannot drown the new question", () => {
+    const q = retrievalQuery("short", "x".repeat(500));
+    expect(q.length).toBeLessThanOrEqual("short ".length + 160);
   });
 });

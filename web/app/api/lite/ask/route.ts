@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { backendUp } from "@/lib/backend";
 import { askLite, liteConfigured } from "@/lib/lite";
 import { signedIn } from "@/lib/owner";
+import { capHistory, type Turn } from "@/lib/turns";
 
 // A streamed answer outlives the default function budget. 300s is the Vercel ceiling on the
 // free plan for streaming responses; the idle timeout in lib/lite.ts is what actually ends a
@@ -26,11 +27,23 @@ export async function POST(request: NextRequest) {
 
   let issue = "";
   let context: { path: string; content: string }[] = [];
+  let history: Turn[] = [];
   try {
     const body: unknown = await request.json();
     if (body && typeof body === "object") {
-      const b = body as { issue?: unknown; context?: unknown };
+      const b = body as { issue?: unknown; context?: unknown; history?: unknown };
       issue = String(b.issue ?? "").trim();
+      // Re-capped server-side: the client's cap is a courtesy, this one is the budget.
+      if (Array.isArray(b.history)) {
+        history = capHistory(
+          b.history
+            .map((t) => ({
+              q: String((t as { q?: unknown })?.q ?? ""),
+              a: String((t as { a?: unknown })?.a ?? ""),
+            }))
+            .filter((t) => t.q && t.a),
+        );
+      }
       // A local session has already retrieved and ranked; it sends the excerpts it chose
       // rather than making this route guess from the recorded bundle.
       if (Array.isArray(b.context)) {
@@ -54,7 +67,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const stream = await askLite(issue, context);
+    const stream = await askLite(issue, context, history);
     return new Response(stream, {
       headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
     });

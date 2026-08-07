@@ -1105,6 +1105,29 @@
     }
   }
 
+  /* The conversation continues here, so the box is its own zone: a clear break from the
+     evidence above, and real room beneath — flush against the end of the scroll, it read as
+     stuck to the window rather than as the next thing to do. */
+  .sw-followup {
+    margin-top: calc(var(--space-unit) * 5);
+    /* The whole gap lives in this margin: Chrome drops a scroll container's bottom padding
+       at the end of the scroll, so the main pane's own padding never reaches here. */
+    margin-bottom: calc(var(--space-unit) * 14);
+  }
+
+  /* A follow-up's question: the user's words, set apart from the answers without inventing
+     a chat-bubble language — a soft chip, start-aligned, like the composer draft it was. */
+  .sw-turn-q {
+    justify-self: start;
+    max-width: 46rem;
+    background: var(--soft);
+    border-radius: var(--radius);
+    padding: calc(var(--space-unit) * 1.5) calc(var(--space-unit) * 3);
+    font-weight: 500;
+    color: var(--fg);
+    white-space: pre-wrap;
+  }
+
   /* Answers as rendered markdown. Same measure as the card; code takes --soft like the
      fix stream; headings step down from the card's own title, never compete with it. */
   .sw-md {
