@@ -23,10 +23,34 @@ const MALFORMED = "That file isn't a zip archive.";
 const TOO_BIG = "That archive is too large uncompressed (limit 500 MB).";
 const FILE_TOO_BIG = "That archive contains a file over 50 MB.";
 
+// Every mainstream language, framework single-file components, templates, configs, docs
+// and build files. Dotfiles stay excluded below — that rule keeps `.env` out of IndexedDB.
 const TEXT_EXTENSIONS = new Set(
-  "py md txt json toml cfg ini yml yaml rst sh js ts tsx jsx html css sql".split(" "),
+  (
+    "py pyi md txt json toml cfg ini yml yaml rst sh bash zsh fish bat ps1 sql " +
+    "js jsx ts tsx mjs cjs mts cts html htm css scss sass less styl " +
+    "go rs java cs kt kts swift scala dart c cc cpp cxx h hh hpp m mm " +
+    "rb rake erb php phtml ex exs erl lua r jl pl pm hs elm ml mli fs fsx clj cljs edn " +
+    // Not svg (image markup, huge single lines), not csv/tsv (AWS exports credentials as
+    // credentials.csv — a canonical accidentally-committed secret).
+    "vue svelte astro tf hcl proto graphql gql prisma xml " +
+    // `.env` variants stay out on purpose — "example" admits the secretless template only.
+    "gradle properties conf example lock mod sum work njk ejs hbs mustache twig"
+  ).split(" "),
 );
-const TEXT_FILENAMES = new Set(["LICENSE", "Makefile", "Dockerfile"]);
+const TEXT_FILENAMES = new Set([
+  "LICENSE",
+  "Makefile",
+  "Dockerfile",
+  "Gemfile",
+  "Rakefile",
+  "Procfile",
+  "Vagrantfile",
+  "Justfile",
+  "yarn.lock",
+  "go.mod",
+  "go.sum",
+]);
 const SKIPPED_DIRS = new Set([".git", "__MACOSX"]);
 
 const EOCD_SIG = 0x06054b50;
@@ -62,8 +86,11 @@ function unsafePath(path: string): boolean {
 function isTextFile(path: string): boolean {
   const name = path.slice(path.lastIndexOf("/") + 1);
   if (TEXT_FILENAMES.has(name)) return true;
+  // Variants like Dockerfile.dev / makefile.inc, any case — the family, not the exact name.
+  if (/^(dockerfile|makefile|jenkinsfile)(\.|$)/i.test(name)) return true;
   const dot = name.lastIndexOf(".");
-  // `dot > 0` keeps dotfiles out: ".gitignore" has a name, not an extension.
+  // `dot > 0` keeps dotfiles out: ".gitignore" has a name, not an extension — and with it
+  // every `.env` variant, which is what keeps secrets out of IndexedDB.
   return dot > 0 && TEXT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
 }
 

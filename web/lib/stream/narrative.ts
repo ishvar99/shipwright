@@ -57,7 +57,7 @@ const BEATS: readonly Beat[] = [
     done: "Read the codebase",
     fact: (d) =>
       typeof d.files === "number" && typeof d.symbols === "number"
-        ? `${d.files} files, ${d.symbols} definitions`
+        ? `${d.files} files, ${d.symbols} symbols`
         : undefined,
   },
   {

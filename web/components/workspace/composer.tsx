@@ -42,8 +42,9 @@ function blockedBecause(
   // Indexing is no longer a blocker: the run is parked and fires when the graph is ready, so
   // writing the issue and building the index happen in parallel rather than one after the
   // other. The symbol count is meaningless until that finishes, so it is not consulted yet.
+  // With the section fallback, zero symbols means genuinely nothing textual survived import.
   if (repo.status !== "importing" && repo.symbols === 0)
-    return "No Python code found here — Shipwright reads Python today.";
+    return "Nothing to read here — this repository has no text files Shipwright can index.";
   return lengthProblem(issue);
 }
 

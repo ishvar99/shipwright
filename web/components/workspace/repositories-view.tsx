@@ -232,12 +232,12 @@ export function RepositoriesView({
                   <p className="truncate font-medium text-fg">{repoDisplayName(r.slug)}</p>
                 )}
                 <p className="text-xs text-subtle" title={r.ref ? `indexed at ${r.ref}` : undefined}>
-                  {/* Say it at import time: otherwise the user only learns Python-only after
-                      writing an issue and pressing Ask Shipwright. */}
+                  {/* Say it at import time: otherwise the user only learns a repo is
+                      unreadable after writing an issue and pressing Ask Shipwright. */}
                   {r.status === "ready" &&
                     (r.symbols === 0
-                      ? "No Python found — browse and edit only"
-                      : `${r.symbols.toLocaleString()} functions`)}
+                      ? "Nothing indexable — browse and edit only"
+                      : `${r.symbols.toLocaleString()} symbols`)}
                   {/* No fake percentage: the backend reports no import progress. */}
                   {r.status === "importing" && `Importing… ${secs(state.elapsed[r.id] ?? 0)}`}
                   {r.status === "failed" && (

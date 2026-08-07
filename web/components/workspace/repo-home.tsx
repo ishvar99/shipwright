@@ -60,7 +60,7 @@ export function RepoHome({ repoId }: { repoId: string }) {
   const facts = [
     repo.ref,
     repo.symbols > 0
-      ? `${repo.symbols.toLocaleString()} functions${repo.files ? ` across ${repo.files.toLocaleString()} files` : ""}`
+      ? `${repo.symbols.toLocaleString()} symbols${repo.files ? ` across ${repo.files.toLocaleString()} files` : ""}`
       : null,
     `imported ${relativeTime(repo.created_at)}`,
   ].filter(Boolean);
@@ -98,8 +98,7 @@ export function RepoHome({ repoId }: { repoId: string }) {
 
       {repo.status === "importing" && (
         <p role="status" className="text-muted">
-          Indexing this repository — reading every Python file and mapping what calls what.
-          Usually under a minute.
+          Indexing this repository — reading every source file. Usually under a minute.
         </p>
       )}
       {repo.status === "failed" && (

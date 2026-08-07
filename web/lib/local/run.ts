@@ -34,19 +34,39 @@ function corpus(symbols: LocalSymbol[]) {
  * behaviour. The backend is rescued by its call graph, which pulls the implementation in via
  * call edges; without that channel, BM25 alone put five test methods above the function the
  * question was about. Demoting tests is the honest compensation, and it is skipped when the
- * question is itself about tests. */
-const TEST_FILE = /(^|\/)tests?\/|(^|\/)test_[^/]*$|_test\.py$|conftest\.py$/;
+ * question is itself about tests. Conventions across languages: tests/, __tests__/, spec/,
+ * test_*.py, *_test.go, *.test.ts, *.spec.js, conftest. */
+const TEST_FILE =
+  /(^|\/)(tests?|__tests__|spec)\/|(^|\/)test_[^/]*$|_test\.\w+$|\.(test|spec)\.\w+$|conftest\.py$/;
 
 function demoteTests(ids: string[], byId: Map<string, LocalSymbol>, issue: string): string[] {
-  if (/\btests?\b|pytest|conftest/i.test(issue)) return ids;
+  if (/\btests?\b|\bspecs?\b|pytest|conftest/i.test(issue)) return ids;
   const impl = ids.filter((id) => !TEST_FILE.test(byId.get(id)?.path ?? ""));
   const tests = ids.filter((id) => TEST_FILE.test(byId.get(id)?.path ?? ""));
   return [...impl, ...tests];
 }
 
-/** The backend's `path` channel: a filename in the question promotes everything in that file. */
+/** Changelogs and READMEs narrate the same behaviour the code implements, in the same words,
+ * and a long History.md yields dozens of sections that can bury the implementation. Demoted
+ * to the end — unless the question is about the docs themselves. */
+const DOC_FILE = /\.(md|mdx|rst|txt|adoc)$/i;
+
+function demoteDocs(ids: string[], byId: Map<string, LocalSymbol>, issue: string): string[] {
+  // Asking about the docs by topic or by filename both count — naming CHANGES.md and then
+  // burying it would defeat the path channel that just promoted it.
+  if (/\b(readme|docs?|documentation|changelog|history|guide|tutorial)\b/i.test(issue)) return ids;
+  if (/\.(md|mdx|rst|txt|adoc)\b/i.test(issue)) return ids;
+  const code = ids.filter((id) => !DOC_FILE.test(byId.get(id)?.path ?? ""));
+  const docs = ids.filter((id) => DOC_FILE.test(byId.get(id)?.path ?? ""));
+  return [...code, ...docs];
+}
+
+/** The backend's `path` channel: a filename in the question promotes everything in that file.
+ * Any extension counts — "the bug is in router.ts" names a file as surely as a .py ever did.
+ * The trailing word-boundary keeps "requests.Session" from reading as a file called
+ * "requests.Se…"; a version number like "2.0" still slips through and simply matches nothing. */
 function pathChannel(symbols: LocalSymbol[], issue: string): string[] {
-  const named = issue.match(/[\w/\\.-]+\.py/g);
+  const named = issue.match(/[\w/\\.-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?![\w.])/g);
   if (!named?.length) return [];
   const want = new Set(named.map((p) => p.replace(/\\/g, "/")));
   return symbols.filter((s) => [...want].some((w) => s.path.endsWith(w))).map((s) => s.id);
@@ -58,7 +78,8 @@ export function locateLocal(symbols: LocalSymbol[], issue: string): LocalSymbol[
   const rankings = [bm25Rank(corpus(symbols), issue, 100)];
   const paths = pathChannel(symbols, issue);
   if (paths.length) rankings.push(paths);
-  return demoteTests(rrf(rankings), byId, issue)
+  // Tests first, then docs, both stable: implementation, then tests, then prose.
+  return demoteDocs(demoteTests(rrf(rankings), byId, issue), byId, issue)
     .slice(0, RERANK_POOL)
     .map((id) => byId.get(id))
     .filter((s): s is LocalSymbol => Boolean(s));

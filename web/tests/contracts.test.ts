@@ -267,7 +267,191 @@ describe("local index (browser port of the tree-sitter pass)", () => {
   it("uses the backend's id convention and never throws on junk", () => {
     expect(indexPython("a.py", src)[0].id).toBe("a.py:top_level");
     expect(() => indexPython("a.py", "def (((\n\tnope")).not.toThrow();
-    expect(indexRepo([{ path: "readme.md", content: "# not python" }])).toEqual([]);
+  });
+});
+
+describe("local index across languages", () => {
+  it("extracts JS/TS functions, arrow consts and qualified class methods", () => {
+    const src = [
+      "export async function fetchUser(id) {",
+      "  return get(`/u/${id}`);",
+      "}",
+      "export const parseToken = (raw) => {",
+      "  return raw.split('.');",
+      "};",
+      "class AuthService {",
+      "  constructor(store) { this.store = store; }",
+      "  async login(user, pass) {",
+      "    const t = this.store.get(user); // brace in comment {",
+      "    return sign('{literal brace}', t);",
+      "  }",
+      "}",
+    ].join("\n");
+    const got = indexRepo([{ path: "src/auth.ts", content: src }]);
+    const names = got.map((s) => s.name);
+    expect(names).toContain("fetchUser");
+    expect(names).toContain("parseToken");
+    expect(names).toContain("AuthService");
+    expect(names).toContain("AuthService.login");
+    // Braces inside the string and the comment must not stretch the extent.
+    const login = got.find((s) => s.name === "AuthService.login")!;
+    expect(login.start_line).toBe(9);
+    expect(login.end_line).toBe(12);
+  });
+
+  it("qualifies Go receiver methods like a class would", () => {
+    const src = [
+      "package server",
+      "",
+      "func (s *Server) Handle(w http.ResponseWriter) {",
+      "\ts.mu.Lock()",
+      "}",
+      "",
+      "func New() *Server {",
+      "\treturn &Server{}",
+      "}",
+    ].join("\n");
+    const names = indexRepo([{ path: "main.go", content: src }]).map((s) => s.name);
+    expect(names).toContain("Server.Handle");
+    expect(names).toContain("New");
+  });
+
+  it("reads Rust impl blocks and Java methods without control flow noise", () => {
+    const rust = [
+      "impl Parser {",
+      "    pub fn parse(&self) -> Ast {",
+      "        if self.done { return Ast::Empty; }",
+      "        Ast::Node",
+      "    }",
+      "}",
+    ].join("\n");
+    const rustNames = indexRepo([{ path: "lib.rs", content: rust }]).map((s) => s.name);
+    expect(rustNames).toContain("Parser");
+    expect(rustNames).toContain("Parser.parse");
+    expect(rustNames).not.toContain("Parser.if");
+
+    const java = [
+      "public class Billing {",
+      "    public BigDecimal total(List<Item> items) {",
+      "        for (Item i : items) { add(i); }",
+      "        return sum;",
+      "    }",
+      "}",
+    ].join("\n");
+    const javaNames = indexRepo([{ path: "Billing.java", content: java }]).map((s) => s.name);
+    expect(javaNames).toContain("Billing");
+    expect(javaNames).toContain("Billing.total");
+    expect(javaNames).not.toContain("Billing.for");
+  });
+
+  it("reads Ruby def…end by indentation, like Python", () => {
+    const src = [
+      "class Invoice",
+      "  def total(items)",
+      "    items.sum(&:price)",
+      "  end",
+      "end",
+    ].join("\n");
+    const names = indexRepo([{ path: "invoice.rb", content: src }]).map((s) => s.name);
+    expect(names).toContain("Invoice");
+    expect(names).toContain("Invoice.total");
+  });
+
+  it("chunks what it cannot parse, so every text file stays searchable", () => {
+    const readme = indexRepo([{ path: "readme.md", content: "# not python" }]);
+    expect(readme).toHaveLength(1);
+    expect(readme[0].kind).toBe("section");
+    expect(readme[0].name).toBe("readme.md"); // whole small file: named for itself
+
+    const long = Array.from({ length: 150 }, (_, i) => `key${i}: value${i}`).join("\n");
+    const sections = indexRepo([{ path: "config/app.yaml", content: long }]);
+    expect(sections).toHaveLength(3);
+    // Line-qualified ids: two sections may share a first line, ids may not collide.
+    expect(new Set(sections.map((s) => s.id)).size).toBe(3);
+    expect(sections[1].start_line).toBe(61);
+  });
+
+  it("reads Allman-brace C# where the class brace sits on its own line", () => {
+    const src = [
+      "public class OrderService",
+      "{",
+      "    public decimal Total(Order order)",
+      "    {",
+      "        return order.Sum();",
+      "    }",
+      "}",
+    ].join("\n");
+    const names = indexRepo([{ path: "OrderService.cs", content: src }]).map((s) => s.name);
+    expect(names).toContain("OrderService");
+    expect(names).toContain("OrderService.Total");
+  });
+
+  it("does not let a brace inside a regex literal corrupt later extents", () => {
+    const src = [
+      "class Lexer {",
+      "  tokenize(s) {",
+      "    return s.match(/\\{/g);",
+      "  }",
+      "  next() {",
+      "    return this.pos += 1;",
+      "  }",
+      "}",
+    ].join("\n");
+    const got = indexRepo([{ path: "lexer.js", content: src }]);
+    const next = got.find((s) => s.name === "Lexer.next");
+    expect(next).toBeTruthy();
+    expect(next!.end_line).toBe(7);
+  });
+
+  it("survives Rust lifetimes, which are unpaired apostrophes", () => {
+    const src = [
+      "impl<'a> Parser<'a> {",
+      "    pub fn parse(&'a self) -> Ast<'a> {",
+      "        Ast::Node",
+      "    }",
+      "}",
+    ].join("\n");
+    const names = indexRepo([{ path: "parse.rs", content: src }]).map((s) => s.name);
+    expect(names.some((n) => n.endsWith(".parse"))).toBe(true);
+  });
+
+  it("extracts free C functions, which live at file scope with no class", () => {
+    const src = [
+      "static int parse_header(struct buf *b)",
+      "{",
+      "    return b->len;",
+      "}",
+      "",
+      "int main(void) {",
+      "    return 0;",
+      "}",
+    ].join("\n");
+    const names = indexRepo([{ path: "parse.c", content: src }]).map((s) => s.name);
+    expect(names).toContain("parse_header");
+    expect(names).toContain("main");
+  });
+
+  it("reads Go generics and TS interfaces/typed arrows", () => {
+    const go = "func Map[T any](xs []T) []T {\n\treturn xs\n}\n";
+    expect(indexRepo([{ path: "m.go", content: go }]).map((s) => s.name)).toContain("Map");
+
+    const ts = [
+      "export interface Props {",
+      "  title: string;",
+      "}",
+      "export const handler: Handler = (req) => {",
+      "  return respond(req);",
+      "};",
+    ].join("\n");
+    const names = indexRepo([{ path: "h.ts", content: ts }]).map((s) => s.name);
+    expect(names).toContain("Props");
+    expect(names).toContain("handler");
+  });
+
+  it("falls back to sections when a recognised extension has no declarations", () => {
+    const got = indexRepo([{ path: "flags.ts", content: "export default { a: 1, b: 2 };" }]);
+    expect(got).toHaveLength(1);
+    expect(got[0].kind).toBe("section");
   });
 });
 
@@ -302,6 +486,24 @@ describe("local retrieval (browser port of retrieve.py)", () => {
   it("handles empty input without throwing", () => {
     expect(bm25Rank([], "x")).toEqual([]);
     expect(rrf([])).toEqual([]);
+  });
+});
+
+describe("local retrieval demotes docs", () => {
+  const files = [
+    { path: "History.md", content: "## router\nmiddleware route register handler apply use" },
+    { path: "lib/application.js", content: "function use(fn) { // middleware route register apply\n  this.router.use(fn);\n}" },
+  ];
+  const symbols = indexRepo(files);
+
+  it("puts code above changelog prose for a code question", () => {
+    const got = locateLocal(symbols, "where does middleware apply to a route");
+    expect(got[0].path).toBe("lib/application.js");
+  });
+
+  it("leaves docs alone when the question is about the docs", () => {
+    const got = locateLocal(symbols, "what does the changelog say about middleware");
+    expect(got[0].path).toBe("History.md");
   });
 });
 
@@ -428,6 +630,19 @@ describe("unzip", () => {
     });
     expect((await unzip(clean))[0].content).toBe("DEBUG = False");
     await expect(unzip(tampered)).rejects.toThrow();
+  });
+
+  it("keeps every .env variant out of the browser store", async () => {
+    const got = await unzip(
+      zip([
+        { path: "app/.env", body: "AWS_SECRET=x" },
+        { path: "app/.env.production", body: "AWS_SECRET=x" },
+        { path: "app/config.env", body: "AWS_SECRET=x" },
+        { path: "app/credentials.csv", body: "AKIA,secret" },
+        { path: "app/main.go", body: "package main" },
+      ]),
+    );
+    expect(got.map((e) => e.path)).toEqual(["main.go"]);
   });
 
   it("refuses path traversal and skips non-text files", async () => {
