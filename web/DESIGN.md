@@ -138,3 +138,22 @@ check whether the state is simply derivable.
 The launcher audit found "recorded session" said five ways and "import a repository" four
 ways on a single screen. Before adding explanatory copy, search for where the same sentence
 already renders. The composer's placeholder is the composer's explanation.
+
+## The brand is a precision tool
+
+Geist Sans beside Geist Mono; Bricolage only for display headlines. The accent is indigo
+(#4f5ae8 light / #99a3ff dark) and means "interactive": focus, links, selection, the tour
+ring. Evidence channels moved to cyan so retrieval hues never wear the accent. The mark is
+a scope ring with a hull through it (components/ui/logo.tsx) — use Logo for brand positions,
+never the crosshair icon, which still means "located" in the UI.
+
+## One caption tier
+
+`.sw-section-label` is the only section-header style in the workspace: 12px, uppercase,
+tracked, subtle. A section header set at card-title size separates nothing.
+
+## Answers are markdown
+
+Model output renders through components/ui/markdown.tsx — hand-rolled, no dependency.
+Streaming rules it must keep: an unterminated fence degrades to a code block, an indented
+bullet is its item's sub-point (never a new list), and non-http link targets render as code.

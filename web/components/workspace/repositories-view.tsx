@@ -114,33 +114,42 @@ export function RepositoriesView({
               });
             }}
           >
-            {!useLocalPath ? (
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://github.com/owner/name"
-                aria-label="GitHub repository URL"
-                className="sw-input"
-              />
-            ) : (
-              <input
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                placeholder="/absolute/local/path"
-                aria-label="Local folder to index"
-                className="sw-input"
-              />
-            )}
-            <div className="flex items-center gap-3">
-              <Button variant="primary" type="submit" aria-disabled={busy || undefined}>
+            {/* Input and action on one line: a lone button dropped under a full-width field
+                read as a form that had lost its way. */}
+            <div className="flex items-center gap-2">
+              {!useLocalPath ? (
+                <input
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://github.com/owner/name"
+                  aria-label="GitHub repository URL"
+                  className="sw-input min-w-0 flex-1"
+                />
+              ) : (
+                <input
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  placeholder="/absolute/local/path"
+                  aria-label="Local folder to index"
+                  className="sw-input min-w-0 flex-1"
+                />
+              )}
+              <Button
+                variant="primary"
+                type="submit"
+                aria-disabled={busy || undefined}
+                className="shrink-0"
+              >
                 {local?.busy ?? (state.importing ? "Adding…" : "Add repository")}
               </Button>
-              {!local && (
-              <Button variant="ghost" type="button" onClick={() => setUseLocalPath((v) => !v)}>
-                {useLocalPath ? "Use a GitHub URL instead" : "Use a local folder instead"}
-              </Button>
-              )}
             </div>
+            {!local && (
+              <div>
+                <Button variant="ghost" type="button" onClick={() => setUseLocalPath((v) => !v)}>
+                  {useLocalPath ? "Use a GitHub URL instead" : "Use a local folder instead"}
+                </Button>
+              </div>
+            )}
           </form>
 
           <GitHubConnect

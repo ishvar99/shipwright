@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  --bg: oklch(98% 0.003 90);
+  --bg: oklch(98.3% 0.003 275);
   --fg: oklch(21% 0.006 270);
   /* Colour means something here: green/amber/red are outcomes, the four evidence hues are
      retrieval channels. Primary actions take none of them — they are ink. The old accent was
@@ -12,7 +12,7 @@
   --ink: #20242a;
   --ink-fg: #fcfcfa;
   --ink-hover: #2c323a;
-  --accent: #46607c;
+  --accent: #4f5ae8;
   --muted: color-mix(in oklch, var(--fg) 68%, var(--bg));
   --subtle: color-mix(in oklch, var(--fg) 62%, var(--bg)); /* 5.6:1 — AA at body size */
   --hairline: color-mix(in oklch, var(--fg) 13%, var(--bg));
@@ -23,7 +23,7 @@
   --glow: color-mix(in oklch, var(--accent) 7%, transparent);
 
   /* Retrieval channels. Hue reinforces the glyph; it is never the only signal. */
-  --evidence-text: #2563eb;
+  --evidence-text: #0284c7;
   --evidence-graph: #b45309;
   --evidence-dense: #0d9488;
   --evidence-path: #be123c;
@@ -60,9 +60,9 @@
   --ink: #eeeef1;
   --ink-fg: #0f0f12;
   --ink-hover: #d8d8de;
-  --accent: #8cafd3;
+  --accent: #99a3ff;
   --muted: #a2a2ad;
-  --subtle: #858592; /* 5.4:1 — AA at body size */
+  --subtle: #9195a2; /* 5.5:1 on --surface, not just the page — cards are where it lives */
   --hairline: color-mix(in oklch, var(--fg) 10%, var(--bg));
   --soft: #141419;
   --accent-soft: color-mix(in oklch, var(--accent) 15%, var(--bg));
@@ -70,7 +70,7 @@
   --faint: color-mix(in oklch, var(--fg) 38%, var(--bg));
   --glow: color-mix(in oklch, var(--accent) 12%, transparent);
 
-  --evidence-text: #60a5fa;
+  --evidence-text: #38bdf8;
   --evidence-graph: #fbbf24;
   --evidence-dense: #2dd4bf;
   --evidence-path: #fb7185;
@@ -284,7 +284,7 @@
     height: 28px;
     flex-shrink: 0;
     border-radius: var(--radius);
-    color: var(--subtle);
+    color: var(--muted);
     transition: background-color var(--dur-fast), color var(--dur-fast);
   }
 
@@ -473,12 +473,27 @@
      it reads as a misalignment rather than a deliberate reading measure. */
   .sw-home {
     display: grid;
-    gap: calc(var(--space-unit) * 7);
+    gap: calc(var(--space-unit) * 6);
     max-width: 64rem;
     margin-inline: auto;
     /* Room to breathe above the hero — a cramped first row reads as a dashboard, not a place
        to start. Short screens fall back below. */
-    padding-top: 9vh;
+    padding-top: 7vh;
+  }
+
+  /* Wide screens earn a second column: the composer keeps the full measure, and the two
+     lists sit side by side instead of stacking white space below themselves. */
+  @media (min-width: 76rem) {
+    .sw-home {
+      max-width: 74rem;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      column-gap: calc(var(--space-unit) * 8);
+      align-items: start;
+    }
+
+    .sw-home-composer {
+      grid-column: 1 / -1;
+    }
   }
 
   .sw-home-composer {
@@ -697,10 +712,15 @@
   .sw-welcome {
     display: grid;
     justify-items: center;
+    align-content: center;
     text-align: center;
-    gap: calc(var(--space-unit) * 3);
+    gap: calc(var(--space-unit) * 2.5);
     max-width: 34rem;
-    margin: 12vh auto 0;
+    margin-inline: auto;
+    /* Fill the pane and centre optically — pinned to the top third, the lower two thirds
+       of the first screen anyone sees was dead canvas. */
+    min-height: calc(100dvh - var(--space-unit) * 24);
+    padding-bottom: 8vh;
   }
 
   .sw-welcome-head {
@@ -882,6 +902,11 @@
     place-items: center;
     min-height: 100dvh;
     padding: calc(var(--space-unit) * 4);
+    padding-bottom: 12vh; /* optical centre sits above the mathematical one */
+  }
+
+  .sw-signin-card p {
+    text-wrap: pretty;
   }
 
   .sw-signin-card {
@@ -960,7 +985,6 @@
     background: var(--ink);
     color: var(--ink-fg);
     font-weight: 500;
-    box-shadow: var(--shadow-1);
     transition: background-color var(--dur-fast);
   }
 
@@ -976,6 +1000,33 @@
   .sw-home-section {
     display: grid;
     gap: calc(var(--space-unit) * 3);
+    align-content: start;
+  }
+
+  /* One caption tier for section labels, matching the sidebar's — a header set at the same
+     size and colour as the card titles under it separated nothing. */
+  .sw-section-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--subtle);
+  }
+
+  /* Cascade entrance for list items — same rise the result cards use, addressable anywhere. */
+  .sw-rise-in {
+    animation: sw-rise 300ms var(--ease-out-quart) backwards;
+  }
+
+  /* The chevron leans into the click — feedback the row is going somewhere. */
+  .sw-continue .sw-nudge,
+  .sw-repo-card .sw-nudge {
+    transition: transform var(--dur-fast) var(--ease-swift);
+  }
+
+  .sw-continue:hover .sw-nudge,
+  .sw-repo-card:hover .sw-nudge {
+    transform: translateX(3px);
   }
 
   .sw-home-grid {
@@ -1052,6 +1103,81 @@
       opacity: 1;
       transform: scale(1.15);
     }
+  }
+
+  /* Answers as rendered markdown. Same measure as the card; code takes --soft like the
+     fix stream; headings step down from the card's own title, never compete with it. */
+  .sw-md {
+    display: grid;
+    gap: calc(var(--space-unit) * 2.5);
+    line-height: 1.65;
+  }
+
+  .sw-md-code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--soft);
+    border-radius: 5px;
+    padding: 0.1em 0.4em;
+  }
+
+  .sw-md-pre {
+    margin: 0;
+    background: var(--soft);
+    border-radius: var(--radius);
+    padding: calc(var(--space-unit) * 2.5) calc(var(--space-unit) * 3);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  .sw-md-h {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-top: calc(var(--space-unit) * 1.5);
+  }
+
+  .sw-md-h-minor {
+    font-size: 0.9375rem;
+  }
+
+  /* Continuation lines and nested bullets inside one list item stack, never renumber. */
+  .sw-md-sub {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+  }
+
+  .sw-md-list {
+    display: grid;
+    gap: calc(var(--space-unit) * 1.5);
+    padding-inline-start: 1.35em;
+    margin: 0;
+    list-style: disc;
+  }
+
+  .sw-md-ol {
+    list-style: decimal;
+  }
+
+  .sw-md-list li::marker {
+    color: var(--subtle);
+  }
+
+  .sw-md-quote {
+    border-inline-start: 2px solid var(--hairline);
+    padding-inline-start: calc(var(--space-unit) * 3);
+    color: var(--muted);
+    display: grid;
+    gap: calc(var(--space-unit) * 1.5);
+  }
+
+  .sw-md-link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
   .sw-caret {
@@ -1334,6 +1460,11 @@
     transition: border-color var(--dur-fast), background-color var(--dur-fast);
   }
 
+  .sw-repo-trigger:hover,
+  .sw-repo-trigger:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--hairline);
+  }
+
   .sw-repo-trigger:hover {
     border-color: var(--accent);
   }
@@ -1480,6 +1611,7 @@
        buys the matching bottom gap: viewport minus the two block paddings. */
     top: 0;
     max-height: calc(100dvh - var(--space-unit) * 12);
+    min-height: calc(100dvh - var(--space-unit) * 12);
     display: flex;
     flex-direction: column;
   }
@@ -1866,6 +1998,13 @@
     padding-block: calc(var(--space-unit) * 4) calc(var(--space-unit) * 5);
     border-top: 1px solid var(--hairline);
     text-align: left;
+  }
+
+  .sw-hero-stats dt {
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
   }
 
   .sw-hero-stats dd + dd {

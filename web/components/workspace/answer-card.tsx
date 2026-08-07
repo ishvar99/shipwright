@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
+import { Markdown } from "@/components/ui/markdown";
 
 /** Counts up while the answer is pending. The elapsed second is the one real fact available
  * before the first token, and a wait you can see progressing reads very differently from one
@@ -56,10 +57,10 @@ export function AnswerCard({ text, streaming }: { text: string; streaming: boole
           {note}
         </p>
       ) : (
-        <p className="whitespace-pre-wrap text-fg">
-          {text}
+        <div className="text-fg">
+          <Markdown text={text} />
           {streaming && <span className="sw-caret" aria-hidden />}
-        </p>
+        </div>
       )}
     </div>
   );

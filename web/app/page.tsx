@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EvidenceStrip } from "@/components/ui/evidence-strip";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { HeroVisual } from "@/components/landing/hero-visual";
+import { Logo } from "@/components/ui/logo";
 import { Reveal } from "@/components/landing/reveal";
 import { Replay } from "@/components/landing/replay";
 import { AnalyticsSchema, parseOrThrow } from "@/lib/contracts";
@@ -67,7 +68,7 @@ export default function Home() {
         <nav className="sw-shell sw-hero-nav" aria-label="Primary">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="grid size-9 place-items-center rounded-[10px] bg-accent text-bg shadow-sm">
-              <Icon name="crosshair" size={20} />
+              <Logo size={22} />
             </span>
             <span className="text-lg font-semibold tracking-tight text-fg">Shipwright</span>
           </Link>
@@ -78,10 +79,8 @@ export default function Home() {
             <Link href="/evals" className="hidden text-muted transition-colors hover:text-fg sm:inline">
               Benchmarks
             </Link>
-            <Link
-              href="/app"
-              className="inline-flex h-9 items-center rounded-[var(--radius)] bg-ink px-4 font-medium text-ink-fg transition-colors hover:bg-[var(--ink-hover)]"
-            >
+            {/* A text link, not a second ink fill: the hero owns the page's one ink action. */}
+            <Link href="/app" className="font-medium text-fg transition-colors hover:text-accent">
               Open the workspace
             </Link>
           </div>
@@ -94,7 +93,7 @@ export default function Home() {
             <span className="whitespace-nowrap">Describe the bug.</span>{" "}
             <span className="whitespace-nowrap text-accent">Ship the fix.</span>
           </h1>
-          <p className="mx-auto mt-6 max-w-[52ch] text-lg text-muted">
+          <p className="mx-auto mt-6 max-w-[52ch] text-balance text-lg text-muted">
             Shipwright reads your repository, pinpoints the code that needs to change, writes
             the fix, and proves it with your own tests — from a plain-language description.
           </p>
