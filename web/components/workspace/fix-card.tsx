@@ -69,15 +69,17 @@ export function FixCard({
           <span className="text-ok">+{fix.additions ?? 0}</span>{" "}
           <span className="text-danger">−{fix.deletions ?? 0}</span>
         </span>
+        {/* sw-pop: outcomes land with a beat. These two chips are the payoff of the whole
+            run — arriving silently undersold them. */}
         {applied && (
-          <span className="rounded-full bg-ok-soft px-2 py-0.5 font-mono text-xs text-ok">
+          <span className="sw-pop rounded-full bg-ok-soft px-2 py-0.5 font-mono text-xs text-ok">
             {fix.applied_branch}
           </span>
         )}
         {tests && (
           <span
             className={cn(
-              "rounded-full px-2 py-0.5 text-xs font-medium",
+              "sw-pop rounded-full px-2 py-0.5 text-xs font-medium",
               tests.failed > 0 ? "bg-danger-soft text-danger" : "bg-ok-soft text-ok",
             )}
           >

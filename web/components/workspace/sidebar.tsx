@@ -59,6 +59,11 @@ export function Sidebar({
         <button
           type="button"
           onClick={onToggleRail}
+          // A clicked toggle holds focus, and the next keystroke (even ⌘B itself) painted
+          // its ring. Marked while the focus is pointer-driven; blur retires the mark, so
+          // tabbing back earns the ring again.
+          onPointerDown={(e) => e.currentTarget.setAttribute("data-pointer", "")}
+          onBlur={(e) => e.currentTarget.removeAttribute("data-pointer")}
           aria-label="Toggle sidebar"
           title="Toggle sidebar  ⌘B"
           className="sw-rail-toggle ml-auto"

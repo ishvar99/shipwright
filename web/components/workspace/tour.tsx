@@ -54,12 +54,18 @@ export function Tour({ step, onDismiss }: { step: number; onDismiss: () => void 
   return (
     <div className="sw-tour-card" role="status" aria-live="polite">
       <p className="sw-tour-step">
-        <span>
-          {step + 1} of {TOUR_STEPS.length}
+        {/* Dots, not "2 of 4": progress you can see coming beats progress you have to parse. */}
+        <span className="sw-tour-dots" aria-label={`Step ${step + 1} of ${TOUR_STEPS.length}`}>
+          {TOUR_STEPS.map((_, i) => (
+            <span key={i} aria-hidden data-done={i <= step || undefined} />
+          ))}
         </span>
       </p>
-      <p className="sw-tour-title">{s.title}</p>
-      <p className="sw-tour-body">{s.body}</p>
+      {/* Keyed by step so each one enters with its own beat instead of snapping in place. */}
+      <div key={step} className="sw-tour-swap grid gap-1">
+        <p className="sw-tour-title">{s.title}</p>
+        <p className="sw-tour-body">{s.body}</p>
+      </div>
       <div className="sw-tour-actions">
         {closing ? (
           <>

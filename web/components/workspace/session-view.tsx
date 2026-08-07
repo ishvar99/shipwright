@@ -158,6 +158,16 @@ export function SessionView({
   );
   const tourTarget = tourActive ? (TOUR_STEPS[step]?.target ?? null) : null;
 
+  // The narrator names a section; the page walks there. Without this, step two rings a fix
+  // card that is below the fold and the viewer sees nothing change. Smooth unless the user
+  // asked for reduced motion — then it jumps, which is still better than not arriving.
+  useEffect(() => {
+    if (!tourTarget) return;
+    const el = document.querySelector("[data-tour-ring]");
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+  }, [tourTarget]);
+
   return (
     <SelectionProvider locations={locations}>
       {/* scroll:false — the reader dismissed mid-page to keep exploring; yanking them to the

@@ -55,6 +55,7 @@ export function ResultCard({
       // engines paint :focus-visible for it. The mark suppresses that ring; keyboard
       // navigation clears it, which is when the ring means something.
       onPointerDown={(e) => e.currentTarget.setAttribute("data-pointer", "")}
+      onBlur={(e) => e.currentTarget.removeAttribute("data-pointer")}
       onClick={onSelect}
       onDoubleClick={onActivate}
     >

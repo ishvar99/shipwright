@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -62,6 +62,7 @@ export function Composer({
   hosted = false,
   queued = false,
   showExamples = false,
+  autoFocus = false,
 }: {
   /** Omitted where the repository is the page itself, which is what removes the chip row. */
   repos?: Repo[];
@@ -79,11 +80,20 @@ export function Composer({
   queued?: boolean;
   /** The examples name symbols in the recorded repository, so they are wrong anywhere else. */
   showExamples?: boolean;
+  /** Where the composer IS the page (launcher, repo home), arriving ready to type is the
+   * point. Never used where it would steal focus from something else. */
+  autoFocus?: boolean;
 }) {
   const [issue, setIssue] = useState("");
   const [attempted, setAttempted] = useState(false);
   const id = useId();
   const draftKey = repo?.id ?? "";
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    // preventScroll: focus should never yank a page that has content above the composer.
+    if (autoFocus) inputRef.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
 
   // Restored in an effect, and deliberately not during render or in a lazy initialiser: this
   // page is prerendered, so any of those would have the client's first pass produce different
@@ -148,10 +158,19 @@ export function Composer({
           the grammar every chat product has taught: write here, aim and send below. */}
       <textarea
         id={id}
+        ref={inputRef}
         value={issue}
         onChange={(e) => {
           setIssue(e.target.value);
           if (draftKey) saveDraft(draftKey, e.target.value);
+        }}
+        onKeyDown={(e) => {
+          // The chat-product grammar: ⌘⏎ (or Ctrl+⏎) sends, Enter stays a newline — a bug
+          // report is multi-line prose, so plain Enter must never fire the run.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.currentTarget.form?.requestSubmit();
+          }
         }}
         rows={3}
         placeholder="Describe a bug, a change, or a question about this code."
@@ -209,6 +228,7 @@ export function Composer({
           variant="primary"
           type="submit"
           aria-disabled={dimmed ? true : undefined}
+          title="⌘⏎ to send"
           className="ml-auto shrink-0"
         >
           <Icon name="send" size={16} />

@@ -114,6 +114,7 @@ export function RepoHome({ repoId }: { repoId: string }) {
       )}
 
       <Composer
+        autoFocus
         repo={repo}
         busy={submitting}
         onRun={(issue) => {

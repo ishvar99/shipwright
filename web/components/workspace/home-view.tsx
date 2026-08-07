@@ -49,6 +49,7 @@ export function HomeView() {
           and a second sentence saying it again was the launcher's crowding in miniature. */}
       <div className="sw-home-composer">
         <Composer
+          autoFocus
           repos={repoList}
           repo={currentRepo}
           onPickRepo={selectRepo}

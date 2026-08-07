@@ -64,11 +64,29 @@ export function CodePane({
   const { location, focusNonce } = useSelection();
   const state = useSource(jobId, location, recorded);
   const ref = useRef<HTMLDivElement>(null);
+  const linesRef = useRef<HTMLOListElement>(null);
 
   // Enter in the results list means "take me to the code".
   useEffect(() => {
     if (focusNonce > 0) ref.current?.focus();
   }, [focusNonce]);
+
+  // The <ol> outlives the selection, so a new file inherited the previous one's scroll —
+  // opening a result could land mid-slice, or horizontally stranded. Reset, then put the
+  // target's first line a beat below the top so one line of context survives above it.
+  const locationKey = location ? `${location.path}:${location.start_line}` : "";
+  useEffect(() => {
+    const ol = linesRef.current;
+    if (!ol) return;
+    ol.scrollLeft = 0;
+    const target = ol.querySelector<HTMLElement>(".sw-code-target");
+    ol.scrollTop = target
+      ? Math.max(
+          0,
+          target.getBoundingClientRect().top - ol.getBoundingClientRect().top + ol.scrollTop - 32,
+        )
+      : 0;
+  }, [locationKey, state.kind]);
 
   // Escape collapses the panel; focus returns to the selected card via the listbox's
   // roving tabindex when the user tabs back.
@@ -131,7 +149,7 @@ export function CodePane({
       </div>
       {/* Not a syntax highlighter. The question is "is this the right function?", so the target
           range is at full contrast and its context is dimmed — no tokenizer, no theme to match. */}
-      <ol className="sw-code-lines" start={source.start}>
+      <ol ref={linesRef} className="sw-code-lines" start={source.start}>
         {source.lines.map((line, i) => {
           const n = source.start + i;
           const target = n >= from && n <= to;

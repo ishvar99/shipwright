@@ -33,6 +33,9 @@ export function Splitter({ side, controls, label }: Props) {
   }, [side]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // A bare modifier is not "the keyboard took over" — pressing Shift after a drag painted
+    // the ring down the whole gutter. Shift+Arrow still lands here with the arrow as e.key.
+    if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
     delete ref.current?.dataset.pointer; // keyboard took over: the focus ring is wanted now
     const step = e.shiftKey ? BIG_STEP : STEP;
     const now = paneWidthPct(side);
