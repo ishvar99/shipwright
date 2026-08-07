@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
+import { Logo } from "@/components/ui/logo";
 import { demoJob, demoRepo } from "@/lib/fixtures";
 import { repoSession } from "@/lib/repo-routes";
 
@@ -8,7 +9,7 @@ import { repoSession } from "@/lib/repo-routes";
 export function WelcomeView() {
   return (
     <div className="sw-welcome">
-      <Icon name="crosshair" size={28} className="text-accent" aria-hidden />
+      <Logo size={30} className="text-accent" />
       <h2 className="sw-welcome-head">Point Shipwright at a repository.</h2>
       <p className="sw-welcome-sub">
         It indexes the code, answers questions about it, and finds the lines behind any bug
@@ -18,12 +19,12 @@ export function WelcomeView() {
         <Icon name="plus" size={16} />
         Import your repository
       </Link>
-      <Link
-        href={`${repoSession(demoRepo.id, demoJob.id)}?tour=1`}
-        className="sw-welcome-tour"
-      >
-        or watch Shipwright find a real bug first — 30 seconds
-      </Link>
+      <p className="text-subtle">
+        or{" "}
+        <Link href={`${repoSession(demoRepo.id, demoJob.id)}?tour=1`} className="sw-welcome-tour">
+          watch Shipwright find a real bug first — 30 seconds
+        </Link>
+      </p>
     </div>
   );
 }

@@ -86,7 +86,7 @@ export function ActivityFeed({
             className="inline-flex items-center gap-1 text-xs text-subtle hover:text-fg"
           >
             <Icon name="chevron" size={12} className={cn("transition-transform", showSteps && "rotate-90")} />
-            Show steps
+            {showSteps ? "Hide steps" : "Show steps"}
           </button>
         </div>
       )}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
+import { Logo } from "@/components/ui/logo";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { AccountRow } from "@/components/workspace/account-row";
@@ -53,7 +54,7 @@ export function Sidebar({
           aria-label="Shipwright home"
           className="flex min-w-0 items-center gap-2 px-2 py-1 text-fg transition-colors hover:text-accent"
         >
-          <Icon name="crosshair" size={18} className="shrink-0 text-accent" />
+          <Logo size={19} className="shrink-0 text-accent" />
           <span className="sw-rail-hide font-semibold">Shipwright</span>
         </Link>
         <button

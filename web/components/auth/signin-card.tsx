@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { Logo } from "@/components/ui/logo";
 
 /** One provider, one button. The page around it stays out of the way: sign-in is a toll
  * booth, not a destination. */
@@ -36,7 +37,7 @@ export function SigninCard({ configured }: { configured: boolean }) {
     <main className="sw-signin">
       <div className="sw-signin-card">
         <p className="flex items-center gap-2 font-semibold text-fg">
-          <Icon name="crosshair" size={18} className="text-accent" />
+          <Logo size={20} className="text-accent" />
           Shipwright
         </p>
         {configured ? (

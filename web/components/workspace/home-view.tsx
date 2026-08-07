@@ -72,13 +72,18 @@ export function HomeView() {
         )}
       </div>
 
-      {sessions.length > 0 && (
-        <section className="sw-home-section" aria-labelledby="recent-sessions">
-          <h3 id="recent-sessions" className="text-sm font-medium text-subtle">
-            Pick up where you left off
-          </h3>
-          {/* The latest session is a continue row, not the first tile among equals — coming
-              back to it is the most common reason to be on this page at all. */}
+      {/* Always rendered: in the two-column layout an absent section is a blank half-page,
+          and the empty state is what tells a new user where their work will land. */}
+      <section className="sw-home-section" aria-labelledby="recent-sessions">
+        <h3 id="recent-sessions" className="sw-section-label">
+          Sessions
+        </h3>
+        {sessions.length === 0 && (
+          <p className="text-subtle">No sessions yet — ask something above to start one.</p>
+        )}
+        {/* The latest session is a continue row, not the first tile among equals — coming
+            back to it is the most common reason to be on this page at all. */}
+        {sessions.length > 0 && (
           <Link
             href={repoSession(sessions[0].repo_id, sessions[0].id)}
             title={sessionTitle(sessions[0].issue)}
@@ -100,19 +105,21 @@ export function HomeView() {
                 </span>
               </span>
             </span>
-            <Icon name="chevron" size={16} className="ml-auto shrink-0 text-subtle" />
+            <Icon name="chevron" size={16} className="sw-nudge ml-auto shrink-0 text-subtle" />
           </Link>
-        </section>
-      )}
+        )}
+      </section>
 
       <section className="sw-home-section" aria-labelledby="home-repos">
-        <h3 id="home-repos" className="text-sm font-medium text-subtle">
+        <h3 id="home-repos" className="sw-section-label">
           Repositories
         </h3>
         {repos.error && <p className="text-danger">{repos.error}</p>}
         <ul className="grid gap-2">
-          {repoList.slice(0, 5).map((r) => (
-            <li key={r.id}>
+          {repoList.slice(0, 5).map((r, i) => (
+            // Staggered entrance: the list arrives as a cascade, not a slab. Capped, and the
+            // global reduced-motion rule flattens it entirely.
+            <li key={r.id} className="sw-rise-in" style={{ animationDelay: `${Math.min(i, 6) * 45}ms` }}>
               <Link
                 href={r.status === "ready" ? repoHome(r.id) : "/app/repos"}
                 className="sw-card sw-lift sw-repo-card w-full"
