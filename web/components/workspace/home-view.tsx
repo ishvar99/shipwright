@@ -130,8 +130,8 @@ export function HomeView() {
                   >
                     {r.status === "ready"
                       ? r.symbols === 0
-                        ? "No Python found — browse and edit"
-                        : `${r.symbols.toLocaleString()} functions`
+                        ? "Nothing indexable — browse and edit"
+                        : `${r.symbols.toLocaleString()} symbols`
                       : r.status === "importing"
                         ? // The wait is legible from here, not only inside Repositories.
                           `Importing… ${Math.round((repos.elapsed[r.id] ?? 0) / 1000)}s`

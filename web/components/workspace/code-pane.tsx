@@ -36,10 +36,12 @@ function Placeholder({ state }: { state: Exclude<SourceState, { kind: "loaded" }
     case "too_large":
       return <Message title="File too large to display" body="The source view is capped at 2 MB." />;
     case "not_recorded":
+      // Origin-neutral: the demo bundle carries the top locations only, and a local repo can
+      // miss a file that was skipped at import — either way the excerpt is the evidence.
       return (
         <Message
-          title="Not part of this recording"
-          body="The published capture includes source for the top few locations only."
+          title="No stored source for this result"
+          body="The result card's excerpt is the captured evidence for this location."
         />
       );
     case "rejected":

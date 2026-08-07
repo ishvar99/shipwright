@@ -604,7 +604,7 @@ describe("narrative feed", () => {
       ["found", "done", "Found 10 places to look"],
       ["fix", "done", "Proposed a fix"],
     ]);
-    expect(lines[0].fact).toBe("33 files, 463 definitions");
+    expect(lines[0].fact).toBe("33 files, 463 symbols");
     expect(lines[2].fact).toBe("30 possible locations");
     const fx = fixture.job.result.fix!;
     expect(lines[5].fact).toBe(`+${fx.additions} −${fx.deletions}`);
