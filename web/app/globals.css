@@ -457,8 +457,16 @@
     overflow-x: clip;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
-    padding: calc(var(--space-unit) * 4);
+    /* More block than inline: reading starts at the top edge, and content that touches it
+       reads as cropped. The code panel's sticky offsets mirror this value. */
+    padding: calc(var(--space-unit) * 6) calc(var(--space-unit) * 4);
     font-size: var(--text-ui);
+  }
+
+  /* Skip-link and scroll targets (tabindex="-1") are containers, not controls: clicking
+     empty space focuses them, and the first Shift press then ringed the entire pane. */
+  [tabindex="-1"]:focus-visible {
+    outline: none;
   }
 
   /* One column width for everything on this page: a composer narrower than the cards below
@@ -750,6 +758,36 @@
     color: var(--subtle);
   }
 
+  /* Progress as dots that fill in — read at a glance, no parsing "2 of 4". */
+  .sw-tour-dots {
+    display: inline-flex;
+    gap: 5px;
+  }
+
+  .sw-tour-dots > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--hairline);
+    transition: background-color var(--dur-base) var(--ease-swift);
+  }
+
+  .sw-tour-dots > span[data-done] {
+    background: var(--accent);
+  }
+
+  /* Each step enters with a small rise instead of snapping in place. */
+  .sw-tour-swap {
+    animation: sw-tour-in var(--dur-base) var(--ease-out-quart) backwards;
+  }
+
+  @keyframes sw-tour-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
   .sw-tour-title {
     font-weight: 600;
     color: var(--fg);
@@ -816,6 +854,25 @@
     70%,
     100% {
       box-shadow: 0 0 0 12px transparent;
+    }
+  }
+
+  /* Outcome chips land with a beat — a spring-in scale, once, on entry. */
+  .sw-pop {
+    animation: sw-pop-in 360ms var(--ease-out-quart) backwards;
+  }
+
+  @keyframes sw-pop-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    60% {
+      transform: scale(1.08);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
     }
   }
 
@@ -1418,8 +1475,11 @@
     overflow: clip;
     align-self: start;
     position: sticky;
+    /* Sticky insets anchor to the scroller's padding edge, so 0 already means "level with
+       the main padding" — an explicit offset here double-counts it. The height cap is what
+       buys the matching bottom gap: viewport minus the two block paddings. */
     top: 0;
-    max-height: calc(100dvh - var(--space-unit) * 8);
+    max-height: calc(100dvh - var(--space-unit) * 12);
     display: flex;
     flex-direction: column;
   }
@@ -1571,7 +1631,8 @@
 
   /* Mouse-driven focus never earns the ring — the selected style already answers "which
      one did I click". Cleared on keyboard navigation, where the ring is the answer. */
-  .sw-result[data-pointer]:focus-visible {
+  .sw-result[data-pointer]:focus-visible,
+  .sw-rail-toggle[data-pointer]:focus-visible {
     outline: none;
   }
 
@@ -1696,6 +1757,13 @@
     list-style: none;
     overflow: auto;
     scrollbar-gutter: stable;
+    /* One track, as wide as the widest line but never narrower than the pane, so a
+       highlight's background survives horizontal scrolling — rows sized to the scrollport
+       ended theirs at a hard vertical seam. max-content must be the MIN: a track's base
+       size is what may exceed the container; the max is only a growth limit within it. */
+    display: grid;
+    grid-template-columns: minmax(max-content, 100%);
+    align-content: start;
     font-family: var(--font-mono);
     font-size: var(--text-ui);
     line-height: 1.55;
