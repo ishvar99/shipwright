@@ -353,6 +353,32 @@ def repo_reindex(repo_id: str, background: BackgroundTasks, owner: OwnerDep) -> 
     return out
 
 
+@app.delete("/api/repos/{repo_id}")
+def repo_delete(repo_id: str, owner: OwnerDep) -> dict[str, Any]:
+    """Unlink a repository: its rows and its sessions leave Shipwright.
+
+    Nothing is removed from disk. For `local` sources `path` IS the user's own checkout, so
+    deleting it would destroy their working copy; a github/zip clone under `workspaces/` is
+    left too, because re-importing the same slug reuses it and a stale directory costs only
+    space. "Unlink" is the honest word for what this does.
+    """
+    with session() as s:
+        repo = s.scalars(
+            select(Repo).where(Repo.id == _uuid_or_404(repo_id), _owned(Repo.owner, owner))
+        ).first()
+        if not repo:
+            raise HTTPException(404, "That repository no longer exists.")
+        _claim(owner, repo)
+        # Sessions go with it: a job whose repository is gone can neither open its source nor
+        # be re-run, and its rows would keep appearing in every list.
+        jobs = s.scalars(select(Job).where(Job.repo_id == repo.id)).all()
+        for job in jobs:
+            s.execute(delete(Event).where(Event.job_id == job.id))
+            s.delete(job)
+        s.delete(repo)
+    return {"ok": True}
+
+
 def _ready_repo(repo_id: str, owner: str) -> Repo:
     """Repo-scoped file access needs a workspace we own. Importing local rows still point at
     the user's own checkout, and a failed row's path can be "" — which resolves to the

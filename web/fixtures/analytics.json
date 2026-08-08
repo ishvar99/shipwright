@@ -5,6 +5,17 @@
  },
  "runs": [
   {
+   "run": "browser-7a60bd4",
+   "scaffold": "browser_bm25",
+   "model": "—",
+   "n": 353,
+   "file5": 49.3,
+   "func10": 23.2,
+   "parse_failures": 0,
+   "commit": "7a60bd4",
+   "date": "2026-08-08"
+  },
+  {
    "run": "2f324a23",
    "scaffold": "hybrid",
    "model": "—",

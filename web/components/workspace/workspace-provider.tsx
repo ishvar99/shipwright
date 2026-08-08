@@ -21,6 +21,7 @@ import {
   listLocalJobs,
   listLocalRepos,
   deleteLocalJob,
+  deleteLocalRepo,
   saveLocalJob,
   type LocalRepo,
 } from "@/lib/local/store";
@@ -62,6 +63,9 @@ type Workspace = {
   refreshSessions: () => void;
   patchSession: (id: string, patch: Partial<Job>) => void;
   deleteSession: (id: string) => Promise<void>;
+  /** Unlink a repository: it and its sessions leave Shipwright. No files are deleted —
+   * a browser-imported repo drops its cached copy, a backend one keeps its checkout. */
+  unlinkRepo: (id: string) => Promise<void>;
   /** Harness and CLI runs are hidden by default; this reveals them. */
   showAll: boolean;
   setShowAll: (value: boolean) => void;
@@ -224,6 +228,37 @@ export function WorkspaceProvider({
     [refreshSessions, router, sessions],
   );
 
+  const unlinkRepo = useCallback(
+    async (id: string) => {
+      // Standing on the repository being removed would leave the page resolving a row that
+      // no longer exists, so leave first — the launcher is the one destination that is
+      // always valid.
+      if (window.location.pathname.startsWith(`/app/repo/${encodeURIComponent(id)}`)) {
+        router.push("/app");
+      }
+      // A selection pointing at a gone repository would resurrect it in every composer.
+      setSelectedId((cur) => (cur === id ? null : cur));
+      setLastRepo("");
+      if (isLocalRepo(id)) {
+        setLocalRepos((prev) => prev.filter((r) => r.id !== id));
+        setLocalJobs((prev) => prev.filter((j) => j.repo_id !== id));
+        await deleteLocalRepo(id); // cascades its files and sessions in IndexedDB
+        return;
+      }
+      setSessions((prev) => prev.filter((j) => j.repo_id !== id)); // optimistic, like sessions
+      try {
+        const res = await fetch(`/api/repos/${encodeURIComponent(id)}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(String(res.status));
+      } finally {
+        // Either way the server is the truth: on success this drops the row, on failure it
+        // puts back what we optimistically hid.
+        repos.refresh();
+        refreshSessions();
+      }
+    },
+    [refreshSessions, repos, router],
+  );
+
   const run = useCallback(
     async (issue: string, repoId?: string) => {
       // A local repository never reaches the backend: it only exists in this browser.
@@ -331,6 +366,7 @@ export function WorkspaceProvider({
     refreshSessions,
     patchSession,
     deleteSession,
+    unlinkRepo,
     showAll,
     setShowAll,
   };

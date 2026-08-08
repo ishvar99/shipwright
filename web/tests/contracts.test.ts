@@ -12,6 +12,7 @@ import { indexPython, indexRepo } from "@/lib/local/index-repo";
 import { bm25Rank, rrf, tokenize } from "@/lib/local/bm25";
 import { locateLocal } from "@/lib/local/run";
 import { unzip } from "@/lib/local/unzip";
+import { prefilter } from "@/lib/intent";
 import { parseWorkspacePath, repoFiles, repoHome, repoSession } from "@/lib/repo-routes";
 
 // Fixtures copied from live responses, including the naive (no-offset) timestamps
@@ -672,5 +673,33 @@ describe("unzip", () => {
     await expect(unzip(zip([{ path: "../escape.py", body: "x" }]))).rejects.toThrow(/unsafe/i);
     const got = await unzip(zip([{ path: "a.py", body: "x" }, { path: "logo.png", body: " " }]));
     expect(got.map((e) => e.path)).toEqual(["a.py"]);
+  });
+});
+
+describe("browser intent routing (port of intent.prefilter)", () => {
+  // The deployed path used to answer everything. Each of these reached BM25 and came back as
+  // a confident paragraph about whatever five files happened to rank.
+  it("refuses what cannot be located, and names which rule fired", () => {
+    expect(prefilter("please fix it")).toBe("vague");
+    expect(prefilter("it's broken")).toBe("vague");
+    expect(prefilter("what can you do?")).toBe("meta");
+    expect(prefilter("hi")).toBe("chitchat");
+    // Long enough to clear the length gate, so it reaches the no-words rule — under 12
+    // characters everything unrecognised is "vague", which is what Python does too.
+    expect(prefilter("?????? !!!!!! ...... ######")).toBe("nonsense");
+    expect(prefilter("!!!! ?? ...")).toBe("vague"); // 11 chars: the length gate fires first
+  });
+
+  it("lets a real question through untouched", () => {
+    expect(prefilter("get_accounts returns stale results after a cache write")).toBeNull();
+    expect(prefilter("How does the token cache decide what to evict?")).toBeNull();
+    // A greeting that carries a real question is a question.
+    expect(prefilter("hi, where does the router register middleware handlers?")).toBeNull();
+  });
+
+  // Meta is checked before the length gate on purpose: these are short AND about the
+  // assistant, and the capabilities reply beats "say more".
+  it("prefers meta over the length gate", () => {
+    expect(prefilter("who are you")).toBe("meta");
   });
 });

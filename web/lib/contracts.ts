@@ -68,6 +68,10 @@ export const JobResultSchema = z.object({
    * subclass. Zod strips unknown keys, so without this line the field would vanish here. */
   reason: z.string().default(""),
   answer: z.string().default(""),
+  /** A browser-run session's own event recording, so reopening it replays rather than
+   * re-runs — the local analogue of the backend's Last-Event-ID resume. Backend rows carry
+   * their events in Postgres and never set this. */
+  frames: z.array(z.string()).default([]),
   /** The conversation, for multi-turn local sessions. `issue`/`answer`/`locations` above
    * always mirror the LATEST turn, so single-turn consumers (and every backend row, which
    * has no turns) never change. Defaults keep pre-feature rows parsing. */

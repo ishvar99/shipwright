@@ -173,3 +173,25 @@ the outer pane scroll instead put the thread's scrollbar at the far right of the
 Below 64rem the shell stops being fixed (`.workspace` goes auto-height), so every one of
 these rules stands down and the document scrolls again. Anything that pins the viewport
 must be released there too.
+
+## The deployed engine is benchmarked too
+
+`scripts/eval-local.ts` scores the browser pipeline on Loc-Bench with the same strict metric
+the backend harness uses (`npx vite-node --config vitest.config.ts scripts/eval-local.ts`).
+Two rules keep it honest: it imports the product's own `indexRepo`/`locateLocal` rather than
+a copy, and it admits only files the importer would admit. Publishing a number for the engine
+nobody runs, while the deployed one goes unmeasured, is the failure mode this exists to
+prevent.
+
+## The browser routes intent, like the backend
+
+`lib/intent.ts` is a straight port of `intent.prefilter` — verified case-for-case against the
+Python. Without it the deployed path answered "please fix it" with a confident paragraph about
+whatever five files BM25 ranked. Any change to one must be made to the other; two
+implementations of one product behaviour that drift are worse than one that is duplicated.
+
+## A finished local session replays, it does not re-run
+
+`result.frames` records what a browser run emitted, and reopening dispatches those frames
+instead of re-searching and paying for another answer — the local analogue of the backend's
+`Last-Event-ID` resume. Deltas are coalesced into one frame before storage.
