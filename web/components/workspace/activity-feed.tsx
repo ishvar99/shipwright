@@ -40,7 +40,7 @@ export function ActivityFeed({
 
       <ol className="grid gap-1.5">
         {lines.map((line) => (
-          <li key={line.key} className="sw-feed-line" data-state={line.state}>
+          <li key={line.id} className="sw-feed-line" data-state={line.state}>
             <span className="sw-feed-icon" aria-hidden>
               {line.state === "done" && <Icon name="check" size={14} className="text-ok" />}
               {line.state === "failed" && <Icon name="x" size={14} className="text-danger" />}

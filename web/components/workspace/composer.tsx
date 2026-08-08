@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
 import { RepoPicker } from "@/components/workspace/repo-picker";
 import type { Repo } from "@/lib/contracts";
+import { issueToQuestion, resolveIssueRef } from "@/lib/github-ref";
 import { repoDisplayName } from "@/lib/repo-name";
 import { cn } from "@/lib/cn";
 import { readDraft, setDraft as saveDraft } from "@/lib/ui-prefs";
@@ -87,6 +88,34 @@ export function Composer({
 }) {
   const [issue, setIssue] = useState("");
   const [attempted, setAttempted] = useState(false);
+  // "fix issue #123" is how people actually ask. Offered only when the whole box IS a
+  // reference, so it never interrupts someone writing prose that happens to contain a number.
+  const ref = resolveIssueRef(issue, repo);
+  const [loadingIssue, setLoadingIssue] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+
+  const loadIssue = async () => {
+    if (!ref) return;
+    setLoadingIssue(true);
+    setIssueError(null);
+    try {
+      const res = await fetch("/api/github/issue", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(ref),
+      });
+      const data = (await res.json()) as { detail?: string; title?: string; body?: string; html_url?: string };
+      if (!res.ok) throw new Error(data.detail ?? "Could not load that issue.");
+      const text = issueToQuestion({ title: data.title ?? "", body: data.body, html_url: data.html_url });
+      setIssue(text);
+      if (draftKey) saveDraft(draftKey, text);
+      inputRef.current?.focus();
+    } catch (e) {
+      setIssueError(e instanceof Error ? e.message : "Could not load that issue.");
+    } finally {
+      setLoadingIssue(false);
+    }
+  };
   const id = useId();
   const draftKey = repo?.id ?? "";
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -238,6 +267,19 @@ export function Composer({
       </div>
 
     </form>
+      {ref && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={() => void loadIssue()} aria-disabled={loadingIssue || undefined}>
+            {loadingIssue ? "Loading…" : `Load issue #${ref.number} from ${ref.owner}/${ref.name}`}
+          </Button>
+          <span className="text-xs text-subtle">its title and body become your question</span>
+        </div>
+      )}
+      {issueError && (
+        <p role="alert" className="text-danger">
+          {issueError}
+        </p>
+      )}
       {showExamples && !issue && (
         <div className="flex flex-wrap gap-1.5">
           {EXAMPLES.map((e) => (

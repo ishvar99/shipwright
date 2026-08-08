@@ -69,7 +69,6 @@ export type ActivityState = {
   model?: string;
   retrievalConfig?: string;
   graph?: { files: number; symbols: number; callEdges?: number; importEdges?: number };
-  usage?: { calls: number; inputTokens: number; outputTokens: number; parseFailures: number };
   locationCount?: number;
   candidateCount?: number;
   /** Raw REST status. `outcome` only distinguishes terminal from pending, so queued vs running
@@ -247,8 +246,8 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
       );
     case "engine.started":
       return { ...s, assisted: true };
-    case "model.selected": // legacy replays
-      return { ...s, assisted: true, model: e.model };
+    case "model.selected": // legacy replays; the name is stripped at the schema, not read here
+      return { ...s, assisted: true };
     case "understand.started":
       return stage({ ...s, assisted: true }, "search", {
         state: "active",
@@ -301,17 +300,10 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
         startedAt: at,
       });
     case "model.finished": {
-      // Closes retrieval and model together: the backend measured them as one span.
-      const withUsage: ActivityState = {
-        ...s,
-        usage: {
-          calls: e.calls,
-          inputTokens: e.input_tokens,
-          outputTokens: e.output_tokens,
-          parseFailures: e.parse_failures,
-        },
-      };
-      return stage(stage(withUsage, "search", { state: "done", endedTs: ts }), "results", {
+      // Closes retrieval and model together: the backend measured them as one span. No usage
+      // is kept: nothing rendered it, and holding token counts in client state is the same
+      // disclosure /api/jobs blanks on every other route.
+      return stage(stage(s, "search", { state: "done", endedTs: ts }), "results", {
         state: "active",
         startedTs: ts,
         startedAt: at,

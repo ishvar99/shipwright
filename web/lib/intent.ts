@@ -14,7 +14,8 @@
 const GREETING =
   /^(hi|hey|hello|yo|thanks|thank you|ta|cheers|ok|okay|cool|nice|good (morning|afternoon|evening))\b/i;
 
-const META = /\b(what can you do|who are you|what are you|how do you work|help me use)\b/i;
+const META =
+  /\b(what can you do|who are you|what are you|how do you work|help me use|which (ai |llm |model)|what (ai |llm |model)|are you (chatgpt|claude|gpt|llama|qwen|gemini)|built on)\b/i;
 
 /** "fix it", "it's broken" — a change request in grammar, with nothing to act on. */
 const VAGUE =

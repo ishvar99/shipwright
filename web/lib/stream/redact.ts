@@ -12,6 +12,11 @@ export function redact(text: string): string {
       // tail through an early match.
       .replace(/\/\/[^/\s@]*:[^/\s]*@/g, "//***:***@")
       .replace(/\/(?:Users|home)\/[^/\s"']+/g, "~")
+      // Any endpoint. An httpx failure prints the URL it called, and
+      // `http://localhost:11434/api/chat` names the provider as plainly as the model field
+      // every JSON route already blanks. Runs after the credential rule above, which needs
+      // the URL intact to find userinfo.
+      .replace(/\bhttps?:\/\/[^\s'"),]+/g, "<endpoint>")
       // Bound parameters can nest brackets, so anything short of end-of-string leaks the rest.
       .replace(/\[parameters:[\s\S]*/, "[parameters: redacted]")
   );
