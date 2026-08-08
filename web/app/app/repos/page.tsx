@@ -8,7 +8,8 @@ import { importLocalGitHub, importLocalZip } from "@/lib/local/import";
 import { repoHome } from "@/lib/repo-routes";
 
 export default function Page() {
-  const { live, liteMode, repos, repoList, selectRepo, refreshLocal } = useWorkspace();
+  const { live, liteMode, repos, repoList, sessionsFor, selectRepo, refreshLocal, unlinkRepo } =
+    useWorkspace();
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +48,8 @@ export default function Page() {
         selectRepo(r);
         router.push(repoHome(r.id));
       }}
+      sessionCount={(id) => sessionsFor(id).length}
+      onUnlinkRepo={(r) => void unlinkRepo(r.id)}
     />
   );
 }

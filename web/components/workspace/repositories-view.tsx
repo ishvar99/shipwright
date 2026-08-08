@@ -20,11 +20,17 @@ export function RepositoriesView({
   state,
   demo = false,
   onOpenRepo,
+  onUnlinkRepo,
+  sessionCount,
   local,
 }: {
   state: ReposState;
   demo?: boolean;
   onOpenRepo?: (repo: Repo) => void;
+  /** Absent in the recorded demo, where there is nothing of the user's to unlink. */
+  onUnlinkRepo?: (repo: Repo) => void;
+  /** How many sessions each repository would take with it, so the confirm can say so. */
+  sessionCount?: (repoId: string) => number;
   /** Present when there is no backend: imports are unzipped and indexed in this browser
    * instead of being sent anywhere. Same form, different destination. */
   local?: {
@@ -43,6 +49,10 @@ export function RepositoriesView({
   const dragDepth = useRef(0);
 
   const busy = local ? Boolean(local.busy) : state.importing;
+  // Which row is asking "are you sure". One at a time, cleared on any other action — an
+  // inline step rather than a dialog: unlinking is reversible by re-importing, and a modal
+  // for it would out-weigh the act.
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   const drop = (file: File | undefined) => {
     dragDepth.current = 0;
@@ -274,6 +284,41 @@ export function RepositoriesView({
                   Open
                 </Button>
               )}
+              {onUnlinkRepo &&
+                (confirming === r.id ? (
+                  <span className="flex shrink-0 items-center gap-2 text-xs">
+                    {/* Names what actually goes: the sessions are the part a user would not
+                        expect, and re-importing is the undo. */}
+                    <span className="text-subtle">
+                      Unlink{sessionCount?.(r.id) ? ` and ${sessionCount(r.id)} session${sessionCount(r.id) === 1 ? "" : "s"}` : ""}?
+                    </span>
+                    <Button
+                      className="h-7 shrink-0 px-2 text-danger"
+                      onClick={() => {
+                        setConfirming(null);
+                        onUnlinkRepo(r);
+                      }}
+                    >
+                      Unlink
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="h-7 shrink-0 px-2"
+                      onClick={() => setConfirming(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </span>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    className="h-7 shrink-0 px-2"
+                    title="Remove this repository from Shipwright. Your files are not touched."
+                    onClick={() => setConfirming(r.id)}
+                  >
+                    Unlink
+                  </Button>
+                ))}
               {r.status !== "ready" && <StatusDot tone={r.status === "failed" ? "bad" : "active"} />}
               {/* Retry can only re-run what we can reconstruct: a GitHub URL. A zip's bytes
                   are gone, and a local path is deliberately never sent to the browser. */}

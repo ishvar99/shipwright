@@ -2,6 +2,7 @@ import type { Job, Location } from "@/lib/contracts";
 import { bm25Rank, rrf, tokenize } from "@/lib/local/bm25";
 import type { LocalSymbol } from "@/lib/local/index-repo";
 import { getLocalJob, getLocalRepo, newLocalId, saveLocalJob } from "@/lib/local/store";
+import { prefilter } from "@/lib/intent";
 import { capHistory, retrievalQuery } from "@/lib/turns";
 import type { Frame } from "@/lib/stream/frames";
 import type { JobStream } from "@/lib/stream/transport";
@@ -133,11 +134,16 @@ export function localEvents(
     stop() {
       stopped = true;
     },
-    run(_from, dispatch) {
+    run(from, dispatch) {
       let seq = 0;
+      // Every frame this run emits, kept so a reload replays the session instead of paying
+      // for it again. Deltas are coalesced on the way in — an answer is thousands of them,
+      // and the reducer only needs the text, not the chunk boundaries.
+      const recorded: string[] = [];
       const frame = (type: string, payload: Record<string, unknown> = {}): Frame =>
         localFrame((seq += 1), type, payload);
       const emit = (f: Frame) => {
+        recorded.push(f.data);
         if (!stopped) dispatch({ kind: "frame", frame: f, at: now() });
       };
 
@@ -157,10 +163,22 @@ export function localEvents(
                 : [];
           if (stopped) return;
 
-          // Reopening a finished conversation is a read, not a run: everything below would
-          // re-search and re-spend a model call to recompute what the row already holds —
-          // and with turns, append the re-answer as a duplicate. Narrate the stored facts
-          // and hand the row over.
+          // Reopening a finished session replays its recorded frames: the feed, the answer
+          // and the results come back exactly as they streamed, and `from` skips whatever the
+          // reducer already holds — the same resume contract the SSE transport honours.
+          if (row?.status === "done" && row.result.frames?.length && issue === row.issue) {
+            for (const data of row.result.frames) {
+              const parsed = JSON.parse(data) as { seq?: number };
+              if ((parsed.seq ?? 0) <= from) continue;
+              emit({ raw: `data: ${data}`, data, comment: false });
+            }
+            dispatch({ kind: "job", job: row });
+            dispatch({ kind: "ended", at: now() });
+            return;
+          }
+
+          // Rows recorded before frames existed still must not re-run: narrate the stored
+          // facts instead of re-searching and re-spending a model call.
           if (row && row.status === "done" && prior.length && issue === row.issue) {
             const repoStats = { files: repo.files, symbols: repo.symbols_index.length };
             emit(frame("job.started", { repo: repo.slug, mode: "local", base: "bm25" }));
@@ -177,6 +195,41 @@ export function localEvents(
           }
 
           emit(frame("job.started", { repo: repo.slug, mode: "local", base: "bm25" }));
+
+          // Routed before anything is searched, exactly as the backend does. Without this the
+          // deployed path answered "please fix it" with a confident paragraph about whatever
+          // five files BM25 happened to rank. Decided by regex in microseconds, and placed
+          // above the follow-up carry-forward below so a vague turn cannot inherit the
+          // previous turn's evidence and look grounded.
+          const reason = prefilter(issue);
+          if (reason) {
+            emit(frame("intent.ready", { intent: "other", reason }));
+            const wallMs = Math.round(now() - started);
+            const routed: Job = {
+              ...(row ?? newLocalJob(repoId, repo.slug, issue)),
+              id: jobId,
+              status: "done",
+              issue: row?.issue ?? issue,
+              result: {
+                locations: [],
+                graph: { files: repo.files, symbols: repo.symbols_index.length },
+                fix: null,
+                intent: "other",
+                reason,
+                answer: "",
+                turns: prior,
+                // The routed refusal is itself the whole session: replay shows the same card.
+                frames: [...recorded, JSON.stringify({ type: "job.done", seq: seq + 1, wall_ms: wallMs, locations: 0 })],
+              },
+              wall_ms: wallMs,
+            };
+            await saveLocalJob(routed);
+            emit(frame("job.done", { wall_ms: wallMs, locations: 0 }));
+            dispatch({ kind: "job", job: routed });
+            dispatch({ kind: "ended", at: now() });
+            return;
+          }
+
           // Declared up front — the local pipeline always answers. Without this the reducer
           // never learns the intent mid-run, so the answer card (and its "Reading the
           // code…" beat) could not mount until the whole run had finished.
@@ -275,6 +328,13 @@ export function localEvents(
               reason: "",
               answer,
               turns,
+              // Coalesced: one answer.delta carrying the whole text, so the array stays a
+              // handful of frames however long the answer ran.
+              frames: [
+                ...recorded.filter((d) => !d.includes('"type":"answer.delta"')),
+                JSON.stringify({ type: "answer.delta", seq: seq + 1, text: answer }),
+                JSON.stringify({ type: "job.done", seq: seq + 2, wall_ms: wall, locations: locations.length }),
+              ],
             },
             error: "",
             input_tokens: 0,
@@ -308,7 +368,9 @@ export function newLocalJob(repoId: string, repoSlug: string, issue: string): Jo
     client: "web",
     model: "",
     issue,
-    result: { locations: [], graph: {}, fix: null, intent: null, reason: "", answer: "", turns: [] },
+    result: {
+      locations: [], graph: {}, fix: null, intent: null, reason: "", answer: "", turns: [], frames: [],
+    },
     error: "",
     input_tokens: 0,
     output_tokens: 0,

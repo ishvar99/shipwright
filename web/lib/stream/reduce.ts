@@ -530,7 +530,14 @@ export function traceStages(s: ActivityState): TraceStage[] {
 }
 
 function stageDetail(s: ActivityState, key: StageKey): string | undefined {
-  if (key === "graph") return s.graph ? `${s.graph.symbols} definitions` : undefined;
+  if (key === "graph") {
+    if (!s.graph) return undefined;
+    // Call edges are the one thing the browser engine cannot produce, and the backend has
+    // been counting them into this state all along without ever saying so. Guarded on a
+    // non-zero count, because the browser reports 0 and must not claim a channel it lacks.
+    const edges = s.graph.callEdges;
+    return edges ? `${s.graph.symbols} definitions · ${edges} call edges` : `${s.graph.symbols} definitions`;
+  }
   if (key === "search")
     return s.candidateCount !== undefined ? `${s.candidateCount} possible locations` : undefined;
   return s.locationCount !== undefined ? `${s.locationCount} places` : undefined;

@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib import error, request
+
+from ..db import session
+from ..models import FAILED, RESOLVED, Run, TaskResult
 
 BASE = "http://127.0.0.1:8000"
 
@@ -143,6 +147,27 @@ def main() -> None:
     args = ap.parse_args()
 
     cases = [c for c in CASES if not args.only or c.kind == args.only]
+
+    # Recorded like every other suite, so a guardrail number carries the commit that produced
+    # it. Without a Run row these results existed only in a terminal scrollback, which is the
+    # one thing report.py refuses to quote.
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    with session() as s:
+        run = Run(
+            suite="guardrails",
+            split="cases",
+            scaffold="product_api",
+            model="none",
+            model_tier="local",
+            git_commit=commit,
+            config={"repo": args.repo, "only": args.only, "n": len(cases)},
+        )
+        s.add(run)
+        s.flush()
+        run_id = run.id
+
     results: list[Outcome] = []
     print(f"{'kind':10} {'fix?':5} {'want':5} {'locs':>4} {'wall':>7}  verdict / query")
     print("-" * 100)
@@ -153,6 +178,27 @@ def main() -> None:
             f"{case.kind:10} {str(r.fixed):5} {str(case.should_fix):5} {r.locations:4} "
             f"{r.wall_ms / 1000:6.1f}s  {r.verdict:28} {case.query[:44]}"
         )
+
+    with session() as s:
+        for r in results:
+            s.add(
+                TaskResult(
+                    run_id=run_id,
+                    task_id=r.case.query[:256],
+                    status=RESOLVED if (r.passed and not r.error) else FAILED,
+                    wall_ms=r.wall_ms,
+                    error=r.error[:1024] if r.error else "",
+                    metrics={
+                        "kind": r.case.kind,
+                        "should_fix": r.case.should_fix,
+                        "should_locate": r.case.should_locate,
+                        "fixed": r.fixed,
+                        "locations": r.locations,
+                        "unsafe": r.unsafe,
+                        "outcome": r.outcome,
+                    },
+                )
+            )
 
     passed = sum(1 for r in results if r.passed and not r.error)
     unsafe = [r for r in results if r.unsafe]

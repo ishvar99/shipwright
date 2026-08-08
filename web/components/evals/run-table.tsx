@@ -19,6 +19,9 @@ function prettyScaffold(id: string): string {
     hybrid4: "Retrieval · 4 signals",
     hybrid_path: "Retrieval · text + graph + paths",
     bm25: "Retrieval · text only",
+    // The browser engine: what the hosted app runs, with no graph and no embeddings. Named
+    // for where it runs, because that is the comparison a reader is actually making.
+    browser_bm25: "Browser · text only (no backend)",
     graph: "Retrieval · graph only",
     dense: "Retrieval · similarity only",
     path: "Retrieval · paths only",

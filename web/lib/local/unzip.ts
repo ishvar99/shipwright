@@ -83,7 +83,8 @@ function unsafePath(path: string): boolean {
   return path.startsWith("/") || path.includes("\\") || path.split("/").includes("..");
 }
 
-function isTextFile(path: string): boolean {
+/** Exported so the benchmark admits exactly the files an import would, and no others. */
+export function isTextFile(path: string): boolean {
   const name = path.slice(path.lastIndexOf("/") + 1);
   if (TEXT_FILENAMES.has(name)) return true;
   // Variants like Dockerfile.dev / makefile.inc, any case — the family, not the exact name.
