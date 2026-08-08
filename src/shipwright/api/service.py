@@ -384,13 +384,18 @@ def run_localize(job_id) -> None:
         emit(job_id, "job.done", wall_ms=wall, locations=len(results))
 
     except Exception as e:
+        # The row keeps the full repr for our own debugging; the WIRE carries the exception
+        # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`
+        # identifies the provider as plainly as the `model` field every JSON route blanks —
+        # and the events endpoint is a byte pass-through with nowhere else to scrub. The
+        # client classifies on the name alone (web/lib/errors.ts), so nothing regresses.
         msg = f"{type(e).__name__}: {e}"
         with session() as s:
             j = s.get(Job, job_id)
             j.status = ERRORED
             j.error = msg[:1000]
             j.finished_at = datetime.now(UTC)
-        emit(job_id, "job.failed", error=msg[:400])
+        emit(job_id, "job.failed", error=type(e).__name__)
 
 
 def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -> str:
@@ -413,7 +418,8 @@ def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model
     prompt = (
         "Answer the question using only the code below. Be concrete and brief (3-5 "
         "sentences). Name the files and functions you rely on. If the code shown does not "
-        "answer it, say so plainly.\n\n"
+        "answer it, say so plainly. Never mention which AI model or provider you are — you "
+        "are simply Shipwright.\n\n"
         f"Question: {issue}\n\nCode:\n" + "\n\n".join(context)[:12000]
     )
     try:
@@ -688,13 +694,18 @@ def run_action(job_id) -> None:
         emit(job_id, "fix.failed", reason=str(e))
         emit(job_id, "job.failed", error=str(e)[:400])
     except Exception as e:
+        # The row keeps the full repr for our own debugging; the WIRE carries the exception
+        # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`
+        # identifies the provider as plainly as the `model` field every JSON route blanks —
+        # and the events endpoint is a byte pass-through with nowhere else to scrub. The
+        # client classifies on the name alone (web/lib/errors.ts), so nothing regresses.
         msg = f"{type(e).__name__}: {e}"
         with session() as s:
             j = s.get(Job, job_id)
             j.status = ERRORED
             j.error = msg[:1000]
             j.finished_at = datetime.now(UTC)
-        emit(job_id, "job.failed", error=msg[:400])
+        emit(job_id, "job.failed", error=type(e).__name__)
 
 
 def read_symbol(repo_path: str, path: str, start: int, end: int, pad: int = 8) -> dict:

@@ -161,7 +161,7 @@ def fix_prompt(issue: str, rel_path: str, fn_src: str, lo: int, hi: int, feedbac
         f"File: {rel_path} (lines {lo}-{hi})\n```python\n{fn_src}\n```\n{fb}\n"
         "Rewrite the complete corrected function. Keep the same name and signature. If you "
         "need a new import, put it on its own line before the function. Output ONLY code, "
-        "no prose."
+        "no prose. Never name which AI model or provider you are."
     )
 
 

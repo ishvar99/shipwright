@@ -262,19 +262,22 @@ export const JobEventSchema = z.discriminatedUnion("type", [
   z.object({ ...envelope, type: z.literal("test.started") }),
   z.object({ ...envelope, type: z.literal("test.output"), text: z.string() }),
   z.object({ ...envelope, type: z.literal("test.done"), passed: z.number(), failed: z.number() }),
-  // Legacy arm: old sessions replay events that still carry a model name. It is parsed so the
-  // replay works, and rendered nowhere.
-  z.object({ ...envelope, type: z.literal("model.selected"), model: z.string().optional(), reason: z.string().optional() }),
+  // Legacy arm: old sessions replay events that still carry a model name. Parsed so the
+  // replay works — but the name is NOT declared, so zod strips it at the boundary and a
+  // provider identity from an old row can never reach the client. The events route is a byte
+  // pass-through, so this schema is the only place that scrub can happen.
+  z.object({ ...envelope, type: z.literal("model.selected"), reason: z.string().optional() }),
   // `channels` is the mode name ("hybrid", "bm25"), not a channel list. Typing it as
   // Channel[] would make isChannel silently drop it.
   z.object({ ...envelope, type: z.literal("retrieval.started"), channels: z.string() }),
+  // Token counts are deliberately undeclared, for the same reason /api/jobs blanks them:
+  // they are ours, not the caller's. Nothing emits this event today (assisted.py notifies
+  // counts only), so this arm exists to keep an old replay parsing, scrubbed.
   z.object({
     ...envelope,
     type: z.literal("model.finished"),
-    calls: z.number(),
-    input_tokens: z.number(),
-    output_tokens: z.number(),
-    parse_failures: z.number(),
+    calls: z.number().optional(),
+    parse_failures: z.number().optional(),
   }),
   z.object({ ...envelope, type: z.literal("localization.ready"), count: z.number() }),
   z.object({ ...envelope, type: z.literal("job.done"), wall_ms: z.number(), locations: z.number() }),

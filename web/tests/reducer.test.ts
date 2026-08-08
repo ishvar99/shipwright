@@ -147,7 +147,9 @@ describe("happy path", () => {
 
   it("carries the graph and retrieval facts through — and no usage, which no longer travels", () => {
     expect(s.graph).toEqual({ files: 33, symbols: 463, callEdges: 2308, importEdges: 246 });
-    expect(s.usage).toBeUndefined();
+    // Token counts are not a field on the state at all now: /api/jobs blanks them on every
+    // JSON route, and the events stream is a byte pass-through, so the schema is the scrub.
+    expect("usage" in s).toBe(false);
     expect(s.retrievalConfig).toBe("hybrid");
     expect(s.candidateCount).toBe(30);
     expect(s.locationCount).toBe(10);
@@ -749,5 +751,44 @@ describe("local run frames", () => {
   it("numbers frames so a replayed duplicate is recognisable", () => {
     const r = parseFrame(localFrame(3, "answer.delta", { text: "x" }));
     expect(r.ok && r.event.seq).toBe(3);
+  });
+});
+
+describe("redaction of provider identity", () => {
+  it("strips the endpoint an httpx failure prints", () => {
+    // Real string, reproduced from the project venv: port 11434 plus /api/chat names the
+    // provider as plainly as the `model` field every JSON route blanks.
+    const raw = "HTTPStatusError: Client error '404 Not Found' for url 'http://localhost:11434/api/chat'";
+    const out = redact(raw);
+    expect(out).not.toContain("11434");
+    expect(out).not.toContain("localhost");
+    expect(out).toContain("HTTPStatusError"); // the kind survives; errors.ts classifies on it
+  });
+
+  it("still redacts credentials inside a URL before the host goes", () => {
+    expect(redact("postgresql://user:hunter2@db.internal:5432/sw")).not.toContain("hunter2");
+  });
+});
+
+describe("feed lines are uniquely keyed", () => {
+  // The assisted engine emits search.started twice — a wide pass, then the ranked one
+  // (codegraph/assisted.py:171,177) — so two lines legitimately share the `search` beat.
+  // Keying the list by beat gave React duplicate keys and it reused the first line's DOM.
+  it("gives a repeated beat two lines with distinct ids", () => {
+    const s = fold(
+      [
+        frame(1, "search.started", { channels: "hybrid" }),
+        frame(2, "candidates.found", { count: 120 }),
+        frame(3, "search.started", { channels: "hybrid" }),
+        frame(4, "candidates.found", { count: 30 }),
+      ],
+      opened(),
+      () => 0,
+    );
+    const search = narrate(s).filter((l) => l.key === "search");
+    expect(search).toHaveLength(2);
+    expect(new Set(search.map((l) => l.id)).size).toBe(2);
+    // Each keeps its own number: the second used to overwrite the first.
+    expect(search.map((l) => l.fact)).toEqual(["120 possible locations", "30 possible locations"]);
   });
 });

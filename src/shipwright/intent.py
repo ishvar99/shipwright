@@ -44,7 +44,12 @@ _GREETING = re.compile(
     re.I,
 )
 _META = re.compile(
-    r"\b(what can you do|who are you|what are you|how do you work|help me use)\b", re.I
+    r"\b(what can you do|who are you|what are you|how do you work|help me use"
+    # Identity probes belong here rather than at the model: the capabilities answer is the
+    # right reply, and a prompt rule is a request while a route is a guarantee.
+    r"|which (ai |llm |model)|what (ai |llm |model)|are you (chatgpt|claude|gpt|llama|qwen|gemini)"
+    r"|built on)\b",
+    re.I,
 )
 # "fix it", "it's broken" — a change request in grammar, but with nothing to act on.
 _VAGUE = re.compile(

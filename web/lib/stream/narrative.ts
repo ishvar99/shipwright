@@ -11,7 +11,13 @@ import type { ActivityState } from "@/lib/stream/reduce";
  * model names — the engine is an implementation detail behind the API.
  */
 export type FeedLine = {
+  /** The beat this line reports — stable, and how close/lookup finds it. NOT unique: the
+   * assisted engine emits `search.started` twice (a wide pass, then the ranked one), so two
+   * lines legitimately share a beat. */
   key: string;
+  /** Unique per line, for React. Keying the list by `key` gave duplicate keys on any repeated
+   * beat, and React then reused the first line's DOM for the second. */
+  id: string;
   state: "active" | "done" | "failed";
   label: string;
   /** A small fact for the completed line ("33 files, 463 definitions"). */
@@ -146,7 +152,7 @@ export function narrate(state: ActivityState): FeedLine[] {
       // even if its close event never arrived (legacy recordings).
       if (open && open.key !== opens.key) close(BEATS.find((b) => b.key === open!.key)?.done);
       if (!open || open.key !== opens.key) {
-        open = { key: opens.key, state: "active", label: opens.active };
+        open = { key: opens.key, id: `${opens.key}#${lines.length}`, state: "active", label: opens.active };
         lines.push(open);
       }
       continue;
@@ -156,6 +162,7 @@ export function narrate(state: ActivityState): FeedLine[] {
       const count = entry.data?.count;
       lines.push({
         key: "found",
+        id: `found#${lines.length}`,
         state: "done",
         label: typeof count === "number" ? `Found ${count} place${count === 1 ? "" : "s"} to look` : "Found the places to look",
       });
@@ -170,7 +177,7 @@ export function narrate(state: ActivityState): FeedLine[] {
       continue;
     }
     if (entry.type === "fix.skipped") {
-      lines.push({ key: "fix", state: "done", label: "No single function to fix here" });
+      lines.push({ key: "fix", id: `fix#${lines.length}`, state: "done", label: "No single function to fix here" });
       continue;
     }
     if (entry.type === "test.done" && lines.at(-1)?.key === "test") {
