@@ -111,6 +111,14 @@ const BEATS: readonly Beat[] = [
     fact: (d) => (typeof d.branch === "string" ? `branch ${d.branch}` : undefined),
   },
   {
+    key: "pr",
+    opens: ["pr.started"],
+    closes: ["pr.ready"],
+    active: "Opening a pull request…",
+    done: "Opened a pull request",
+    fact: (d) => (typeof d.number === "number" ? `#${d.number}` : undefined),
+  },
+  {
     key: "env",
     opens: ["env.started"],
     closes: ["env.ready"],
@@ -176,6 +184,15 @@ export function narrate(state: ActivityState): FeedLine[] {
       }
       continue;
     }
+    if (entry.type === "pr.failed") {
+      if (open && open.key === "pr") {
+        open.state = "failed";
+        open.label = "Couldn't open the pull request";
+        open.fact = typeof entry.data?.reason === "string" ? entry.data.reason : undefined;
+        open = null;
+      }
+      continue;
+    }
     if (entry.type === "fix.skipped") {
       lines.push({ key: "fix", id: `fix#${lines.length}`, state: "done", label: "No single function to fix here" });
       continue;
@@ -220,6 +237,11 @@ export function failureCopy(errorText: string): { headline: string; detail: stri
     return { headline: "The analysis engine isn't responding right now. Try again in a moment.", detail };
   }
   const name = errorText.split(":", 1)[0].trim();
+  // Already written for a user by the one path that can say something specific — showing the
+  // generic copy instead would contradict the beat that just named the actual reason.
+  if (name === "PullRequestError") {
+    return { headline: firstLine(redact(errorText.slice(name.length + 1).trim())), detail };
+  }
   if (["FileNotFoundError", "NotADirectoryError", "IsADirectoryError", "PermissionError"].includes(name)) {
     return { headline: "We couldn't read this repository. Re-import it and try again.", detail };
   }

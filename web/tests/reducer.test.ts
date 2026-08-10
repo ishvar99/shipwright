@@ -645,6 +645,31 @@ describe("narrative feed", () => {
     );
   });
 
+  it("narrates opening a pull request, and says so plainly when it is refused", () => {
+    const opened = fold([
+      frame(1, "pr.started", { branch: "shipwright/fix-c2fee3f9", slug: "psf/requests" }, TS),
+      frame(2, "pr.ready", { url: "https://github.com/psf/requests/pull/42", number: 42 }, TS),
+    ]);
+    expect(narrate(opened)).toMatchObject([
+      { key: "pr", state: "done", label: "Opened a pull request", fact: "#42" },
+    ]);
+
+    const refused = fold([
+      frame(1, "pr.started", { branch: "shipwright/fix-c2fee3f9", slug: "psf/requests" }, TS),
+      frame(2, "pr.failed", { reason: "You don't have push access to psf/requests." }, TS),
+    ]);
+    expect(narrate(refused)).toMatchObject([
+      {
+        state: "failed",
+        label: "Couldn't open the pull request",
+        fact: "You don't have push access to psf/requests.",
+      },
+    ]);
+    // The banner must not contradict the beat with generic copy.
+    expect(failureCopy("PullRequestError: You don't have push access to psf/requests.").headline)
+      .toBe("You don't have push access to psf/requests.");
+  });
+
   it("narrates a legacy recording through the fallback closes", () => {
     const legacy = [
       frame(1, "job.started", { repo: "r", mode: "extract_rerank", base: "hybrid" }, TS),

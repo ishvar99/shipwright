@@ -264,7 +264,7 @@ export function SessionView({
   );
 }
 
-type ActionKind = "apply" | "test" | "fix_retry";
+type ActionKind = "apply" | "test" | "fix_retry" | "open_pr";
 
 /** The follow-up input: the composer's card and grammar, none of its chrome — the repository
  * and the session are already decided, so the only control left is the question. */
@@ -499,9 +499,11 @@ function SessionBody({
               busy={actionBusy}
               pendingKind={pendingAction}
               live={live}
+              repoSlug={repoSlug}
               onApply={() => onAction("apply")}
               onTest={() => onAction("test")}
               onRetry={() => onAction("fix_retry")}
+              onOpenPr={() => onAction("open_pr")}
             />
           </div>
         )}

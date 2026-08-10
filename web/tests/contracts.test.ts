@@ -14,7 +14,7 @@ import { locateLocal } from "@/lib/local/run";
 import { unzip } from "@/lib/local/unzip";
 import { prefilter } from "@/lib/intent";
 import { buildMessages } from "@/lib/lite";
-import { issueToQuestion, resolveIssueRef } from "@/lib/github-ref";
+import { isGitHubSlug, issueToQuestion, resolveIssueRef } from "@/lib/github-ref";
 import { parseWorkspacePath, repoFiles, repoHome, repoSession } from "@/lib/repo-routes";
 
 // Fixtures copied from live responses, including the naive (no-offset) timestamps
@@ -768,5 +768,14 @@ describe("GitHub issue references", () => {
     expect(q).toContain("Crash");
     expect(prefilter(q)).toBeNull();
     expect(issueToQuestion({ title: "T", body: "  " }).trim()).toBe("T");
+  });
+
+  it("offers a pull request only where there is somewhere to push", () => {
+    // Same gate as the bare #number: a zip or local slug has no GitHub remote behind it, and
+    // offering the button there would promise a push that cannot happen.
+    expect(isGitHubSlug("psf/requests")).toBe(true);
+    expect(isGitHubSlug("zip:demoproj")).toBe(false);
+    expect(isGitHubSlug("local:my-project")).toBe(false);
+    expect(isGitHubSlug("")).toBe(false);
   });
 });

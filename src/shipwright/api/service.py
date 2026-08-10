@@ -31,6 +31,7 @@ from ..db import session
 from ..fix import FixError, generate_fix
 from ..intent import CHANGE, OTHER, QUESTION, classify
 from ..models import DONE, ERRORED, RUNNING, Event, Job, Repo
+from . import github
 
 WORKSPACES = Path("workspaces")
 
@@ -63,6 +64,19 @@ class FileTooLarge(Exception):
 
 def repo_lock(repo_id) -> threading.Lock:
     return _REPO_LOCKS[str(repo_id)]
+
+
+# A GitHub token for one open_pr job, in memory only for the hop from the request thread to
+# the worker. Never on the job row: `result` is echoed back to the caller and stored in Postgres.
+_TOKENS: dict[str, str] = {}
+
+
+def stash_token(job_id, token: str) -> None:
+    _TOKENS[str(job_id)] = token
+
+
+def _take_token(job_id) -> str:
+    return _TOKENS.pop(str(job_id), "")
 
 
 def _sha(raw: bytes) -> str:
@@ -556,6 +570,10 @@ def run_action(job_id) -> None:
     """Apply / test / fix-again, each its own job so the session stream's terminal semantics
     stay intact. Outcomes are written back onto the parent's result.fix."""
     started = time.perf_counter()
+    # First statement in the function, before any row lookup: the prelude below dereferences
+    # rows that a concurrent unlink can delete, and an exception there would strand a live
+    # GitHub token in _TOKENS for the life of the process.
+    token = _take_token(job_id)
     with session() as s:
         job = s.get(Job, job_id)
         job.status = RUNNING
@@ -580,7 +598,12 @@ def run_action(job_id) -> None:
         repo_path = str(repo_dir)
         if kind == "apply":
             emit(job_id, "apply.started")
-            branch = f"shipwright/fix-{str(parent_id)[:8]}"
+            # The attempt is in the name from the second one on. `checkout -B` RESETS the
+            # branch onto the import commit, so reusing the name after a retry would ask
+            # GitHub to rewrite a branch it already has — rejected, permanently, with the
+            # first attempt's pull request still open against it.
+            attempt = int(fix.get("attempt") or 1)
+            branch = f"shipwright/fix-{str(parent_id)[:8]}" + ("" if attempt < 2 else f"-{attempt}")
             with repo_lock(repo_id):
                 with session() as s:
                     base = s.get(Repo, repo_id).import_ref or "HEAD"
@@ -607,7 +630,10 @@ def run_action(job_id) -> None:
                 if not ok:
                     raise RuntimeError(f"commit failed: {err}")
             fix["applied_branch"] = branch
+            # Both belong to the previous state of this fix; leaving either would attach a
+            # stale test result or a link to somebody's already-open PR to a new change.
             fix.pop("tests", None)
+            fix.pop("pr_url", None)
             write_back(fix)
             emit(job_id, "apply.done", branch=branch)
 
@@ -674,6 +700,25 @@ def run_action(job_id) -> None:
                 deletions=new_fix["deletions"],
                 attempt=attempt,
             )
+        elif kind == "open_pr":
+            with session() as s:
+                slug = s.get(Repo, repo_id).slug
+            branch = fix["applied_branch"]
+            emit(job_id, "pr.started", branch=branch, slug=slug)
+            if not token:
+                raise github.PullRequestError("Connect GitHub before opening a pull request.")
+            # Locked: a test run mid-push would have the branch checked out from under us.
+            with repo_lock(repo_id):
+                github.push_branch(repo_dir, slug, branch, token)
+            base = github.default_branch(slug, token)
+            title = f"shipwright: {(issue.strip().splitlines() or ['fix'])[0][:60]}"
+            pr = github.open_pull_request(
+                slug, branch, base, title, github.pr_body(issue, fix), token
+            )
+            fix["pr_url"] = pr["url"]
+            write_back(fix)
+            emit(job_id, "pr.ready", url=pr["url"], number=pr["number"])
+
         else:
             raise RuntimeError(f"unknown action: {kind}")
 
@@ -693,6 +738,18 @@ def run_action(job_id) -> None:
             j.finished_at = datetime.now(UTC)
         emit(job_id, "fix.failed", reason=str(e))
         emit(job_id, "job.failed", error=str(e)[:400])
+    except github.PullRequestError as e:
+        # Already a sentence for the user, and already free of git stderr, so unlike the
+        # generic handler below this one is safe to put on the wire verbatim. The name is kept
+        # in front of it so the client shows this sentence instead of its own generic copy.
+        msg = f"PullRequestError: {e}"
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = ERRORED
+            j.error = msg[:400]
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "pr.failed", reason=str(e))
+        emit(job_id, "job.failed", error=msg[:400])
     except Exception as e:
         # The row keeps the full repr for our own debugging; the WIRE carries the exception
         # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`

@@ -17,6 +17,12 @@ const URL_REF = /^https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)/i;
 const QUALIFIED = /^([\w.-]+)\/([\w.-]+)#(\d+)$/;
 const BARE = /^#?(\d+)$/;
 
+/** Is this slug a real `owner/name` on GitHub — i.e. somewhere we could push? `zip:` and
+ * `local:` slugs are not, and neither is an empty one. */
+export function isGitHubSlug(slug: string): boolean {
+  return SLUG.test(slug);
+}
+
 export function resolveIssueRef(input: string, repo: Repo | null): IssueRef | null {
   const text = input.trim();
 

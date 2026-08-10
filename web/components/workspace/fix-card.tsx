@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import type { Fix } from "@/lib/contracts";
 import { cn } from "@/lib/cn";
+import { isGitHubSlug } from "@/lib/github-ref";
 import { parseUnifiedDiff } from "@/lib/results/diff";
 
 function download(patch: string, name: string) {
@@ -24,9 +26,11 @@ export function FixCard({
   busy,
   pendingKind = null,
   live,
+  repoSlug = "",
   onApply,
   onTest,
   onRetry,
+  onOpenPr,
   actions = true,
 }: {
   fix: Fix | null | undefined;
@@ -34,13 +38,17 @@ export function FixCard({
   writing: boolean;
   busy: boolean;
   /** Which action is in flight, so the button says what it is doing. */
-  pendingKind?: "apply" | "test" | "fix_retry" | null;
+  pendingKind?: "apply" | "test" | "fix_retry" | "open_pr" | null;
   live: boolean;
+  /** `owner/name` when the repository came from GitHub — the only case with somewhere to push. */
+  repoSlug?: string;
   onApply: () => void;
   onTest: () => void;
   onRetry: () => void;
+  onOpenPr?: () => void;
   actions?: boolean;
 }) {
+  const [confirmingPr, setConfirmingPr] = useState(false);
   if (writing && !fix?.patch) {
     return (
       <div className="sw-card overflow-hidden">
@@ -75,6 +83,16 @@ export function FixCard({
           <span className="sw-pop rounded-full bg-ok-soft px-2 py-0.5 font-mono text-xs text-ok">
             {fix.applied_branch}
           </span>
+        )}
+        {fix.pr_url && (
+          <a
+            href={fix.pr_url}
+            target="_blank"
+            rel="noreferrer"
+            className="sw-pop rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent hover:underline"
+          >
+            Pull request opened ↗
+          </a>
         )}
         {tests && (
           <span
@@ -117,7 +135,31 @@ export function FixCard({
         </div>
       ))}
 
-      {actions && (
+      {actions && confirmingPr && (
+        // Replaces the row rather than joining it: this is the one action that writes to
+        // somebody's GitHub account, and it should be the only thing asked at that moment.
+        <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3 text-sm">
+          <span className="text-subtle">
+            Push <span className="font-mono text-fg">{fix.applied_branch}</span> to{" "}
+            <span className="font-mono text-fg">{repoSlug}</span> and open a pull request?
+          </span>
+          <Button
+            variant="primary"
+            className="ml-auto"
+            onClick={() => {
+              setConfirmingPr(false);
+              onOpenPr?.();
+            }}
+          >
+            Push and open
+          </Button>
+          <Button variant="ghost" onClick={() => setConfirmingPr(false)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {actions && !confirmingPr && (
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline px-4 py-3">
         {!applied && (
           <Button
@@ -143,6 +185,12 @@ export function FixCard({
         {tests && tests.failed > 0 && (fix.attempt ?? 1) < 2 && live && (
           <Button variant="primary" onClick={onRetry} aria-disabled={busy || undefined}>
             {pendingKind === "fix_retry" ? "Trying again…" : "Try again with the failure"}
+          </Button>
+        )}
+        {applied && !fix.pr_url && onOpenPr && live && isGitHubSlug(repoSlug) && (
+          <Button onClick={() => setConfirmingPr(true)} aria-disabled={busy || undefined}>
+            <Icon name="github" size={16} />
+            {pendingKind === "open_pr" ? "Opening a pull request…" : "Open a pull request"}
           </Button>
         )}
         <Button variant="ghost" onClick={() => download(fix.patch!, "shipwright-fix.patch")}>
