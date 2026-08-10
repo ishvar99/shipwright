@@ -261,6 +261,9 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
     case "fix.skipped":
     case "apply.started":
     case "apply.done":
+    case "pr.started":
+    case "pr.ready":
+    case "pr.failed":
     case "env.started":
     case "env.ready":
     case "test.started":

@@ -40,6 +40,7 @@ from .service import (
     run_action,
     run_localize,
     save_file,
+    stash_token,
 )
 
 
@@ -101,8 +102,11 @@ class ImportRepo(BaseModel):
 
 
 class CreateAction(BaseModel):
-    kind: str = Field(pattern="^(apply|test|fix_retry)$")
+    kind: str = Field(pattern="^(apply|test|fix_retry|open_pr)$")
     symbol: str = ""
+    # Supplied per call by the BFF for `open_pr` only, and never stored: the one action that
+    # writes to somebody else's account is the one action that needs a credential.
+    token: str = Field("", description="GitHub access token, for open_pr")
 
 
 class CreateJob(BaseModel):
@@ -495,6 +499,14 @@ def actions_create(
             raise HTTPException(409, "There is no fix to apply yet.")
         if body.kind == "test" and not fix.get("applied_branch"):
             raise HTTPException(409, "Apply the fix before running the tests.")
+        if body.kind == "open_pr":
+            repo = s.get(Repo, parent.repo_id)
+            if not fix.get("applied_branch"):
+                raise HTTPException(409, "Apply the fix before opening a pull request.")
+            if not repo or repo.source != "github":
+                raise HTTPException(409, "Only a GitHub-imported repository has somewhere to push.")
+            if not body.token:
+                raise HTTPException(409, "Connect GitHub before opening a pull request.")
         meta: dict[str, Any] = {"parent": str(parent.id)}
         if body.symbol:
             meta["symbol"] = body.symbol
@@ -513,6 +525,10 @@ def actions_create(
         repo = s.get(Repo, parent.repo_id)
         out, action_id = _job_json(job, repo.slug if repo else ""), job.id
 
+    # Handed to the worker in memory, never through the job row: `result` is echoed straight
+    # back to the caller by _job_json and persisted in Postgres.
+    if body.kind == "open_pr":
+        stash_token(action_id, body.token)
     background.add_task(POOL.submit, run_action, action_id)
     return out
 

@@ -52,6 +52,7 @@ export const FixSchema = z.object({
   attempt: z.number().optional(),
   failed: z.string().optional(),
   applied_branch: z.string().optional(),
+  pr_url: z.string().optional(),
   target: z
     .object({ symbol: z.string(), path: z.string(), name: z.string(), start_line: z.number() })
     .optional(),
@@ -199,6 +200,9 @@ export const EVENT_TYPES = [
   "fix.skipped",
   "apply.started",
   "apply.done",
+  "pr.started",
+  "pr.ready",
+  "pr.failed",
   "env.started",
   "env.ready",
   "test.started",
@@ -257,6 +261,9 @@ export const JobEventSchema = z.discriminatedUnion("type", [
   z.object({ ...envelope, type: z.literal("fix.skipped") }),
   z.object({ ...envelope, type: z.literal("apply.started") }),
   z.object({ ...envelope, type: z.literal("apply.done"), branch: z.string() }),
+  z.object({ ...envelope, type: z.literal("pr.started"), branch: z.string(), slug: z.string() }),
+  z.object({ ...envelope, type: z.literal("pr.ready"), url: z.string(), number: z.number() }),
+  z.object({ ...envelope, type: z.literal("pr.failed"), reason: z.string() }),
   z.object({ ...envelope, type: z.literal("env.started") }),
   z.object({ ...envelope, type: z.literal("env.ready") }),
   z.object({ ...envelope, type: z.literal("test.started") }),
