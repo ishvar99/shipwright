@@ -33,8 +33,10 @@ export type ReposState = {
 
 // Vercel rejects request bodies over 4.5 MB with a 413 before route code runs, so a
 // deployment fronting a hosted backend caps uploads client-side (NEXT_PUBLIC_MAX_UPLOAD_MB=4
-// on Vercel). Local dev keeps the backend's real 150 MB limit.
-const MAX_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 150);
+// on Vercel, inlined at build time). Local dev keeps the backend's real 150 MB limit.
+// Number.isFinite guard: a malformed value must fall back to the default, not to 0 or NaN.
+const parsedMb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB);
+const MAX_UPLOAD_MB = Number.isFinite(parsedMb) && parsedMb > 0 ? parsedMb : 150;
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
 export function useRepos(live: boolean): ReposState {

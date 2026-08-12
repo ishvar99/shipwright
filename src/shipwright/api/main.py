@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -42,6 +43,12 @@ from .service import (
     save_file,
     stash_token,
 )
+
+# The app's own loggers (shipwright.boot, shipwright.jobs) emit INFO for boot
+# reconciliation counts and ERROR w/ tracebacks for job failures. Nothing else
+# configures logging (uvicorn only configures its own), so without this the INFO
+# lines never reach Render's log capture.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager
