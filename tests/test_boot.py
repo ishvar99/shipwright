@@ -39,6 +39,35 @@ def test_reaper_errors_stale_jobs_and_emits_terminal_event(db):
         assert [e.type for e in ev] == ["job.failed"] and ev[0].seq == 1
 
 
+def test_heal_eventless_terminals(db):
+    from shipwright.api.boot import heal_eventless_terminals
+    from shipwright.api.service import emit
+
+    with db.session() as s:
+        repo = _mk_repo(s, path="/tmp")
+        done_orphan = Job(repo_id=repo.id, issue="d" * 12, status=DONE, wall_ms=1234)
+        err_orphan = Job(repo_id=repo.id, issue="e" * 12, status=ERRORED)
+        done_ok = Job(repo_id=repo.id, issue="k" * 12, status=DONE)
+        running = Job(repo_id=repo.id, issue="r" * 12, status=RUNNING)
+        s.add_all([done_orphan, err_orphan, done_ok, running])
+        s.flush()
+        ids = (done_orphan.id, err_orphan.id, done_ok.id, running.id)
+    emit(ids[2], "job.done", wall_ms=1)  # done_ok already has its terminal event
+
+    assert heal_eventless_terminals() == 2
+    with db.session() as s:
+        types = {
+            job_id: [e.type for e in s.scalars(select(Event).where(Event.job_id == job_id))]
+            for job_id in ids
+        }
+    assert types[ids[0]] == ["job.done"]
+    assert types[ids[1]] == ["job.failed"]
+    assert types[ids[2]] == ["job.done"]  # not duplicated
+    assert types[ids[3]] == []  # running jobs are the reaper's business, not the healer's
+
+    assert heal_eventless_terminals() == 0  # idempotent
+
+
 def test_reconciler_fails_wedged_importing_and_missing_paths(db, tmp_path):
     from shipwright.api.boot import reconcile_repos
 

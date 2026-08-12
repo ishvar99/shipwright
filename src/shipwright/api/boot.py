@@ -4,7 +4,8 @@ Render's free tier spins the service down after 15 idle minutes and discards the
 and "Render might restart a Free web service at any time" is documented behaviour. Every
 function here is idempotent and runs in the FastAPI lifespan, in this order:
 
-    guarded_init_schema() -> reap_stale_jobs() -> reconcile_repos() -> seed_demos()
+    guarded_init_schema() -> reap_stale_jobs() -> heal_eventless_terminals()
+        -> reconcile_repos() -> seed_demos()
 
 Reconcile before seed, so a demo row the reconciler failed is repaired by the seeder.
 """
@@ -20,7 +21,7 @@ from sqlalchemy import select, text
 
 from .. import db
 from ..db import init_schema, session
-from ..models import ERRORED, QUEUED, RUNNING, Job, Repo
+from ..models import DONE, ERRORED, QUEUED, RUNNING, Event, Job, Repo
 
 log = logging.getLogger("shipwright.boot")
 
@@ -62,6 +63,35 @@ def reap_stale_jobs() -> int:
     if stale:
         log.info("reaped %d stale job(s)", len(stale))
     return len(stale)
+
+
+def heal_eventless_terminals() -> int:
+    """Terminal rows whose event stream never got its terminal event.
+
+    Two writers create this state by crashing between their status commit and their
+    emit(): the reaper above, and run_localize's own completion path. Without the
+    terminal event the SSE stream polls keepalives forever — the client is purely
+    event-driven and never consults Job.status. Idempotent: emitting the missing
+    event removes the row from the next boot's query."""
+    from .service import emit  # late import: service pulls in the tree-sitter stack
+
+    terminal_events = select(Event.job_id).where(Event.type.in_(("job.done", "job.failed")))
+    with session() as s:
+        orphans = list(
+            s.scalars(
+                select(Job).where(
+                    Job.status.in_((DONE, ERRORED)), Job.id.not_in(terminal_events)
+                )
+            )
+        )
+    for job in orphans:
+        if job.status == DONE:
+            emit(job.id, "job.done", wall_ms=job.wall_ms, locations=0)
+        else:
+            emit(job.id, "job.failed", error="HostRestart")
+    if orphans:
+        log.info("healed %d event-less terminal job(s)", len(orphans))
+    return len(orphans)
 
 
 def reconcile_repos() -> int:
