@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -34,6 +36,8 @@ from ..models import DONE, ERRORED, RUNNING, Event, Job, Repo
 from . import github
 
 WORKSPACES = Path("workspaces")
+
+log = logging.getLogger("shipwright.jobs")
 
 # One lock per repo id serialises every git-mutating operation (apply, test, save) so they
 # never collide on .git/index.lock and a save's read-hash→write→commit stays atomic.
@@ -176,6 +180,15 @@ def import_repo(repo_id, token: str = "") -> None:
             ok, import_sha = _run_git(["rev-parse", "HEAD"], cwd=dest, timeout=60)
             import_sha = import_sha.strip() if ok else ""
 
+        if source != "local" and settings.max_clone_mb:
+            used = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
+            if used > settings.max_clone_mb * 1024 * 1024:
+                shutil.rmtree(dest, ignore_errors=True)
+                raise RuntimeError(
+                    f"repository is larger than the hosted limit "
+                    f"({settings.max_clone_mb} MB) — run Shipwright locally for big repos"
+                )
+
         graph = build(dest)
         stats = graph.stats()
         with session() as s:
@@ -297,9 +310,9 @@ def run_localize(job_id) -> None:
         model_name = settings.loc_model
         provider = None
         if mode in ("extract", "rerank", "extract_rerank"):
-            from ..gateway.ollama import OllamaProvider
+            from ..gateway.factory import make_provider
 
-            provider = OllamaProvider(model=model_name)
+            provider = make_provider(model_name)
 
         # Route before working. Retrieval always returns its top-k and the fused score is
         # rank-derived, so nothing downstream can tell a question from a change request —
@@ -398,12 +411,10 @@ def run_localize(job_id) -> None:
         emit(job_id, "job.done", wall_ms=wall, locations=len(results))
 
     except Exception as e:
-        # The row keeps the full repr for our own debugging; the WIRE carries the exception
-        # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`
-        # identifies the provider as plainly as the `model` field every JSON route blanks —
-        # and the events endpoint is a byte pass-through with nowhere else to scrub. The
-        # client classifies on the name alone (web/lib/errors.ts), so nothing regresses.
-        msg = f"{type(e).__name__}: {e}"
+        # NAME only on the row and the wire (web/lib/errors.ts classifies on it); the full
+        # repr can embed the provider URL via httpx, so it goes to server logs instead.
+        log.exception("job %s failed", job_id)
+        msg = type(e).__name__
         with session() as s:
             j = s.get(Job, job_id)
             j.status = ERRORED
@@ -479,6 +490,11 @@ def _fix_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -
     except FixError as e:
         emit(job_id, "fix.failed", reason=str(e))
         return {"failed": str(e)}
+    except Exception as e:  # noqa: BLE001 - the located results are still the product
+        # Provider failures (429 after retries, timeouts) must not error the whole job:
+        # localization already succeeded and is worth showing.
+        emit(job_id, "fix.failed", reason=type(e).__name__)
+        return {"failed": type(e).__name__}
 
 
 def _git_init_owned(dest: Path) -> str:
@@ -680,13 +696,13 @@ def run_action(job_id) -> None:
             feedback = "" if symbol else (fix.get("tests") or {}).get("tail", "")
             attempt = int(fix.get("attempt") or 1) + 1
             emit(job_id, "fix.started", attempt=attempt)
-            from ..gateway.ollama import OllamaProvider
+            from ..gateway.factory import make_provider
 
             new_fix, _ = generate_fix(
                 repo_path=repo_path,
                 issue=issue,
                 target=target,
-                model=OllamaProvider(model=settings.loc_model),
+                model=make_provider(settings.loc_model),
                 on_delta=lambda t: emit(job_id, "fix.delta", text=t),
                 feedback=feedback,
             )
@@ -751,12 +767,9 @@ def run_action(job_id) -> None:
         emit(job_id, "pr.failed", reason=str(e))
         emit(job_id, "job.failed", error=msg[:400])
     except Exception as e:
-        # The row keeps the full repr for our own debugging; the WIRE carries the exception
-        # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`
-        # identifies the provider as plainly as the `model` field every JSON route blanks —
-        # and the events endpoint is a byte pass-through with nowhere else to scrub. The
-        # client classifies on the name alone (web/lib/errors.ts), so nothing regresses.
-        msg = f"{type(e).__name__}: {e}"
+        # NAME only — see run_localize's handler.
+        log.exception("job %s failed", job_id)
+        msg = type(e).__name__
         with session() as s:
             j = s.get(Job, job_id)
             j.status = ERRORED
