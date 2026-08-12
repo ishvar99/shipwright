@@ -22,8 +22,9 @@ export class ApiError extends Error {
 }
 
 /** Exception names httpx raises when Ollama is unreachable or the model is not pulled. Keyed on
- * the NAME, because run_localize formats as f"{type(e).__name__}: {e}" and the message text
- * differs by platform and resolver. */
+ * the NAME, because message text differs by platform and resolver. run_localize now sends the
+ * exception name alone; older rows may still carry the previous "Name: detail" format, which
+ * the parsing below also handles. */
 const MODEL_TRANSPORT_ERRORS = new Set([
   "ConnectError",
   "ConnectTimeout",
