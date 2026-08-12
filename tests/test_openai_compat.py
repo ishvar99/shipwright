@@ -127,3 +127,42 @@ def test_retries_exhaust_then_raise(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         _provider(handler).generate([{"role": "user", "content": "hi"}], schema=SCHEMA)
     assert calls["n"] == 4  # 1 try + 3 retries
+
+
+def test_streaming_retries_before_any_delta(monkeypatch):
+    monkeypatch.setattr("shipwright.gateway.openai_compat.time.sleep", lambda s: None)
+    sse = (
+        'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={})
+        return httpx.Response(
+            200, content=sse.encode(), headers={"content-type": "text/event-stream"}
+        )
+
+    deltas: list[str] = []
+    r = _provider(handler).generate([{"role": "user", "content": "hi"}], on_delta=deltas.append)
+    assert calls["n"] == 2
+    assert deltas == ["ok"] and r.text == "ok"  # exactly once — no double delivery
+
+
+def test_negative_retry_after_clamps_to_zero(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr("shipwright.gateway.openai_compat.time.sleep", sleeps.append)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"retry-after": "-3"}, json={})
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "ok"}}], "usage": {},
+        })
+
+    r = _provider(handler).generate([{"role": "user", "content": "hi"}], schema=SCHEMA)
+    assert calls["n"] == 2 and r.text == "ok" and sleeps == [0.0]
