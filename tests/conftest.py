@@ -21,18 +21,19 @@ def _pg_available() -> bool:
     try:
         eng = create_engine(ADMIN_URL, connect_args={"connect_timeout": 2})
         with eng.connect():
+            eng.dispose()
             return True
     except Exception:
         return False
 
 
-requires_pg = pytest.mark.skipif(
-    not _pg_available(), reason="dev Postgres not running (make up)"
-)
+requires_pg = pytest.mark.skipif(not _pg_available(), reason="dev Postgres not running (make up)")
 
 
 @pytest.fixture(scope="session")
 def test_database_url() -> str:
+    if not _pg_available():
+        pytest.skip("dev Postgres not running (make up)")
     admin = create_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
     with admin.connect() as c:
         exists = c.execute(
@@ -48,16 +49,21 @@ def test_database_url() -> str:
 def db(test_database_url):
     """Patch shipwright.db's engine/SessionLocal to the scratch database, with a clean
     schema per test. session() and init_schema() resolve these module globals at call
-    time, so patching the attributes is enough — no reload gymnastics."""
+    time, so patching the attributes is enough — no reload gymnastics.
+
+    NOTE: one pytest run at a time — concurrent runs share shipwright_test and would
+    clobber each other's tables."""
     import shipwright.db as dbm
     from shipwright.models import Base
 
     test_engine = create_engine(test_database_url, pool_pre_ping=True)
     old_engine, old_sm = dbm.engine, dbm.SessionLocal
-    dbm.engine = test_engine
-    dbm.SessionLocal = sessionmaker(test_engine, expire_on_commit=False)
-    Base.metadata.drop_all(test_engine)
-    dbm.init_schema()
-    yield dbm
-    dbm.engine, dbm.SessionLocal = old_engine, old_sm
-    test_engine.dispose()
+    try:
+        dbm.engine = test_engine
+        dbm.SessionLocal = sessionmaker(test_engine, expire_on_commit=False)
+        Base.metadata.drop_all(test_engine)
+        dbm.init_schema()
+        yield dbm
+    finally:
+        dbm.engine, dbm.SessionLocal = old_engine, old_sm
+        test_engine.dispose()
