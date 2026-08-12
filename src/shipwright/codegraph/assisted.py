@@ -29,6 +29,8 @@ EXTRACT_SCHEMA = {
         "keywords": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["symbols", "keywords"],
+    # additionalProperties: strict structured-output modes require it; Ollama ignores it.
+    "additionalProperties": False,
 }
 
 # Indices, not ids: small models mangle long strings but handle integers reliably.
@@ -36,6 +38,7 @@ RERANK_SCHEMA = {
     "type": "object",
     "properties": {"ranked": {"type": "array", "items": {"type": "integer"}}},
     "required": ["ranked"],
+    "additionalProperties": False,
 }
 
 MAX_ISSUE_CHARS = 3000
