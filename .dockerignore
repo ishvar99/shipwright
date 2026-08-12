@@ -13,3 +13,8 @@ tests
 *.log
 .env
 .env.*
+__pycache__
+*.pyc
+*.pem
+*.key
+credentials*.json
