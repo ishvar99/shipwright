@@ -443,7 +443,7 @@ def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model
         except ValueError:
             continue
         body = "\n".join(window["lines"][:40])
-        context.append(f'--- {r["path"]}:{r["start_line"]} ({r["name"]})\n{body}')
+        context.append(f"--- {r['path']}:{r['start_line']} ({r['name']})\n{body}")
     if not context:
         return ""
 

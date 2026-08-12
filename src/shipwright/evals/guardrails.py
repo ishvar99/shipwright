@@ -34,12 +34,24 @@ class Case:
 
 CASES: tuple[Case, ...] = (
     # --- genuine change requests: locate and fix -------------------------------------------
-    Case("get_accounts lowercases the username filter but compares it against the raw value",
-         "bug", True, True),
-    Case("Token refresh happens on every silent call - cache the authority validation",
-         "bug", True, True),
-    Case("remove_account leaves the refresh token behind when the account has no home id",
-         "bug", True, True),
+    Case(
+        "get_accounts lowercases the username filter but compares it against the raw value",
+        "bug",
+        True,
+        True,
+    ),
+    Case(
+        "Token refresh happens on every silent call - cache the authority validation",
+        "bug",
+        True,
+        True,
+    ),
+    Case(
+        "remove_account leaves the refresh token behind when the account has no home id",
+        "bug",
+        True,
+        True,
+    ),
     # --- questions about the code: answer, never edit --------------------------------------
     Case("whats this project ?", "question", False, False),
     Case("what does this repository do", "question", False, False),

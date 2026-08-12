@@ -10,9 +10,7 @@ from .models import Base
 # pool_size 5 with NO overflow: Supavisor session-mode slots are ~15 for the free tier's
 # Nano compute, and during a redeploy the old and new instance hold pools concurrently.
 # Overflow connections would exhaust the pooler exactly when the SSE loops are busiest.
-engine = create_engine(
-    settings.database_url, pool_pre_ping=True, pool_size=5, max_overflow=0
-)
+engine = create_engine(settings.database_url, pool_pre_ping=True, pool_size=5, max_overflow=0)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
@@ -39,14 +37,18 @@ def _reconcile_owner() -> None:
         c.execute(text("UPDATE repos SET owner = '' WHERE owner IS NULL"))
         c.execute(text("UPDATE jobs  SET owner = '' WHERE owner IS NULL"))
 
-        stale = c.execute(
-            text("""
+        stale = (
+            c.execute(
+                text("""
                 SELECT con.conname FROM pg_constraint con
                 JOIN pg_class rel ON rel.oid = con.conrelid
                 WHERE rel.relname = 'repos' AND con.contype = 'u'
                   AND pg_get_constraintdef(con.oid) = 'UNIQUE (slug)'
             """)
-        ).scalars().all()
+            )
+            .scalars()
+            .all()
+        )
         for name in stale:
             c.execute(text(f'ALTER TABLE repos DROP CONSTRAINT "{name}"'))
 
