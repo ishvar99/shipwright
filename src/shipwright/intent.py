@@ -22,6 +22,8 @@ SCHEMA = {
     "type": "object",
     "properties": {"intent": {"type": "string", "enum": [CHANGE, QUESTION, OTHER]}},
     "required": ["intent"],
+    # Strict structured-output mode (Groq/OpenAI) rejects objects without this; Ollama ignores it.
+    "additionalProperties": False,
 }
 
 _PROMPT = """You route requests for a code assistant. Classify the user's message.
