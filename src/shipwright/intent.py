@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import re
 
+from .parsing import parse_json
+
 CHANGE = "change"  # asks for the code to be different: bug report, feature request
 QUESTION = "question"  # asks about the code: where is X, how does Y work
 OTHER = "other"  # nothing to do here: greeting, off-topic, too vague to act on
@@ -97,12 +99,13 @@ def classify(issue: str, model=None) -> tuple[str, str]:
             [{"role": "user", "content": _PROMPT.format(issue=issue[:2000])}],
             schema=SCHEMA,
             temperature=0.0,
-            max_tokens=16,
+            # 64, not 16: a hosted provider without constrained decoding may spend tokens
+            # on fences before the JSON; 16 truncates it into an unparseable stub.
+            max_tokens=64,
             timeout=30.0,
         )
-        import json
-
-        intent = str(json.loads(result.text).get("intent", "")).strip().lower()
+        data = parse_json(result.text) or {}
+        intent = str(data.get("intent", "")).strip().lower()
         if intent not in (CHANGE, QUESTION, OTHER):
             return QUESTION, "unrecognised classification"
         return intent, "classified"
