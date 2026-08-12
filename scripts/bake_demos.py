@@ -24,7 +24,7 @@ DEMOS = [
 
 def _git(args: list[str], cwd: Path) -> str:
     return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=300
     ).stdout.strip()
 
 
@@ -35,7 +35,9 @@ def main(root: str = "workspaces/_demo") -> None:
     for slug, url in DEMOS:
         dest = base / slug.replace("/", "__")
         if not (dest / ".git").exists():
-            subprocess.run(["git", "clone", "--depth", "1", url, str(dest)], check=True)
+            subprocess.run(
+                ["git", "clone", "--depth", "1", url, str(dest)], check=True, timeout=300
+            )
         # apply() commits on this tree; a bare container has no git identity.
         _git(["config", "user.email", "fix@shipwright.local"], dest)
         _git(["config", "user.name", "Shipwright"], dest)
