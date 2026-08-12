@@ -89,6 +89,7 @@ async def require_key(request: Request, call_next):
     if (
         settings.shipwright_api_key
         and request.method != "OPTIONS"  # a preflight carries no custom headers to check
+        and request.url.path != "/api/health"  # keepalive monitors; returns liveness only
         and request.headers.get("x-shipwright-key") != settings.shipwright_api_key
     ):
         return JSONResponse({"detail": "Not authorised."}, status_code=401)
@@ -97,7 +98,7 @@ async def require_key(request: Request, call_next):
 
 # Graph builds are CPU-bound; keep them off the event loop and bounded so two heavy
 # imports cannot exhaust a 16GB machine.
-POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sw-job")
+POOL = ThreadPoolExecutor(max_workers=settings.job_workers, thread_name_prefix="sw-job")
 # Imports get a separate single worker so a zip extraction never queues behind two
 # inference sessions on POOL (extraction is zlib-bound and releases the GIL).
 IMPORT_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sw-import")
@@ -123,8 +124,10 @@ class CreateJob(BaseModel):
     # prefix hit on somebody else's repository.
     repo_id: str = Field(min_length=8)
     issue: str = Field(min_length=8, max_length=20000)
-    mode: str = "extract_rerank"
-    base_mode: str = "hybrid"
+    mode: str = Field(
+        "extract_rerank", pattern="^(bm25|graph|path|hybrid|extract|rerank|extract_rerank)$"
+    )
+    base_mode: str = Field("hybrid", pattern="^(bm25|graph|path|hybrid)$")
     client: str = ""
 
 
@@ -224,9 +227,12 @@ def _job_json(j: Job, slug: str = "") -> dict[str, Any]:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
+    """Key-exempt (see require_key) and deliberately blank about what runs behind it:
+    the engine name stays off open endpoints. The DB probe is load-bearing — it is what
+    makes an external keepalive count as Supabase activity."""
     with session() as s:
         s.execute(select(func.count()).select_from(Repo))
-    return {"ok": True, "loc_model": settings.loc_model}
+    return {"ok": True}
 
 
 @app.post("/api/repos/import")
@@ -513,6 +519,12 @@ def actions_create(
             raise HTTPException(404, "That session no longer exists.")
         _claim(owner, parent)
         fix = (parent.result or {}).get("fix") or {}
+        if body.kind == "test" and not settings.enable_test_action:
+            raise HTTPException(
+                409,
+                "Running the repo's test suite is disabled on this hosted demo — "
+                "run Shipwright locally for that.",
+            )
         if body.kind in ("apply", "test") and not fix.get("patch"):
             raise HTTPException(409, "There is no fix to apply yet.")
         if body.kind == "test" and not fix.get("applied_branch"):
@@ -675,7 +687,7 @@ async def jobs_events(job_id: str, request: Request, owner: OwnerDep) -> Streami
                 # and keeps the connection off undici's 300s body-inactivity timeout.
                 # No id:, or it would clobber the client's Last-Event-ID.
                 yield ":\n\n"
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(settings.sse_poll_seconds)
                 continue
             for seq, type_, payload, created in batch:
                 cursor = seq
@@ -684,7 +696,7 @@ async def jobs_events(job_id: str, request: Request, owner: OwnerDep) -> Streami
                 yield f"id: {seq}\nevent: {type_}\ndata: {data}\n\n"
                 if type_ in terminal:
                     return
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(settings.sse_poll_seconds)
 
     return StreamingResponse(
         stream(),
