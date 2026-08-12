@@ -6,7 +6,10 @@ import { toResponse } from "@/lib/route-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Hobby's Fluid Compute ceiling. 60 was five times tighter than Vercel allows: a 900s
+// job at 60s segments needs 14 reconnects against MAX_RECONNECTS=8 — the stream died
+// before the job did. At 300s segments the same job needs 2.
+export const maxDuration = 300;
 
 /** Byte pass-through. Deliberately does not use `callBackend`: its 30s abort would cut a long
  * graph build, and it calls res.json() on a body that must stay a stream. */
