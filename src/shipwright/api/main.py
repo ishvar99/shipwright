@@ -60,6 +60,7 @@ async def lifespan(_: FastAPI):
 
     boot.guarded_init_schema()
     boot.reap_stale_jobs()
+    boot.heal_eventless_terminals()
     boot.reconcile_repos()
     boot.seed_demos()
     yield
@@ -380,13 +381,16 @@ def repo_delete(repo_id: str, owner: OwnerDep) -> dict[str, Any]:
         ).first()
         if not repo:
             raise HTTPException(404, "That repository no longer exists.")
-        _claim(owner, repo)
-        # Seeded demos are shared by every anonymous visitor; deleting one would remove
-        # the default experience for everyone until the next boot reseeds it.
+        # Seeded demos are shared by every anonymous visitor; deleting one would remove the
+        # default experience for everyone until the next boot reseeds it. Checked before
+        # _claim, which rewrites repo.owner from "" to a signed-in caller in memory — after
+        # that rewrite this check would see the claimed owner, not the true stored one, and
+        # a signed-in user could claim-and-delete a demo.
         from . import boot
 
         if repo.owner == "" and repo.slug in boot.DEMO_SLUGS:
             raise HTTPException(403, "This demo repository is part of the public deployment.")
+        _claim(owner, repo)
         # Sessions go with it: a job whose repository is gone can neither open its source nor
         # be re-run, and its rows would keep appearing in every list.
         jobs = s.scalars(select(Job).where(Job.repo_id == repo.id)).all()
