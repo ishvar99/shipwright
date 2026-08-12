@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config import settings
 from .models import Base
 
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+# pool_size 5 with NO overflow: Supavisor session-mode slots are ~15 for the free tier's
+# Nano compute, and during a redeploy the old and new instance hold pools concurrently.
+# Overflow connections would exhaust the pooler exactly when the SSE loops are busiest.
+engine = create_engine(
+    settings.database_url, pool_pre_ping=True, pool_size=5, max_overflow=0
+)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 
