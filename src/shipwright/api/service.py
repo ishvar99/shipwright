@@ -427,6 +427,7 @@ def run_localize(job_id) -> None:
             j = s.get(Job, job_id)
             j.status = ERRORED
             j.error = msg[:1000]
+            j.wall_ms = int((time.perf_counter() - started) * 1000)
             j.finished_at = datetime.now(UTC)
         emit(job_id, "job.failed", error=type(e).__name__)
 

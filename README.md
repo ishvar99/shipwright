@@ -129,6 +129,11 @@ same code with different economics, and the differences are stated rather than h
   back on their own; your imports show "re-import to continue".
 - **It may take a minute to wake.** Two keepalives try to prevent that; if both lapse,
   the first visitor pays ~60 seconds while the free container starts.
+- **It has a daily budget.** The hosted model tier allows roughly 250 jobs a day across
+  all visitors. When it's exhausted, jobs degrade to retrieval-only results rather than
+  erroring.
+- **Live streams cap at ~45 minutes.** Longer jobs keep running server-side; a reload
+  picks up the finished result.
 
 ## Layout
 
