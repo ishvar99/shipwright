@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     model_provider: Literal["ollama", "openai_compat"] = "ollama"
     model_api_url: str = "https://api.groq.com/openai/v1"
     model_api_key: str = ""
+    # "low" on the hosted deploy: gpt-oss is a reasoning model and thinking tokens draw
+    # from max_completion_tokens — without this, intent's 64-token budget can be consumed
+    # before any JSON is emitted. Empty = never sent (Ollama, non-reasoning models).
+    model_reasoning_effort: str = ""
 
     # The hosted demo disables the action that executes the imported repo's own code.
     enable_test_action: bool = True
