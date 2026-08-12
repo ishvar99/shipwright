@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 
 from ..config import settings
-from ..db import init_schema, session
+from ..db import session
 from ..models import QUEUED, SKIPPED, Event, Job, Repo, Run, TaskResult
 from .service import (
     MAX_COMPRESSED_UPLOAD,
@@ -46,14 +46,22 @@ from .service import (
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Bring the schema up to date on boot.
+    """Bring the schema up to date on boot, then reconcile state the previous process left
+    behind.
 
-    This project uses `create_all` rather than migrations, which only ever CREATEs — so pulling
-    a change that adds a column left the API answering 500s until somebody remembered to run
-    `sw db-init` by hand. Both steps are idempotent, so doing it here costs a few milliseconds
-    and removes the manual step entirely.
+    This project uses `create_all` rather than migrations, which only ever CREATEs — so
+    pulling a change that adds a column left the API answering 500s until somebody
+    remembered to run `sw db-init` by hand. On the hosted free tier, restarts also wipe
+    the disk and kill mid-flight jobs, so boot is where the database is made honest
+    again. All steps are idempotent, so doing this here costs a few milliseconds and
+    removes every manual step.
     """
-    init_schema()
+    from . import boot
+
+    boot.guarded_init_schema()
+    boot.reap_stale_jobs()
+    boot.reconcile_repos()
+    boot.seed_demos()
     yield
 
 
@@ -373,6 +381,12 @@ def repo_delete(repo_id: str, owner: OwnerDep) -> dict[str, Any]:
         if not repo:
             raise HTTPException(404, "That repository no longer exists.")
         _claim(owner, repo)
+        # Seeded demos are shared by every anonymous visitor; deleting one would remove
+        # the default experience for everyone until the next boot reseeds it.
+        from . import boot
+
+        if repo.owner == "" and repo.slug in boot.DEMO_SLUGS:
+            raise HTTPException(403, "This demo repository is part of the public deployment.")
         # Sessions go with it: a job whose repository is gone can neither open its source nor
         # be re-run, and its rows would keep appearing in every list.
         jobs = s.scalars(select(Job).where(Job.repo_id == repo.id)).all()

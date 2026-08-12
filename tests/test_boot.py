@@ -1,0 +1,99 @@
+import json
+
+from sqlalchemy import select
+
+from shipwright.models import DONE, ERRORED, QUEUED, RUNNING, Event, Job, Repo
+from tests.conftest import requires_pg
+
+pytestmark = requires_pg
+
+
+def _mk_repo(s, **kw):
+    defaults = dict(owner="", slug="o/r", source="github", status="ready", path="")
+    r = Repo(**{**defaults, **kw})
+    s.add(r)
+    s.flush()
+    return r
+
+
+def test_reaper_errors_stale_jobs_and_emits_terminal_event(db):
+    from shipwright.api.boot import reap_stale_jobs
+
+    with db.session() as s:
+        repo = _mk_repo(s, path="/tmp")
+        stale = Job(repo_id=repo.id, issue="x" * 12, status=RUNNING)
+        queued = Job(repo_id=repo.id, issue="q" * 12, status=QUEUED)
+        done = Job(repo_id=repo.id, issue="y" * 12, status=DONE)
+        s.add_all([stale, queued, done])
+        s.flush()
+        stale_id, queued_id, done_id = stale.id, queued.id, done.id
+
+    assert reap_stale_jobs() == 2
+    with db.session() as s:
+        assert s.get(Job, stale_id).status == ERRORED
+        assert s.get(Job, queued_id).status == ERRORED
+        assert s.get(Job, done_id).status == DONE
+        ev = s.scalars(select(Event).where(Event.job_id == stale_id)).all()
+        # The SSE stream reads Event types for terminal state, never Job.status —
+        # without this event a reconnecting client polls keepalives forever.
+        assert [e.type for e in ev] == ["job.failed"] and ev[0].seq == 1
+
+
+def test_reconciler_fails_wedged_importing_and_missing_paths(db, tmp_path):
+    from shipwright.api.boot import reconcile_repos
+
+    with db.session() as s:
+        wedged = _mk_repo(s, slug="a/wedged", status="importing", path="")
+        gone = _mk_repo(s, slug="b/gone", status="ready", path=str(tmp_path / "nope"))
+        alive = _mk_repo(s, slug="c/alive", status="ready", path=str(tmp_path))
+        failed = _mk_repo(s, slug="d/failed", status="failed", path="")
+        ids = (wedged.id, gone.id, alive.id, failed.id)
+
+    assert reconcile_repos() == 2
+    with db.session() as s:
+        assert s.get(Repo, ids[0]).status == "failed"
+        assert "re-import" in s.get(Repo, ids[0]).error
+        assert s.get(Repo, ids[1]).status == "failed"
+        assert s.get(Repo, ids[2]).status == "ready"
+        assert s.get(Repo, ids[3]).status == "failed"  # untouched, still failed
+
+
+def test_seeder_upserts_and_repairs(db, tmp_path):
+    from shipwright.api import boot
+
+    ws = tmp_path / "demo"
+    ws.mkdir()
+    manifest = tmp_path / "demos.json"
+    manifest.write_text(json.dumps([{
+        "slug": "demo/repo", "url": "https://github.com/demo/repo",
+        "path": str(ws), "import_ref": "a" * 40, "default_ref": "abc1234",
+        "symbols": 42, "files": 7,
+    }]))
+
+    assert boot.seed_demos(manifest) == 1
+    assert "demo/repo" in boot.DEMO_SLUGS
+    with db.session() as s:
+        row = s.scalars(select(Repo).where(Repo.slug == "demo/repo")).first()
+        assert row.status == "ready" and row.symbols == 42 and row.import_ref == "a" * 40
+
+    # Second boot after the reconciler failed it: seeding repairs, not duplicates.
+    with db.session() as s:
+        row = s.scalars(select(Repo).where(Repo.slug == "demo/repo")).first()
+        row.status, row.error = "failed", "workspace expired"
+    assert boot.seed_demos(manifest) == 1
+    with db.session() as s:
+        rows = s.scalars(select(Repo).where(Repo.slug == "demo/repo")).all()
+        assert len(rows) == 1 and rows[0].status == "ready"
+
+
+def test_seeder_no_manifest_is_noop(db, tmp_path):
+    from shipwright.api.boot import seed_demos
+
+    assert seed_demos(tmp_path / "absent.json") == 0
+
+
+def test_guarded_init_schema_is_idempotent(db):
+    from shipwright.api.boot import guarded_init_schema
+
+    guarded_init_schema()
+    guarded_init_schema()  # second run must not raise
