@@ -14,6 +14,7 @@ schema-constrained output fail far more visibly.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -21,6 +22,8 @@ from ..gateway.base import ModelProvider
 from ..parsing import parse_json
 from .build import CodeGraph
 from .retrieve import Localizer, Ranked
+
+log = logging.getLogger("shipwright.assisted")
 
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -140,7 +143,15 @@ def localize_assisted(
     query = issue
     if mode in ("extract", "extract_rerank"):
         note("understand.started")
-        extracted = _extract_query(model, issue, usage)
+        try:
+            extracted = _extract_query(model, issue, usage)
+        except Exception:
+            # A provider failure (sustained 429, auth) that survives the gateway's own
+            # retries must not cost the whole job — the located results are still the
+            # product. Degrade exactly like a parse failure: raw issue text as the query.
+            log.exception("extract call failed; falling back to raw issue text")
+            note("understand.failed")
+            extracted = ""
         # Fall back to raw issue text if extraction produced nothing usable.
         query = f"{extracted} {issue[:500]}" if extracted else issue
         note("understand.done", terms=len(extracted.split()) if extracted else 0)
@@ -150,7 +161,15 @@ def localize_assisted(
         wide = loc.localize(query, mode=base_mode, top_k=rerank_candidates)
         note("candidates.found", count=len(wide))
         note("rank.started", pool=len(wide))
-        return _rerank(model, issue, wide, graph, usage)[:top_k], usage
+        try:
+            ranked = _rerank(model, issue, wide, graph, usage)
+        except Exception:
+            # Same principle: a reranker call that raises degrades to retrieval order,
+            # exactly like a parse failure, instead of erroring the whole job.
+            log.exception("rerank call failed; falling back to retrieval order")
+            note("rank.failed")
+            ranked = wide
+        return ranked[:top_k], usage
 
     note("search.started", channels=base_mode)
     res = loc.localize(query, mode=base_mode, top_k=top_k)
