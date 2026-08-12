@@ -45,8 +45,14 @@ def test_heal_eventless_terminals(db):
 
     with db.session() as s:
         repo = _mk_repo(s, path="/tmp")
-        done_orphan = Job(repo_id=repo.id, issue="d" * 12, status=DONE, wall_ms=1234)
-        err_orphan = Job(repo_id=repo.id, issue="e" * 12, status=ERRORED)
+        done_orphan = Job(
+            repo_id=repo.id,
+            issue="d" * 12,
+            status=DONE,
+            wall_ms=1234,
+            result={"locations": [{"symbol": "s"}, {"symbol": "t"}]},
+        )
+        err_orphan = Job(repo_id=repo.id, issue="e" * 12, status=ERRORED, error="ConnectError")
         done_ok = Job(repo_id=repo.id, issue="k" * 12, status=DONE)
         running = Job(repo_id=repo.id, issue="r" * 12, status=RUNNING)
         s.add_all([done_orphan, err_orphan, done_ok, running])
@@ -56,14 +62,20 @@ def test_heal_eventless_terminals(db):
 
     assert heal_eventless_terminals() == 2
     with db.session() as s:
-        types = {
-            job_id: [e.type for e in s.scalars(select(Event).where(Event.job_id == job_id))]
-            for job_id in ids
+        events = {
+            job_id: list(s.scalars(select(Event).where(Event.job_id == job_id))) for job_id in ids
         }
+    types = {job_id: [e.type for e in evs] for job_id, evs in events.items()}
     assert types[ids[0]] == ["job.done"]
     assert types[ids[1]] == ["job.failed"]
     assert types[ids[2]] == ["job.done"]  # not duplicated
     assert types[ids[3]] == []  # running jobs are the reaper's business, not the healer's
+
+    # Healed events must carry real payloads — the frontend reducer reads e.locations and
+    # classifies on the error name, so a healed stream cannot just say "0 locations".
+    assert events[ids[0]][0].payload["wall_ms"] == 1234
+    assert events[ids[0]][0].payload["locations"] == 2
+    assert events[ids[1]][0].payload["error"] == "ConnectError"
 
     assert heal_eventless_terminals() == 0  # idempotent
 
@@ -93,11 +105,21 @@ def test_seeder_upserts_and_repairs(db, tmp_path):
     ws = tmp_path / "demo"
     ws.mkdir()
     manifest = tmp_path / "demos.json"
-    manifest.write_text(json.dumps([{
-        "slug": "demo/repo", "url": "https://github.com/demo/repo",
-        "path": str(ws), "import_ref": "a" * 40, "default_ref": "abc1234",
-        "symbols": 42, "files": 7,
-    }]))
+    manifest.write_text(
+        json.dumps(
+            [
+                {
+                    "slug": "demo/repo",
+                    "url": "https://github.com/demo/repo",
+                    "path": str(ws),
+                    "import_ref": "a" * 40,
+                    "default_ref": "abc1234",
+                    "symbols": 42,
+                    "files": 7,
+                }
+            ]
+        )
+    )
 
     assert boot.seed_demos(manifest) == 1
     assert "demo/repo" in boot.DEMO_SLUGS
@@ -126,3 +148,22 @@ def test_guarded_init_schema_is_idempotent(db):
 
     guarded_init_schema()
     guarded_init_schema()  # second run must not raise
+
+
+def test_demo_delete_guard(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api import boot
+    from shipwright.api.main import app
+
+    with TestClient(app) as client:  # lifespan runs against the patched scratch DB
+        with db.session() as s:
+            demo = _mk_repo(s, slug="demo/protected", path="/tmp")
+            other = _mk_repo(s, slug="user/own", path="/tmp")
+            demo_id, other_id = str(demo.id), str(other.id)
+        boot.DEMO_SLUGS.add("demo/protected")
+        try:
+            assert client.delete(f"/api/repos/{demo_id}").status_code == 403
+            assert client.delete(f"/api/repos/{other_id}").status_code == 200
+        finally:
+            boot.DEMO_SLUGS.discard("demo/protected")
