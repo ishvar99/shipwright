@@ -15,16 +15,41 @@ def test_openai_compat_selected_by_setting(monkeypatch):
     assert isinstance(p, OpenAICompatProvider) and p.model == "openai/gpt-oss-120b"
 
 
-def test_clone_bound_rejects_oversized_tree(monkeypatch, tmp_path):
-    """import_repo's size gate, tested through its helper logic: a tree above the cap
-    raises and removes the workspace."""
-    from shipwright.api import service
+def test_enforce_clone_bound(monkeypatch, tmp_path):
+    from shipwright.api.service import _enforce_clone_bound
 
-    # 2 MB file against a 1 MB cap
     dest = tmp_path / "ws"
     dest.mkdir()
     (dest / "big.bin").write_bytes(b"\0" * (2 * 1024 * 1024))
-    monkeypatch.setattr("shipwright.config.settings.max_clone_mb", 1)
 
-    used = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
-    assert used > service.settings.max_clone_mb * 1024 * 1024
+    # Disabled (0): no-op regardless of size.
+    monkeypatch.setattr("shipwright.config.settings.max_clone_mb", 0)
+    _enforce_clone_bound(dest)
+    assert dest.exists()
+
+    # Under the cap: untouched.
+    monkeypatch.setattr("shipwright.config.settings.max_clone_mb", 3)
+    _enforce_clone_bound(dest)
+    assert dest.exists()
+
+    # Over the cap: raises AND removes the workspace.
+    monkeypatch.setattr("shipwright.config.settings.max_clone_mb", 1)
+    import pytest
+
+    with pytest.raises(RuntimeError, match="hosted limit"):
+        _enforce_clone_bound(dest)
+    assert not dest.exists()
+
+
+def test_enforce_clone_bound_ignores_symlink_targets(monkeypatch, tmp_path):
+    from shipwright.api.service import _enforce_clone_bound
+
+    dest = tmp_path / "ws"
+    dest.mkdir()
+    big_outside = tmp_path / "outside.bin"
+    big_outside.write_bytes(b"\0" * (2 * 1024 * 1024))
+    (dest / "link.bin").symlink_to(big_outside)
+
+    monkeypatch.setattr("shipwright.config.settings.max_clone_mb", 1)
+    _enforce_clone_bound(dest)  # link costs ~bytes of path, not 2 MB — must not raise
+    assert dest.exists()
