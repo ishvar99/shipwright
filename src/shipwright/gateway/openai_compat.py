@@ -73,7 +73,9 @@ class OpenAICompatProvider:
 
     def _backoff(self, resp: httpx.Response, attempt: int) -> float:
         try:
-            return min(float(resp.headers.get("retry-after", "")), MAX_BACKOFF_S)
+            # max(0, …) so a negative or NaN retry-after degrades to "retry now",
+            # never to a ValueError from time.sleep.
+            return max(0.0, min(float(resp.headers.get("retry-after", "")), MAX_BACKOFF_S))
         except ValueError:
             return min(2.0**attempt, MAX_BACKOFF_S)
 
@@ -142,6 +144,7 @@ class OpenAICompatProvider:
         ttft_ms = 0
         chunks: list[str] = []
         usage: dict[str, Any] = {}
+        final: dict[str, Any] = {}
         with httpx.Client(timeout=timeout, transport=self._transport) as client:
             with client.stream(
                 "POST",
@@ -157,6 +160,7 @@ class OpenAICompatProvider:
                     if data == "[DONE]":
                         break
                     event = json.loads(data)
+                    final = event
                     choices = event.get("choices") or []
                     piece = (choices[0].get("delta") or {}).get("content") if choices else None
                     if piece:
@@ -177,5 +181,5 @@ class OpenAICompatProvider:
             output_tokens=usage.get("completion_tokens", 0),
             latency_ms=int((time.perf_counter() - started) * 1000),
             ttft_ms=ttft_ms,
-            raw=usage,
+            raw=final,
         )
