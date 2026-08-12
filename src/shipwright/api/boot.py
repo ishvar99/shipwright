@@ -8,6 +8,8 @@ function here is idempotent and runs in the FastAPI lifespan, in this order:
         -> reconcile_repos() -> seed_demos()
 
 Reconcile before seed, so a demo row the reconciler failed is repaired by the seeder.
+Paths are cwd-relative by repo convention; boot must run from the repo root (or the image
+WORKDIR), or the reconciler will persist a wrong-cwd boot as failed rows.
 """
 
 from __future__ import annotations
@@ -79,16 +81,21 @@ def heal_eventless_terminals() -> int:
     with session() as s:
         orphans = list(
             s.scalars(
-                select(Job).where(
-                    Job.status.in_((DONE, ERRORED)), Job.id.not_in(terminal_events)
-                )
+                select(Job).where(Job.status.in_((DONE, ERRORED)), Job.id.not_in(terminal_events))
             )
         )
     for job in orphans:
         if job.status == DONE:
-            emit(job.id, "job.done", wall_ms=job.wall_ms, locations=0)
+            emit(
+                job.id,
+                "job.done",
+                wall_ms=job.wall_ms,
+                locations=len((job.result or {}).get("locations") or []),
+            )
         else:
-            emit(job.id, "job.failed", error="HostRestart")
+            # The row carries the true exception name (run_localize commits it before
+            # emitting); older rows may still hold "Name: detail" — keep the name.
+            emit(job.id, "job.failed", error=(job.error or "HostRestart").split(":")[0])
     if orphans:
         log.info("healed %d event-less terminal job(s)", len(orphans))
     return len(orphans)
