@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..gateway.base import ModelProvider
-from ..parsing import parse_json as _parse_json
+from ..parsing import parse_json
 from .build import CodeGraph
 from .retrieve import Localizer, Ranked
 
@@ -68,7 +68,7 @@ def _extract_query(model: ModelProvider, issue: str, usage: Usage) -> str:
     )
     r = model.generate([{"role": "user", "content": prompt}], schema=EXTRACT_SCHEMA, max_tokens=300)
     usage.add(r)
-    data = _parse_json(r.text)
+    data = parse_json(r.text)
     if data is None:
         usage.parse_failures += 1
         return ""
@@ -94,7 +94,7 @@ def _rerank(
     )
     r = model.generate([{"role": "user", "content": prompt}], schema=RERANK_SCHEMA, max_tokens=300)
     usage.add(r)
-    data = _parse_json(r.text)
+    data = parse_json(r.text)
     if data is None:
         usage.parse_failures += 1
         return candidates

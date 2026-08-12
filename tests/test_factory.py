@@ -1,3 +1,5 @@
+import pytest
+
 from shipwright.gateway.factory import make_provider
 from shipwright.gateway.ollama import OllamaProvider
 from shipwright.gateway.openai_compat import OpenAICompatProvider
@@ -34,8 +36,6 @@ def test_enforce_clone_bound(monkeypatch, tmp_path):
 
     # Over the cap: raises AND removes the workspace.
     monkeypatch.setattr("shipwright.config.settings.max_clone_mb", 1)
-    import pytest
-
     with pytest.raises(RuntimeError, match="hosted limit"):
         _enforce_clone_bound(dest)
     assert not dest.exists()

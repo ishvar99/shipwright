@@ -10,6 +10,8 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from shipwright.models import Repo
+
 ADMIN_URL = os.environ.get(
     "SHIPWRIGHT_TEST_ADMIN_URL",
     "postgresql+psycopg://shipwright:shipwright@localhost:55432/shipwright",
@@ -28,6 +30,14 @@ def _pg_available() -> bool:
 
 
 requires_pg = pytest.mark.skipif(not _pg_available(), reason="dev Postgres not running (make up)")
+
+
+def _mk_repo(s, **kw):
+    defaults = dict(owner="", slug="o/r", source="github", status="ready", path="")
+    r = Repo(**{**defaults, **kw})
+    s.add(r)
+    s.flush()
+    return r
 
 
 @pytest.fixture(scope="session")

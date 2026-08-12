@@ -1,5 +1,5 @@
 from shipwright.gateway.base import GenResult
-from shipwright.intent import CHANGE, QUESTION, classify
+from shipwright.intent import CHANGE, QUESTION, SCHEMA, classify
 
 ISSUE = "The token cache returns stale entries after the ttl expires in cache.py"
 
@@ -20,8 +20,6 @@ def test_fenced_reply_still_classifies():
 
 
 def test_request_contract():
-    from shipwright.intent import SCHEMA
-
     model = FakeModel('{"intent": "question"}')
     classify(ISSUE, model)
     assert model.kwargs is not None and model.kwargs["max_tokens"] == 64
