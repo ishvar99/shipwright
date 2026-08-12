@@ -177,17 +177,9 @@ def import_repo(repo_id, token: str = "") -> None:
                 ok, err = _clone(url, dest, token)
                 if not ok:
                     raise RuntimeError(f"clone failed: {_scrub_creds(err)}")
+                _enforce_clone_bound(dest)
             ok, import_sha = _run_git(["rev-parse", "HEAD"], cwd=dest, timeout=60)
             import_sha = import_sha.strip() if ok else ""
-
-        if source != "local" and settings.max_clone_mb:
-            used = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
-            if used > settings.max_clone_mb * 1024 * 1024:
-                shutil.rmtree(dest, ignore_errors=True)
-                raise RuntimeError(
-                    f"repository is larger than the hosted limit "
-                    f"({settings.max_clone_mb} MB) — run Shipwright locally for big repos"
-                )
 
         graph = build(dest)
         stats = graph.stats()
@@ -285,6 +277,22 @@ def _clone(url: str, dest: Path, token: str) -> tuple[bool, str]:
         # credential path alive.
         _run_git(["remote", "remove", "origin"], cwd=dest, timeout=60)
     return ok, err
+
+
+def _enforce_clone_bound(dest: Path) -> None:
+    """Reject working trees above the hosted size cap, removing what was cloned.
+
+    lstat, not stat: a symlink's cost on disk is the link itself — following it would
+    let a malicious repo inflate the sum (or point at /dev/zero-sized targets)."""
+    if not settings.max_clone_mb:
+        return
+    used = sum(f.lstat().st_size for f in dest.rglob("*") if f.is_file())
+    if used > settings.max_clone_mb * 1024 * 1024:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise RuntimeError(
+            f"repository is larger than the hosted limit "
+            f"({settings.max_clone_mb} MB) — run Shipwright locally for big repos"
+        )
 
 
 def run_localize(job_id) -> None:
@@ -458,6 +466,7 @@ def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model
         emit(job_id, "answer.ready")
         return result.text.strip()[:2000]
     except Exception:  # noqa: BLE001 - the located results are still the product
+        log.exception("answer stage failed for job %s", job_id)
         emit(job_id, "answer.failed")
         return ""
 
@@ -493,6 +502,7 @@ def _fix_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -
     except Exception as e:  # noqa: BLE001 - the located results are still the product
         # Provider failures (429 after retries, timeouts) must not error the whole job:
         # localization already succeeded and is worth showing.
+        log.exception("fix stage failed for job %s", job_id)
         emit(job_id, "fix.failed", reason=type(e).__name__)
         return {"failed": type(e).__name__}
 
