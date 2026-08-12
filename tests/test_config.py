@@ -25,3 +25,15 @@ def test_settings_read_env(monkeypatch):
     assert s.model_provider == "openai_compat"
     assert s.job_workers == 1
     assert s.sse_poll_seconds == 1.0
+
+
+def test_invalid_settings_fail_at_boot():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, model_provider="openai-compat")  # hyphen typo
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, job_workers=0)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, sse_poll_seconds=0)
