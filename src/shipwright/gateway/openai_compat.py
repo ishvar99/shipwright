@@ -156,7 +156,7 @@ class OpenAICompatProvider:
                 for line in r.iter_lines():
                     if not line.startswith("data: "):
                         continue
-                    data = line[len("data: "):]
+                    data = line[len("data: ") :]
                     if data == "[DONE]":
                         break
                     event = json.loads(data)

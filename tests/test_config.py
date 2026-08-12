@@ -3,8 +3,13 @@ from shipwright.config import Settings
 
 def test_new_deployment_settings_have_local_defaults(monkeypatch):
     for var in (
-        "MODEL_PROVIDER", "MODEL_API_URL", "MODEL_API_KEY",
-        "ENABLE_TEST_ACTION", "JOB_WORKERS", "SSE_POLL_SECONDS", "MAX_CLONE_MB",
+        "MODEL_PROVIDER",
+        "MODEL_API_URL",
+        "MODEL_API_KEY",
+        "ENABLE_TEST_ACTION",
+        "JOB_WORKERS",
+        "SSE_POLL_SECONDS",
+        "MAX_CLONE_MB",
     ):
         monkeypatch.delenv(var, raising=False)
     s = Settings(_env_file=None)

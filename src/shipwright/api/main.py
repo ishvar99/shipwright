@@ -270,9 +270,7 @@ def repos_import(body: ImportRepo, background: BackgroundTasks, owner: OwnerDep)
     with session() as s:
         # Scoped to the caller. Globally, this returned whoever imported it first — handing the
         # second person that workspace, private clone and all.
-        existing = s.scalars(
-            select(Repo).where(Repo.owner == owner, Repo.slug == slug)
-        ).first()
+        existing = s.scalars(select(Repo).where(Repo.owner == owner, Repo.slug == slug)).first()
         if existing and existing.status != "failed":
             return _repo_json(existing)
         repo = existing or Repo(owner=owner, slug=slug, source=source, url=url, path=path)
@@ -324,9 +322,7 @@ def repos_upload(background: BackgroundTasks, file: UploadFile, owner: OwnerDep)
     base = f"zip:{name[:-4][:80] or 'project'}"
 
     with session() as s:
-        existing = s.scalars(
-            select(Repo).where(Repo.owner == owner, Repo.slug == base)
-        ).first()
+        existing = s.scalars(select(Repo).where(Repo.owner == owner, Repo.slug == base)).first()
         if existing and existing.status == "importing":
             return _repo_json(existing)
         repo = Repo(
