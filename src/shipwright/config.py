@@ -23,6 +23,26 @@ class Settings(BaseSettings):
     # Release model memory when idle instead of holding 5GB indefinitely.
     keep_alive: str = "2m"
 
+    # Which tier serves the product surface: "ollama" (local default) or "openai_compat"
+    # (any OpenAI-chat-completions endpoint — Groq, Cerebras, OpenRouter). The model name
+    # stays loc_model, so the hosted deploy sets LOC_MODEL=openai/gpt-oss-120b.
+    # Named MODEL_API_* rather than OPENAI_* so a developer's real OPENAI_API_KEY in the
+    # shell can never leak into a Groq-pointed deployment.
+    model_provider: str = "ollama"
+    model_api_url: str = "https://api.groq.com/openai/v1"
+    model_api_key: str = ""
+
+    # The hosted demo disables the action that executes the imported repo's own code.
+    enable_test_action: bool = True
+    # Background job concurrency: 2 fits the dev laptop; 1 on a 512 MB host — two
+    # concurrent CodeGraph + BM25 builds can OOM the free container.
+    job_workers: int = 2
+    # SSE DB poll cadence: 0.4s locally; 1.0s hosted (Supabase egress is metered).
+    sse_poll_seconds: float = 0.4
+    # Reject clones whose working tree exceeds this many MB (0 = no limit, local default).
+    # The hosted disk is ephemeral AND shared; one huge clone can ENOSPC every job.
+    max_clone_mb: int = 0
+
     # Per-run safety caps. Tightened per-benchmark at call sites.
     max_steps: int = 30
     max_wall_seconds: int = 900
