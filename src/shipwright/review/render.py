@@ -1,4 +1,4 @@
-"""Findings as prose, and as a GitHub review payload.
+"""Findings as prose, as a GitHub review payload, and which of them a human chose to post.
 
 The empty state is a confident state: "no blocking findings" says what was checked, so
 silence reads as evidence rather than as absence.
@@ -77,3 +77,19 @@ def to_github_review(findings: list[dict], commit_id: str, coverage: dict) -> di
             for f in findings
         ],
     }
+
+
+def finding_key(f: dict) -> str:
+    """The triage identity: the same path:line:category string review-view.tsx builds."""
+    return f"{f['path']}:{f['line']}:{f['category']}"
+
+
+def kept_findings(result: dict) -> list[dict]:
+    """Findings the human explicitly kept. Undecided is not kept: posting is an act of
+    curation, and a stale client must never be able to post what was never chosen."""
+    triage = result.get("triage") or {}
+    return [
+        f
+        for f in (result.get("findings") or [])
+        if (triage.get(finding_key(f)) or {}).get("state") == "kept"
+    ]

@@ -24,7 +24,7 @@ from sqlalchemy import delete, func, or_, select
 
 from ..config import settings
 from ..db import session
-from ..models import LOCALIZE, QUEUED, REVIEW, SKIPPED, Event, Job, Repo, Run, TaskResult
+from ..models import DONE, LOCALIZE, QUEUED, REVIEW, SKIPPED, Event, Job, Repo, Run, TaskResult
 from . import github, github_pr
 from .service import (
     MAX_COMPRESSED_UPLOAD,
@@ -133,6 +133,15 @@ class CreateReview(BaseModel):
     number: int = Field(ge=1)
     # Per call and never stored, like open_pr's: the only credential this feature needs.
     token: str = Field("", description="GitHub access token, for reading the pull request")
+
+
+class TriageDecision(BaseModel):
+    state: str = Field(pattern="^(kept|dismissed)$")
+    reason: str = Field("", pattern="^(|not_real|not_worth_posting|duplicate|pre_existing)$")
+
+
+class SaveTriage(BaseModel):
+    decisions: dict[str, TriageDecision] = Field(default_factory=dict)
 
 
 class CreateJob(BaseModel):
@@ -562,6 +571,46 @@ def reviews_create(
     return out
 
 
+@app.post("/api/jobs/{job_id}/triage")
+def triage_save(job_id: str, body: SaveTriage, owner: OwnerDep) -> dict[str, Any]:
+    """The human verdicts on a review's findings. Whole-map replace, last write wins —
+    review rows are single-owner, so merge semantics would be machinery without a user.
+
+    This is the ONLY writer of result.triage, and it validates every entry against the
+    stored findings — which is what lets kept_findings assume well-shaped entries."""
+    from ..review.merge import MAX_FINDINGS
+    from ..review.render import finding_key
+
+    with session() as s:
+        job = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
+        if not job or job.kind != REVIEW:
+            raise HTTPException(404, "That review no longer exists.")
+        _claim(owner, job)
+        if job.status != DONE:
+            raise HTTPException(409, "The review hasn't finished yet.")
+
+        # Checked here rather than as Field(max_length=MAX_FINDINGS) so the refusal is a
+        # curated 400 like its neighbours, not pydantic's generic 422.
+        if len(body.decisions) > MAX_FINDINGS:
+            raise HTTPException(400, "That's more decisions than this review has findings.")
+
+        valid = {finding_key(f) for f in (job.result or {}).get("findings") or []}
+        decisions: dict[str, dict[str, str]] = {}
+        for key, d in body.decisions.items():
+            if key not in valid:
+                raise HTTPException(400, "That finding isn't part of this review.")
+            if d.state == "dismissed" and not d.reason:
+                raise HTTPException(400, "Dismissing a finding needs a reason.")
+            if d.state == "kept" and d.reason:
+                raise HTTPException(400, "A kept finding carries no reason.")
+            decisions[key] = {"state": d.state, "reason": d.reason}
+        job.result = {**(job.result or {}), "triage": decisions}
+        kept = sum(1 for v in decisions.values() if v["state"] == "kept")
+    return {"ok": True, "kept": kept}
+
+
 @app.post("/api/jobs/{job_id}/actions")
 def actions_create(
     job_id: str, body: CreateAction, background: BackgroundTasks, owner: OwnerDep
@@ -598,9 +647,14 @@ def actions_create(
             if not body.token:
                 raise HTTPException(409, "Connect GitHub before opening a pull request.")
         if body.kind == "post_review":
+            from ..review.render import kept_findings
+
             repo = s.get(Repo, parent.repo_id)
-            if not (parent.result or {}).get("findings"):
+            findings = (parent.result or {}).get("findings") or []
+            if not findings:
                 raise HTTPException(409, "There are no findings to post.")
+            if not kept_findings(parent.result or {}):
+                raise HTTPException(409, "Keep at least one finding before posting.")
             if not repo or repo.source != "github":
                 raise HTTPException(409, "Only a GitHub-imported repository has a pull request.")
             if not body.token:
@@ -640,7 +694,9 @@ def jobs_list(
     with session() as s:
         q = select(Job).where(_owned(Job.owner, owner))
         if kind:
-            q = q.where(Job.kind == kind)
+            # Comma-separated, so the sidebar can ask for localize+review in one SQL filter
+            # instead of filtering after the limit (which pushed real sessions off the page).
+            q = q.where(Job.kind.in_([k.strip() for k in kind.split(",") if k.strip()]))
         if client:
             q = q.where(Job.client == client)
         rows = s.scalars(q.order_by(Job.created_at.desc()).limit(limit)).all()

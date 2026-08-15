@@ -171,3 +171,10 @@ def test_ruff_failure_degrades_the_review_instead_of_looking_clean(tmp_path, mon
     out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=FakeModel())
     assert "deterministic" in out["coverage"]["degraded"]
     assert out["complete"] is False
+
+
+def test_surviving_findings_carry_their_hunk(tmp_path):
+    model = FakeModel('{"findings": [{"line": 2, "severity": "high", "title": "t", "body": "b"}]}')
+    out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=model)
+    assert out["findings"], "expected the line-2 finding to survive the gate"
+    assert "import subprocess" in out["findings"][0]["hunk"]

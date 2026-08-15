@@ -58,6 +58,18 @@ describe("JobResultSchema", () => {
     expect(f.side).toBe("RIGHT");
     expect(f.agreed).toBe(false);
   });
+
+  it("carries the hunk when present and defaults it when absent", () => {
+    const absent = FindingSchema.parse({
+      path: "a.py", line: 2, category: "quality", severity: "low", title: "t",
+    });
+    expect(absent.hunk).toBe("");
+    const present = FindingSchema.parse({
+      path: "a.py", line: 2, category: "quality", severity: "low", title: "t",
+      hunk: "@@ hunk at line 1 @@\n+x",
+    });
+    expect(present.hunk).toContain("+x");
+  });
 });
 
 describe("repoReview", () => {
