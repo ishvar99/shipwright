@@ -11,12 +11,36 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 log = logging.getLogger("shipwright.review")
 
 TIMEOUT_S = 60
+
+
+class RuffUnavailable(RuntimeError):
+    """Ruff could not be run at all. Raised rather than returned as 'no findings', so the
+    stage runner marks the review degraded instead of reporting a clean file."""
+
+
+def _ruff_cmd() -> list[str]:
+    """Resolve ruff without depending on PATH.
+
+    `ruff` on PATH only works when something has activated the virtualenv — true under
+    `uv run`, false for a bare interpreter and false in a container that launches uvicorn
+    directly. Preferring the module keeps it working wherever this process's own interpreter
+    can import it.
+    """
+    if shutil.which("ruff"):
+        return ["ruff"]
+    binary = Path(sys.executable).with_name("ruff")
+    if binary.is_file():
+        return [str(binary)]
+    return [sys.executable, "-m", "ruff"]
+
 
 # What we select, and the category each maps to. Prefixes are resolved longest-first, so
 # BLE001 wins over a bare B.
@@ -56,7 +80,7 @@ def run_ruff(root: Path, rel_paths: list[str]) -> list[dict]:
         return []
 
     cmd = [
-        "ruff",
+        *_ruff_cmd(),
         "check",
         "--isolated",
         "--no-cache",
@@ -68,21 +92,22 @@ def run_ruff(root: Path, rel_paths: list[str]) -> list[dict]:
         ",".join(IGNORE),
         *targets,
     ]
+    # Raised, never swallowed into an empty list: "ruff could not run" and "ruff found
+    # nothing" are opposite facts, and reporting the first as the second would let the
+    # deterministic layer silently vanish while the review still called itself complete.
     try:
         proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=TIMEOUT_S)
-    except (OSError, subprocess.TimeoutExpired):
-        log.exception("ruff failed under %s", root)
-        return []
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuffUnavailable(f"could not run ruff under {root}") from e
 
     # Exit 1 means "findings exist", which is the normal success path here. Only >=2 is an
     # error; treating 1 as failure would return nothing exactly when there was something.
     if proc.returncode >= 2:
-        log.warning("ruff exited %s: %s", proc.returncode, proc.stderr[-200:])
-        return []
+        raise RuffUnavailable(f"ruff exited {proc.returncode}: {proc.stderr[-200:]}")
     try:
         rows = json.loads(proc.stdout or "[]")
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as e:
+        raise RuffUnavailable("ruff produced output we could not parse") from e
 
     out = []
     for r in rows:

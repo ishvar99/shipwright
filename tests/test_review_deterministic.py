@@ -1,3 +1,5 @@
+import pytest
+
 from shipwright.review.deterministic import RULES, run_ruff
 
 
@@ -64,3 +66,24 @@ def test_findings_are_returned_even_though_ruff_exits_nonzero(tmp_path):
         "import subprocess\n\n\ndef g(c):\n    subprocess.run(c, shell=True)\n"
     )
     assert len(run_ruff(tmp_path, ["bad.py"])) > 0
+
+
+def test_ruff_resolves_without_the_virtualenv_on_path(tmp_path, monkeypatch):
+    # `ruff` on PATH only resolves when something activated the venv — true under `uv run`,
+    # false for a bare interpreter or a container launching uvicorn directly. It must still run.
+    monkeypatch.setenv("PATH", "/nonexistent")
+    (tmp_path / "bad.py").write_text(
+        "import subprocess\n\n\ndef g(c):\n    subprocess.run(c, shell=True)\n"
+    )
+    assert run_ruff(tmp_path, ["bad.py"])
+
+
+def test_unavailable_ruff_raises_rather_than_reporting_a_clean_file(tmp_path, monkeypatch):
+    # "could not run" and "found nothing" are opposite facts. Returning [] for the first
+    # would let the deterministic layer vanish while the review still called itself complete.
+    import shipwright.review.deterministic as det
+
+    monkeypatch.setattr(det, "_ruff_cmd", lambda: ["definitely-not-a-real-binary"])
+    (tmp_path / "x.py").write_text("import os\n")
+    with pytest.raises(det.RuffUnavailable):
+        run_ruff(tmp_path, ["x.py"])
