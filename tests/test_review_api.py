@@ -581,3 +581,54 @@ def test_a_late_dismissal_fails_the_post_with_narration(db):
     assert "review.post.started" in types
     assert types.index("review.post.started") < types.index("review.post.failed")
     assert types[-1] == "job.failed"
+
+
+@requires_pg
+def test_a_second_review_of_the_same_pr_supersedes_the_first(db, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import shipwright.api.main as main
+    from shipwright.api.main import app
+    from shipwright.models import Job
+
+    # The pool is stubbed, and that is not fastidiousness: reviews_create stashes a real
+    # token, so a live worker would call api.github.com from a detached thread — and land
+    # after the db fixture has restored SessionLocal to the developer's own database.
+    # Asserting the dispatch instead pins the contract this endpoint actually owns.
+    submitted: list[str] = []
+    monkeypatch.setattr(main.POOL, "submit", lambda fn, *a: submitted.append(fn.__name__))
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            repo = _mk_repo(s, slug="t/repo", path="/tmp")
+            first_id = _review_job(s, repo)
+            repo_id = str(repo.id)
+        r = client.post("/api/reviews", json={"repo_id": repo_id, "number": 7, "token": "tok"})
+        assert r.status_code == 200
+        second_id = r.json()["id"]
+        assert submitted == ["run_review"]
+        with db.session() as s:
+            assert s.get(Job, first_id).result.get("superseded_by") == second_id
+
+
+@requires_pg
+def test_a_review_of_a_different_pr_does_not_supersede(db, monkeypatch):
+    """Supersede is per pull request: reviewing #8 must not retire #7's session."""
+    from fastapi.testclient import TestClient
+
+    import shipwright.api.main as main
+    from shipwright.api.main import app
+    from shipwright.models import Job
+
+    # Stubbed for the same reason as the test above: a live worker would reach GitHub.
+    monkeypatch.setattr(main.POOL, "submit", lambda fn, *a: None)
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            repo = _mk_repo(s, slug="t/repo", path="/tmp")
+            first_id = _review_job(s, repo)  # target number 7
+            repo_id = str(repo.id)
+        r = client.post("/api/reviews", json={"repo_id": repo_id, "number": 8, "token": "tok"})
+        assert r.status_code == 200
+        with db.session() as s:
+            assert "superseded_by" not in (s.get(Job, first_id).result or {})

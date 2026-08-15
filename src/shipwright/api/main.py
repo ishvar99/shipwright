@@ -564,6 +564,25 @@ def reviews_create(
         )
         s.add(job)
         s.flush()
+        # A re-review makes the old session a record, not a draft: stamp it so the UI can
+        # badge it, and never delete it.
+        prior = s.scalars(
+            select(Job).where(
+                Job.repo_id == repo.id,
+                Job.kind == REVIEW,
+                Job.id != job.id,
+                _owned(Job.owner, owner),
+                Job.result["target"]["number"].as_integer() == body.number,
+            )
+        ).all()
+        for p in prior:
+            # Stamped once, never re-pointed: this records "B replaced A", a historical
+            # fact, rather than a mutable "latest" pointer. Re-pointing every prior row on
+            # every re-review would also turn one write into N. Nothing is lost — the
+            # newest review of a PR is resolvable by `created_at`, so a consumer that
+            # needs "current" should order rather than follow the chain.
+            if not (p.result or {}).get("superseded_by"):
+                p.result = {**(p.result or {}), "superseded_by": str(job.id)}
         out, job_id = _job_json(job, repo.slug), job.id
     # In memory only, never on the row: `result` is echoed back to the caller.
     stash_token(job_id, body.token)

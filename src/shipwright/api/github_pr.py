@@ -50,6 +50,7 @@ def list_pull_requests(slug: str, token: str, *, client: httpx.Client | None = N
                 "author": (p.get("user") or {}).get("login", ""),
                 "updated_at": p.get("updated_at") or "",
                 "draft": bool(p.get("draft")),
+                "head_sha": (p.get("head") or {}).get("sha", ""),
             }
             for p in r.json()
         ]

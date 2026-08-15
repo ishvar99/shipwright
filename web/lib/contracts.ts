@@ -93,6 +93,7 @@ export const PullRequestSchema = z.object({
   author: z.string().default(""),
   updated_at: z.string().default(""),
   draft: z.boolean().default(false),
+  head_sha: z.string().default(""),
 });
 export const PullRequestListSchema = z.array(PullRequestSchema);
 
@@ -107,6 +108,16 @@ export const JobResultSchema = z.object({
   coverage: ReviewCoverageSchema.optional(),
   complete: z.boolean().optional(),
   review_url: z.string().optional(),
+  triage: z
+    .record(
+      z.string(),
+      z.object({
+        state: z.enum(["kept", "dismissed"]),
+        reason: z.string().default(""),
+      }),
+    )
+    .optional(),
+  superseded_by: z.string().optional(),
   graph: GraphStatsSchema.default({}),
   fix: FixSchema.nullish(),
   /** change | question | other — absent on sessions recorded before routing existed. */
@@ -369,6 +380,7 @@ export const JobEventSchema = z.discriminatedUnion("type", [
     error: z.string().default(""),
   }),
   z.object({ ...envelope, type: z.literal("review.ready"), findings: z.number() }),
+  z.object({ ...envelope, type: z.literal("review.progress"), done: z.number(), total: z.number() }),
   z.object({ ...envelope, type: z.literal("review.post.started"), slug: z.string().default("") }),
   z.object({
     ...envelope,

@@ -23,6 +23,7 @@ def test_list_pull_requests_maps_fields():
                     "user": {"login": "ada"},
                     "updated_at": "2026-08-01T00:00:00Z",
                     "draft": False,
+                    "head": {"sha": "h1"},
                 }
             ],
         )
@@ -34,8 +35,17 @@ def test_list_pull_requests_maps_fields():
             "author": "ada",
             "updated_at": "2026-08-01T00:00:00Z",
             "draft": False,
+            "head_sha": "h1",
         }
     ]
+
+
+def test_pull_request_without_a_head_sha_is_not_fatal():
+    # A narrowed payload (or a PR GitHub is still computing) must degrade to "", never KeyError.
+    def handler(request):
+        return httpx.Response(200, json=[{"number": 1, "title": "t"}])
+
+    assert list_pull_requests("o/r", "tok", client=_client(handler))[0]["head_sha"] == ""
 
 
 def test_fetch_pull_request_paginates_files():
