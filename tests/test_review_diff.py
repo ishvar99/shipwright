@@ -1,5 +1,6 @@
 from shipwright.review.diff import (
     FileDiff,
+    excerpt,
     parse_file_patch,
     parse_unified,
     postable,
@@ -84,3 +85,56 @@ def test_changed_line_count_is_additions_plus_deletions():
     fd = parse_file_patch("api/handler.py", GH_PATCH)
     assert fd.changed == 4
     assert FileDiff(path="e.py", hunks=(), additions=0, deletions=0).changed == 0
+
+
+EXC_PATCH = """@@ -10,4 +10,6 @@ def handler(req):
+     name = req.get("name")
+-    return lookup(name)
++    if name is None:
++        raise ValueError("name required")
++    return lookup(name)
+ """
+
+
+def test_excerpt_returns_the_containing_hunk_with_header():
+    fd = parse_file_patch("a.py", EXC_PATCH)
+    out = excerpt(fd, 12, "RIGHT")
+    assert out.startswith("@@")
+    assert 'raise ValueError("name required")' in out
+
+
+def test_excerpt_is_side_aware_across_hunks():
+    # Two hunks whose old/new numbering diverges: the side must pick the hunk.
+    # Hunk A deletes at old 11-12; hunk B adds at new 39-40.
+    patch = (
+        "@@ -10,3 +10,1 @@\n context\n-gone one\n-gone two\n"
+        "@@ -40,1 +38,3 @@\n context\n+added one\n+added two\n"
+    )
+    fd = parse_file_patch("a.py", patch)
+    assert "added one" in excerpt(fd, 39, "RIGHT")
+    # New line 39 exists only on the RIGHT; a side-blind excerpt would still match here.
+    assert excerpt(fd, 39, "LEFT") == ""
+    assert "gone two" in excerpt(fd, 12, "LEFT")
+    assert excerpt(fd, 12, "RIGHT") == ""
+
+
+def test_excerpt_outside_every_hunk_is_empty():
+    fd = parse_file_patch("a.py", EXC_PATCH)
+    assert excerpt(fd, 999, "RIGHT") == ""
+
+
+def test_excerpt_is_bounded_on_a_giant_hunk():
+    lines = "\n".join(f"+line {i}" for i in range(1, 201))
+    fd = parse_file_patch("big.py", f"@@ -1,0 +1,200 @@\n{lines}\n")
+    out = excerpt(fd, 100, "RIGHT")
+    assert len(out.splitlines()) == 41  # header + exactly 40 lines
+    assert "line 100" in out
+
+
+def test_excerpt_late_anchor_still_gets_a_full_window():
+    lines = "\n".join(f"+line {i}" for i in range(1, 201))
+    fd = parse_file_patch("big.py", f"@@ -1,0 +1,200 @@\n{lines}\n")
+    out = excerpt(fd, 200, "RIGHT")
+    assert len(out.splitlines()) == 41  # header + exactly 40
+    assert "line 200" in out
+    assert "clipped" in out.splitlines()[0]

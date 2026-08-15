@@ -140,3 +140,51 @@ def postable(diffs: list[FileDiff]) -> set[Position]:
         out |= {(d.path, n, "RIGHT") for n in d.added_lines}
         out |= {(d.path, n, "LEFT") for n in d.deleted_lines}
     return out
+
+
+EXCERPT_MAX_LINES = 40
+
+
+def excerpt(fd: FileDiff, line: int, side: str) -> str:
+    """The hunk containing an anchor, as prefixed diff lines under a header.
+
+    Stored on each surviving finding at review time: the job row does not retain per-file
+    patches, and refetching from GitHub at view time would add a network hop and fail on
+    expired tokens. Bounded, because one enormous hunk on a 25-finding review would bloat
+    the row and the wire. When the window clips the hunk, the header reports the true
+    first new-side line of the slice (not the hunk's), and says so.
+    """
+    for hunk in fd.hunks:
+        new_n, old_n = hunk.new_start, hunk.old_start
+        index = None
+        new_at: list[int] = []
+        for i, raw in enumerate(hunk.lines):
+            new_at.append(new_n)
+            if raw.startswith("+"):
+                if side == "RIGHT" and new_n == line:
+                    index = i
+                new_n += 1
+            elif raw.startswith("-"):
+                if side == "LEFT" and old_n == line:
+                    index = i
+                old_n += 1
+            else:
+                if side == "RIGHT" and new_n == line:
+                    index = i
+                new_n += 1
+                old_n += 1
+        if index is None:
+            continue
+        lines = list(hunk.lines)
+        start = hunk.new_start
+        clipped = ""
+        if len(lines) > EXCERPT_MAX_LINES:
+            half = EXCERPT_MAX_LINES // 2
+            # Clamped so a late anchor still gets a full window instead of trailing off
+            # the end of the hunk with fewer than EXCERPT_MAX_LINES lines.
+            lo = max(0, min(index - half, len(lines) - EXCERPT_MAX_LINES))
+            lines = lines[lo : lo + EXCERPT_MAX_LINES]
+            start = new_at[lo]
+            clipped = ", clipped"
+        return "\n".join([f"@@ hunk at line {start}{clipped} @@", *lines])
+    return ""

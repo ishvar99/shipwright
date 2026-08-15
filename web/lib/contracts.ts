@@ -71,6 +71,8 @@ export const FindingSchema = z.object({
   body: z.string().default(""),
   source: z.enum(["llm", "ruff"]).default("llm"),
   rule: z.string().default(""),
+  /** Bounded diff excerpt around the anchor, attached at review time. */
+  hunk: z.string().default(""),
   /** Flagged independently by more than one check. Raises rank, never duplicates the row. */
   agreed: z.boolean().default(false),
 });
@@ -367,6 +369,14 @@ export const JobEventSchema = z.discriminatedUnion("type", [
     error: z.string().default(""),
   }),
   z.object({ ...envelope, type: z.literal("review.ready"), findings: z.number() }),
+  z.object({ ...envelope, type: z.literal("review.post.started"), slug: z.string().default("") }),
+  z.object({
+    ...envelope,
+    type: z.literal("review.post.ready"),
+    url: z.string(),
+    number: z.number(),
+  }),
+  z.object({ ...envelope, type: z.literal("review.post.failed"), reason: z.string().default("") }),
   z.object({ ...envelope, type: z.literal("job.done"), wall_ms: z.number(), locations: z.number() }),
   z.object({ ...envelope, type: z.literal("job.failed"), error: z.string() }),
 ]);

@@ -1,6 +1,6 @@
 from shipwright.review.diff import parse_unified
 from shipwright.review.merge import MAX_FINDINGS, merge
-from shipwright.review.render import to_github_review, to_markdown
+from shipwright.review.render import finding_key, kept_findings, to_github_review, to_markdown
 
 PATCH = """diff --git a/a.py b/a.py
 --- a/a.py
@@ -120,3 +120,46 @@ def test_github_payload_with_no_findings_still_has_a_body():
     payload = to_github_review([], "abc123", COVERAGE)
     assert payload["body"]
     assert payload["comments"] == []
+
+
+TRIAGED = {
+    "findings": [
+        # merge's ranking, not sorted order: agreed findings sort ahead of their line number.
+        # Deliberate — kept_findings must preserve THIS order, and a fixture whose findings,
+        # triage-insertion, and lexical orders all coincide pins nothing (verified: both a
+        # triage.items() and a sorted-by-key implementation passed the coincident fixture).
+        _f(3, category="security", agreed=True),
+        _f(2, category="security"),
+        _f(2, category="quality"),
+        _f(4, category="security"),
+    ],
+    "triage": {
+        "a.py:2:security": {"state": "kept", "reason": ""},
+        "a.py:2:quality": {"state": "dismissed", "reason": "not_real"},
+        "a.py:3:security": {"state": "kept", "reason": ""},
+    },
+}
+
+
+def test_finding_key_is_path_line_category():
+    assert finding_key(_f(7, category="quality")) == "a.py:7:quality"
+
+
+def test_kept_findings_returns_only_explicit_keeps():
+    # Line 3 first: kept_findings preserves the findings list's order (merge's ranking),
+    # never the triage map's insertion order and never lexical key order.
+    assert [finding_key(f) for f in kept_findings(TRIAGED)] == [
+        "a.py:3:security",
+        "a.py:2:security",
+    ]
+
+
+def test_undecided_findings_are_not_kept():
+    # a.py:4:security has no triage entry: undecided is not kept. What posts to the team's
+    # PR is exactly what a human explicitly chose.
+    assert all(finding_key(f) != "a.py:4:security" for f in kept_findings(TRIAGED))
+
+
+def test_no_triage_at_all_keeps_nothing():
+    assert kept_findings({"findings": [_f(2)]}) == []
+    assert kept_findings({}) == []

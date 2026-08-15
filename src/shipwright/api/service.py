@@ -825,14 +825,25 @@ def run_action(job_id) -> None:
             emit(job_id, "pr.ready", url=pr["url"], number=pr["number"])
 
         elif kind == "post_review":
-            from ..review.render import to_github_review
+            from ..review.render import kept_findings, to_github_review
             from . import github_pr
 
-            findings = parent_result.get("findings") or []
             target = parent_result.get("target") or {}
             with session() as s:
                 slug = s.get(Repo, repo_id).slug
-            emit(job_id, "pr.started", branch="", slug=slug)
+            # Its own events, not pr.*: the narrator's copy for pr.started is "Opening a
+            # pull request", which would be a lie here.
+            #
+            # Emitted before every guard below, deliberately: the narrator marks a beat
+            # failed only if that beat is open, so a `review.post.failed` with no preceding
+            # `started` renders no feed line at all — the job would fail silently.
+            emit(job_id, "review.post.started", slug=slug)
+            # Kept only, re-checked here rather than trusted from the precondition: the
+            # action runs later, and dismissing every finding between the request and this
+            # worker is exactly the race the re-check exists for.
+            findings = kept_findings(parent_result)
+            if not findings:
+                raise github.PullRequestError("Keep at least one finding before posting.")
             if not token:
                 raise github.PullRequestError("Connect GitHub before posting a review.")
             payload = to_github_review(
@@ -844,7 +855,7 @@ def run_action(job_id) -> None:
             with session() as s:
                 p = s.get(Job, parent_id)
                 p.result = {**(p.result or {}), "review_url": posted["url"]}
-            emit(job_id, "pr.ready", url=posted["url"], number=int(target["number"]))
+            emit(job_id, "review.post.ready", url=posted["url"], number=int(target["number"]))
 
         else:
             raise RuntimeError(f"unknown action: {kind}")
@@ -875,7 +886,13 @@ def run_action(job_id) -> None:
             j.status = ERRORED
             j.error = msg[:400]
             j.finished_at = datetime.now(UTC)
-        emit(job_id, "pr.failed", reason=str(e))
+        # The failure event matches the kind so the narrator's copy stays truthful:
+        # "Couldn't post the review" is not "Couldn't open the pull request".
+        emit(
+            job_id,
+            "review.post.failed" if kind == "post_review" else "pr.failed",
+            reason=str(e),
+        )
         emit(job_id, "job.failed", error=msg[:400])
     except Exception as e:
         # NAME only — see run_localize's handler.

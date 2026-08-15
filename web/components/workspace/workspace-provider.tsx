@@ -148,7 +148,9 @@ export function WorkspaceProvider({
     if (!live) return;
     // Filtered in SQL, not here: filtering after the limit let 25 harness rows fill the page
     // and push every one of the user's own sessions off it.
-    const q = new URLSearchParams({ limit: "25", kind: "localize" });
+    // Both session kinds; action child-jobs (apply, test, post_review…) stay excluded even
+    // when the harness toggle drops the client filter.
+    const q = new URLSearchParams({ limit: "25", kind: "localize,review" });
     if (!showAll) q.set("client", "web");
     void apiGet(JobListSchema, `/api/jobs?${q}`)
       .then(setSessions)

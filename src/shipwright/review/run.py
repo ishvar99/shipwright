@@ -15,7 +15,7 @@ from ..codegraph.build import build
 from .checkers import CHECKERS, Usage, run_checker
 from .context import assemble, changed_symbols
 from .deterministic import run_ruff
-from .diff import parse_file_patch
+from .diff import excerpt, parse_file_patch
 from .merge import merge
 from .stages import Stage, run_stage
 
@@ -105,6 +105,11 @@ def review_diff(
             usage.provider_failures += used.provider_failures
 
     kept = merge(findings, chunks)
+    by_path = {fd.path: fd for fd in chunks}
+    for f in kept:
+        fd = by_path.get(f["path"])
+        # unreachable today (merge gates on these same chunks), kept as belt for future callers
+        f["hunk"] = excerpt(fd, f["line"], f.get("side", "RIGHT")) if fd else ""
     if notify:
         notify("review.ready", {"findings": len(kept)})
 

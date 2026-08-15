@@ -34,24 +34,15 @@ def test_review_session_accepts_actions(db):
     from fastapi.testclient import TestClient
 
     from shipwright.api.main import app
-    from shipwright.models import DONE, REVIEW, Job
 
     with TestClient(app) as client:
         with db.session() as s:
             repo = _mk_repo(s, slug="t/repo", path="/tmp")
-            parent = Job(
-                repo_id=repo.id,
-                kind=REVIEW,
-                issue="x" * 12,
-                status=DONE,
-                result={
-                    "findings": [{"path": "a.py", "line": 1}],
-                    "target": {"number": 7, "slug": "t/repo"},
-                },
+            parent_id = _review_job(
+                s,
+                repo,
+                result={"triage": {"a.py:2:security": {"state": "kept", "reason": ""}}},
             )
-            s.add(parent)
-            s.flush()
-            parent_id = str(parent.id)
         # No token: must be a 409 with a sentence, never a 404 from the kind guard.
         r = client.post(f"/api/jobs/{parent_id}/actions", json={"kind": "post_review"})
         assert r.status_code == 409
@@ -203,3 +194,390 @@ def test_review_failure_message_names_the_action_not_the_provider(db):
     # A curated sentence, never a provider URL or a bare exception repr.
     assert "Connect GitHub" in error
     assert "http" not in error.lower()
+
+
+def _review_job(s, repo, status=None, result=None):
+    """A DONE review job with one finding. `result` shallow-merges OVER the defaults —
+    callers can replace `findings` but cannot remove `target`."""
+    from shipwright.models import DONE, REVIEW, Job
+
+    job = Job(
+        repo_id=repo.id,
+        kind=REVIEW,
+        issue="Review pull request #7",
+        status=status or DONE,
+        result={
+            "findings": [
+                {
+                    "path": "a.py",
+                    "line": 2,
+                    "category": "security",
+                    "severity": "high",
+                    "title": "t",
+                    "body": "b",
+                    "side": "RIGHT",
+                    "source": "llm",
+                    "rule": "",
+                    "end_line": 2,
+                    "evidence": [],
+                    "hunk": "",
+                },
+            ],
+            "target": {"number": 7, "slug": "t/repo"},
+            **(result or {}),
+        },
+    )
+    s.add(job)
+    s.flush()
+    return str(job.id)
+
+
+@requires_pg
+def test_triage_saves_decisions_on_the_row(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+    from shipwright.models import Job
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {"a.py:2:security": {"state": "kept", "reason": ""}}},
+        )
+        assert r.status_code == 200
+        assert r.json()["kept"] == 1
+        with db.session() as s:
+            row = s.get(Job, job_id)
+            assert row.result["triage"]["a.py:2:security"]["state"] == "kept"
+
+
+@requires_pg
+def test_triage_rejects_a_key_not_in_the_review(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {"other.py:9:quality": {"state": "kept", "reason": ""}}},
+        )
+        assert r.status_code == 400
+        assert "part of this review" in r.json()["detail"]
+
+
+@requires_pg
+def test_dismissal_requires_a_reason(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {"a.py:2:security": {"state": "dismissed", "reason": ""}}},
+        )
+        assert r.status_code == 400
+        assert "reason" in r.json()["detail"].lower()
+
+
+@requires_pg
+def test_triage_on_a_localize_session_is_a_404(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+    from shipwright.models import DONE, Job
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            repo = _mk_repo(s, slug="t/repo", path="/tmp")
+            job = Job(repo_id=repo.id, issue="x" * 12, status=DONE)
+            s.add(job)
+            s.flush()
+            job_id = str(job.id)
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {}},
+        )
+        assert r.status_code == 404
+
+
+@requires_pg
+def test_triage_before_the_review_finishes_is_a_409(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+    from shipwright.models import RUNNING
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"), status=RUNNING)
+        r = client.post(f"/api/jobs/{job_id}/triage", json={"decisions": {}})
+        assert r.status_code == 409
+
+
+@requires_pg
+def test_a_kept_finding_carries_no_reason(db):
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {"a.py:2:security": {"state": "kept", "reason": "not_real"}}},
+        )
+        assert r.status_code == 400
+        assert "no reason" in r.json()["detail"].lower()
+
+
+@requires_pg
+def test_triage_is_a_whole_map_replace(db):
+    """The docstring's headline claim: last write wins, including clearing."""
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+    from shipwright.models import Job
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        first = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {"a.py:2:security": {"state": "kept", "reason": ""}}},
+        )
+        assert first.status_code == 200
+        # Asserted between the posts: without this, the test passes vacuously if the
+        # first write were a no-op.
+        with db.session() as s:
+            assert s.get(Job, job_id).result["triage"] == {
+                "a.py:2:security": {"state": "kept", "reason": ""}
+            }
+        second = client.post(f"/api/jobs/{job_id}/triage", json={"decisions": {}})
+        assert second.status_code == 200
+        with db.session() as s:
+            assert s.get(Job, job_id).result["triage"] == {}
+
+
+@requires_pg
+def test_one_bad_entry_refuses_the_whole_save(db):
+    """All-or-nothing: a partial write would let a stale client post dismissed findings."""
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+    from shipwright.models import Job
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={
+                "decisions": {
+                    "a.py:2:security": {"state": "kept", "reason": ""},
+                    "ghost.py:9:quality": {"state": "kept", "reason": ""},
+                }
+            },
+        )
+        assert r.status_code == 400
+        with db.session() as s:
+            assert "triage" not in (s.get(Job, job_id).result or {})
+
+
+@requires_pg
+def test_triage_is_owner_scoped(db):
+    """bob cannot triage alice's review — and cannot learn it exists."""
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            repo = _mk_repo(s, slug="t/repo", path="/tmp")
+            repo.owner = "gh:alice"
+            job_id = _review_job(s, repo)
+        with db.session() as s:
+            from shipwright.models import Job
+
+            s.get(Job, job_id).owner = "gh:alice"
+        r = client.post(
+            f"/api/jobs/{job_id}/triage",
+            json={"decisions": {}},
+            headers={"x-shipwright-owner": "gh:bob"},
+        )
+        assert r.status_code == 404
+
+
+@requires_pg
+def test_more_decisions_than_findings_is_refused(db):
+    """The bound guard speaks in a curated sentence, not pydantic's generic 422 —
+    the detail assertion below is what isolates it from the unknown-key 400."""
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+    from shipwright.review.merge import MAX_FINDINGS
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        oversized = {
+            f"a.py:{i}:security": {"state": "kept", "reason": ""} for i in range(MAX_FINDINGS + 1)
+        }
+        r = client.post(f"/api/jobs/{job_id}/triage", json={"decisions": oversized})
+        assert r.status_code == 400
+        assert "more decisions" in r.json()["detail"].lower()
+
+
+@requires_pg
+def test_post_review_requires_a_kept_finding(db):
+    """Findings exist but none is kept: undecided never posts."""
+    from fastapi.testclient import TestClient
+
+    from shipwright.api.main import app
+
+    with TestClient(app) as client:
+        with db.session() as s:
+            job_id = _review_job(s, _mk_repo(s, slug="t/repo", path="/tmp"))
+        r = client.post(f"/api/jobs/{job_id}/actions", json={"kind": "post_review", "token": "t"})
+        assert r.status_code == 409
+        assert "keep at least one" in r.json()["detail"].lower()
+
+
+@requires_pg
+def test_post_review_payload_contains_only_kept_findings(db, monkeypatch):
+    from shipwright.api.service import run_action, stash_token
+    from shipwright.models import Job
+
+    posted = {}
+
+    def fake_post(slug, number, payload, token, **kw):
+        posted.update(payload)
+        return {"url": "https://gh/r/1", "id": 1}
+
+    monkeypatch.setattr("shipwright.api.github_pr.post_review", fake_post)
+
+    with db.session() as s:
+        # A workspace-relative path, not "/tmp": _owned_clone (called by run_action for
+        # every kind) short-circuits to this path unmaterialized when it already resolves
+        # under workspaces/, which is all post_review needs — it never touches repo_dir.
+        # "/tmp" would instead hit _materialize's `git archive HEAD`, which fails because
+        # /tmp is not a git repository, and that failure has nothing to do with triage.
+        repo = _mk_repo(s, slug="t/repo", path="workspaces/_test_post_review")
+        parent_id = _review_job(
+            s,
+            repo,
+            result={
+                "findings": [
+                    {
+                        "path": "a.py",
+                        "line": 2,
+                        "category": "security",
+                        "severity": "high",
+                        "title": "keep me",
+                        "body": "b",
+                        "side": "RIGHT",
+                        "source": "llm",
+                        "rule": "",
+                        "end_line": 2,
+                        "evidence": [],
+                        "hunk": "",
+                    },
+                    {
+                        "path": "a.py",
+                        "line": 3,
+                        "category": "quality",
+                        "severity": "low",
+                        "title": "dismiss me",
+                        "body": "b",
+                        "side": "RIGHT",
+                        "source": "llm",
+                        "rule": "",
+                        "end_line": 3,
+                        "evidence": [],
+                        "hunk": "",
+                    },
+                ],
+                "triage": {
+                    "a.py:2:security": {"state": "kept", "reason": ""},
+                    "a.py:3:quality": {"state": "dismissed", "reason": "not_real"},
+                },
+                "coverage": {
+                    "files": 1,
+                    "reviewed": 1,
+                    "unreviewed": [],
+                    "degraded": [],
+                    "tier": "graph",
+                },
+                "target": {"number": 7, "slug": "t/repo", "head_sha": "abc"},
+            },
+        )
+        action = Job(
+            repo_id=repo.id,
+            kind="post_review",
+            issue="x" * 12,
+            status="queued",
+            result={"parent": parent_id},
+        )
+        s.add(action)
+        s.flush()
+        action_id = action.id
+    stash_token(action_id, "tok")
+    run_action(action_id)
+
+    bodies = [c["body"] for c in posted["comments"]]
+    assert any("keep me" in b for b in bodies)
+    assert not any("dismiss me" in b for b in bodies)
+    with db.session() as s:
+        parent = s.get(Job, parent_id)
+        assert parent.result["review_url"] == "https://gh/r/1"
+
+
+@requires_pg
+def test_a_late_dismissal_fails_the_post_with_narration(db):
+    """The race the worker re-check exists for: the request passed the kept precondition,
+    then the user dismissed everything before the worker ran.
+
+    review.post.started must precede the failure, or narrate() has no open beat to mark
+    failed and the job fails with no line in the activity feed at all.
+    """
+    from sqlalchemy import select
+
+    from shipwright.api.service import run_action, stash_token
+    from shipwright.models import Event, Job
+
+    with db.session() as s:
+        repo = _mk_repo(s, slug="t/repo", path="workspaces/_test_post_review")
+        parent_id = _review_job(
+            s,
+            repo,
+            result={"triage": {"a.py:2:security": {"state": "dismissed", "reason": "not_real"}}},
+        )
+        action = Job(
+            repo_id=repo.id,
+            kind="post_review",
+            issue="x" * 12,
+            status="queued",
+            result={"parent": parent_id},
+        )
+        s.add(action)
+        s.flush()
+        action_id = action.id
+    stash_token(action_id, "tok")
+    run_action(action_id)
+
+    with db.session() as s:
+        types = [
+            e.type
+            for e in s.scalars(select(Event).where(Event.job_id == action_id).order_by(Event.seq))
+        ]
+    assert "review.post.started" in types
+    assert types.index("review.post.started") < types.index("review.post.failed")
+    assert types[-1] == "job.failed"

@@ -133,6 +133,14 @@ const BEATS: readonly Beat[] = [
     done: "Tests finished",
   },
   {
+    key: "review-post",
+    opens: ["review.post.started"],
+    closes: ["review.post.ready"],
+    active: "Posting the review to GitHub…",
+    done: "Posted the review to GitHub",
+    fact: (d) => (typeof d.number === "number" ? `PR #${d.number}` : undefined),
+  },
+  {
     key: "review-read",
     opens: ["review.fetched"],
     closes: ["review.chunked"],
@@ -209,6 +217,15 @@ export function narrate(state: ActivityState): FeedLine[] {
       if (open && open.key === "pr") {
         open.state = "failed";
         open.label = "Couldn't open the pull request";
+        open.fact = typeof entry.data?.reason === "string" ? entry.data.reason : undefined;
+        open = null;
+      }
+      continue;
+    }
+    if (entry.type === "review.post.failed") {
+      if (open && open.key === "review-post") {
+        open.state = "failed";
+        open.label = "Couldn't post the review";
         open.fact = typeof entry.data?.reason === "string" ? entry.data.reason : undefined;
         open = null;
       }

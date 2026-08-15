@@ -322,7 +322,10 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
     case "review.stage.finished":
     case "review.stage.retried":
     case "review.stage.degraded":
-      return s;
+    case "review.post.started":
+    case "review.post.ready":
+    case "review.post.failed":
+      return s; // narrated only
     case "review.ready":
       return stage({ ...s, locationCount: e.findings }, "results", {
         state: "done",
