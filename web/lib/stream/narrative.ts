@@ -132,6 +132,27 @@ const BEATS: readonly Beat[] = [
     active: "Running the tests…",
     done: "Tests finished",
   },
+  {
+    key: "review-read",
+    opens: ["review.fetched"],
+    closes: ["review.chunked"],
+    active: "Reading the pull request…",
+    done: "Read the pull request",
+    fact: (d) => (typeof d.files === "number" ? `${d.files} files` : undefined),
+  },
+  {
+    key: "review-check",
+    opens: ["review.chunked"],
+    closes: ["review.ready"],
+    active: "Checking the changes…",
+    done: "Checked the changes",
+    fact: (d) =>
+      typeof d.findings === "number"
+        ? d.findings === 1
+          ? "1 finding"
+          : `${d.findings} findings`
+        : undefined,
+  },
 ];
 
 export function narrate(state: ActivityState): FeedLine[] {

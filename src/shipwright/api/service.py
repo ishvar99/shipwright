@@ -432,6 +432,84 @@ def run_localize(job_id) -> None:
         emit(job_id, "job.failed", error=type(e).__name__)
 
 
+def run_review(job_id) -> None:
+    """Review one pull request.
+
+    Same terminal contract as run_localize: set the status and finished_at, then emit a
+    terminal event — SSE detection reads Event types and never Job.status, so a kind that
+    never emits one leaves every client polling keepalives forever.
+    """
+    started = time.perf_counter()
+    # First statement, before any row lookup: an exception in the prelude would otherwise
+    # strand a live GitHub token in _TOKENS for the life of the process.
+    token = _take_token(job_id)
+    with session() as s:
+        job = s.get(Job, job_id)
+        job.status = RUNNING
+        target = dict((job.result or {}).get("target") or {})
+        repo = s.get(Repo, job.repo_id)
+        repo_path, slug = repo.path, repo.slug
+
+    try:
+        from ..gateway.factory import make_provider
+        from ..review.run import review_diff
+        from . import github_pr
+
+        emit(job_id, "job.started", repo=slug, mode="review", base="")
+        if not token:
+            raise github.PullRequestError("Connect GitHub before reviewing a pull request.")
+
+        pr = github_pr.fetch_pull_request(slug, int(target["number"]), token)
+        emit(job_id, "review.fetched", files=len(pr["files"]), truncated=bool(pr["truncated"]))
+
+        out = review_diff(
+            root=Path(repo_path),
+            files=pr["files"],
+            intent=f"{pr['title']}\n\n{pr['body']}"[:4000],
+            model=make_provider(settings.loc_model),
+            notify=lambda t, p: emit(job_id, t, **p),
+        )
+
+        wall = int((time.perf_counter() - started) * 1000)
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = DONE
+            j.model = settings.loc_model
+            j.result = {
+                **(j.result or {}),
+                "target": {**target, "head_sha": pr["head_sha"], "title": pr["title"]},
+                "findings": out["findings"],
+                "coverage": out["coverage"],
+                "complete": out["complete"],
+            }
+            j.input_tokens = out["usage"]["input_tokens"]
+            j.output_tokens = out["usage"]["output_tokens"]
+            j.wall_ms = wall
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "job.done", wall_ms=wall, locations=len(out["findings"]))
+
+    except github.PullRequestError as e:
+        # Already a sentence for the user and already free of credentials, so unlike the
+        # generic handler this one is safe on the wire verbatim.
+        msg = f"PullRequestError: {e}"
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = ERRORED
+            j.error = msg[:400]
+            j.wall_ms = int((time.perf_counter() - started) * 1000)
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "job.failed", error=msg[:400])
+    except Exception as e:  # noqa: BLE001 - NAME only, see run_localize
+        log.exception("review job %s failed", job_id)
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = ERRORED
+            j.error = type(e).__name__[:1000]
+            j.wall_ms = int((time.perf_counter() - started) * 1000)
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "job.failed", error=type(e).__name__)
+
+
 def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -> str:
     """A question deserves an answer, not just a list of files. Grounded in the code we
     actually found, so it cannot invent an architecture the repository does not have."""
@@ -745,6 +823,28 @@ def run_action(job_id) -> None:
             fix["pr_url"] = pr["url"]
             write_back(fix)
             emit(job_id, "pr.ready", url=pr["url"], number=pr["number"])
+
+        elif kind == "post_review":
+            from ..review.render import to_github_review
+            from . import github_pr
+
+            findings = parent_result.get("findings") or []
+            target = parent_result.get("target") or {}
+            with session() as s:
+                slug = s.get(Repo, repo_id).slug
+            emit(job_id, "pr.started", branch="", slug=slug)
+            if not token:
+                raise github.PullRequestError("Connect GitHub before posting a review.")
+            payload = to_github_review(
+                findings, target.get("head_sha", ""), parent_result.get("coverage") or {}
+            )
+            posted = github_pr.post_review(
+                target.get("slug") or slug, int(target["number"]), payload, token
+            )
+            with session() as s:
+                p = s.get(Job, parent_id)
+                p.result = {**(p.result or {}), "review_url": posted["url"]}
+            emit(job_id, "pr.ready", url=posted["url"], number=int(target["number"]))
 
         else:
             raise RuntimeError(f"unknown action: {kind}")

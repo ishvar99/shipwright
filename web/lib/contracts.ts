@@ -59,8 +59,52 @@ export const FixSchema = z.object({
   tests: z.object({ passed: z.number(), failed: z.number() }).optional(),
 });
 
+/** One review finding, anchored to a position the diff actually contains. */
+export const FindingSchema = z.object({
+  path: z.string(),
+  line: z.number(),
+  end_line: z.number().default(0),
+  side: z.enum(["LEFT", "RIGHT"]).default("RIGHT"),
+  category: z.enum(["security", "error_handling", "test_coverage", "quality"]),
+  severity: z.enum(["high", "medium", "low"]),
+  title: z.string(),
+  body: z.string().default(""),
+  source: z.enum(["llm", "ruff"]).default("llm"),
+  rule: z.string().default(""),
+  /** Flagged independently by more than one check. Raises rank, never duplicates the row. */
+  agreed: z.boolean().default(false),
+});
+
+/** What was and was not reviewed. Every gap is named rather than implied. */
+export const ReviewCoverageSchema = z.object({
+  files: z.number().default(0),
+  reviewed: z.number().default(0),
+  unreviewed: z.array(z.string()).default([]),
+  degraded: z.array(z.string()).default([]),
+  /** graph = call-graph grounded · window = changed files only · none = static checks only. */
+  tier: z.enum(["graph", "window", "none"]).default("none"),
+});
+
+export const PullRequestSchema = z.object({
+  number: z.number(),
+  title: z.string(),
+  author: z.string().default(""),
+  updated_at: z.string().default(""),
+  draft: z.boolean().default(false),
+});
+export const PullRequestListSchema = z.array(PullRequestSchema);
+
 export const JobResultSchema = z.object({
   locations: z.array(LocationSchema).default([]),
+  /**
+   * Review output. Optional rather than defaulted, deliberately: a localize session has no
+   * review, and defaulting it would assert `complete: true` and a coverage tier about a job
+   * that was never reviewed. Absent and empty are different claims.
+   */
+  findings: z.array(FindingSchema).optional(),
+  coverage: ReviewCoverageSchema.optional(),
+  complete: z.boolean().optional(),
+  review_url: z.string().optional(),
   graph: GraphStatsSchema.default({}),
   fix: FixSchema.nullish(),
   /** change | question | other — absent on sessions recorded before routing existed. */
@@ -287,6 +331,42 @@ export const JobEventSchema = z.discriminatedUnion("type", [
     parse_failures: z.number().optional(),
   }),
   z.object({ ...envelope, type: z.literal("localization.ready"), count: z.number() }),
+  // Review. Counts only: findings themselves ride on Job.result, which the client refetches
+  // on job.done. No model or token fields are declared, deliberately — the events route is a
+  // byte pass-through and this schema is the only place a scrub can happen.
+  z.object({
+    ...envelope,
+    type: z.literal("review.fetched"),
+    files: z.number(),
+    truncated: z.boolean().default(false),
+  }),
+  z.object({
+    ...envelope,
+    type: z.literal("review.chunked"),
+    units: z.number(),
+    skipped: z.number().default(0),
+  }),
+  z.object({ ...envelope, type: z.literal("review.stage.started"), stage: z.string() }),
+  z.object({
+    ...envelope,
+    type: z.literal("review.stage.finished"),
+    stage: z.string(),
+    attempt: z.number().default(1),
+  }),
+  z.object({
+    ...envelope,
+    type: z.literal("review.stage.retried"),
+    stage: z.string(),
+    attempt: z.number().default(1),
+    error: z.string().default(""),
+  }),
+  z.object({
+    ...envelope,
+    type: z.literal("review.stage.degraded"),
+    stage: z.string(),
+    error: z.string().default(""),
+  }),
+  z.object({ ...envelope, type: z.literal("review.ready"), findings: z.number() }),
   z.object({ ...envelope, type: z.literal("job.done"), wall_ms: z.number(), locations: z.number() }),
   z.object({ ...envelope, type: z.literal("job.failed"), error: z.string() }),
 ]);
@@ -306,6 +386,9 @@ export type GitHubStatus = z.infer<typeof GitHubStatusSchema>;
 export type Analytics = z.infer<typeof AnalyticsSchema>;
 export type AnalyticsRun = z.infer<typeof AnalyticsRunSchema>;
 export type Fix = z.infer<typeof FixSchema>;
+export type Finding = z.infer<typeof FindingSchema>;
+export type ReviewCoverage = z.infer<typeof ReviewCoverageSchema>;
+export type PullRequest = z.infer<typeof PullRequestSchema>;
 
 function isChannel(value: string): value is Channel {
   return (CHANNELS as readonly string[]).includes(value);

@@ -98,7 +98,7 @@ class Repo(Base):
 
 
 # Job.kind / Job.status
-LOCALIZE, FIX = "localize", "fix"
+LOCALIZE, FIX, REVIEW = "localize", "fix", "review"
 QUEUED, RUNNING, DONE, ERRORED = "queued", "running", "done", "errored"
 
 

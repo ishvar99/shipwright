@@ -10,7 +10,7 @@ import { apiPost, messageFor } from "@/lib/client/api";
 import { RepoSchema } from "@/lib/contracts";
 import { demoJob, demoRepo, demoRun, isDemoRepo } from "@/lib/fixtures";
 import { repoDisplayName } from "@/lib/repo-name";
-import { repoFiles, repoSession } from "@/lib/repo-routes";
+import { repoFiles, repoReview, repoSession } from "@/lib/repo-routes";
 import { relativeTime } from "@/lib/sessions";
 
 /**
@@ -81,6 +81,12 @@ export function RepoHome({ repoId }: { repoId: string }) {
             <Icon name="folder" size={14} />
             Browse files
           </Link>
+          {repo.source === "github" && (
+            <Link href={repoReview(repo.id)} className="sw-quiet-button">
+              <Icon name="crosshair" size={14} />
+              Review a PR
+            </Link>
+          )}
           {live && !isDemoRepo(repo.id) && repo.status !== "importing" && (
             <button
               type="button"
