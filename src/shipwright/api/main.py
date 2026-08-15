@@ -24,7 +24,8 @@ from sqlalchemy import delete, func, or_, select
 
 from ..config import settings
 from ..db import session
-from ..models import QUEUED, SKIPPED, Event, Job, Repo, Run, TaskResult
+from ..models import LOCALIZE, QUEUED, REVIEW, SKIPPED, Event, Job, Repo, Run, TaskResult
+from . import github, github_pr
 from .service import (
     MAX_COMPRESSED_UPLOAD,
     WORKSPACES,
@@ -40,6 +41,7 @@ from .service import (
     reindex_repo,
     run_action,
     run_localize,
+    run_review,
     save_file,
     stash_token,
 )
@@ -119,11 +121,18 @@ class ImportRepo(BaseModel):
 
 
 class CreateAction(BaseModel):
-    kind: str = Field(pattern="^(apply|test|fix_retry|open_pr)$")
+    kind: str = Field(pattern="^(apply|test|fix_retry|open_pr|post_review)$")
     symbol: str = ""
     # Supplied per call by the BFF for `open_pr` only, and never stored: the one action that
     # writes to somebody else's account is the one action that needs a credential.
     token: str = Field("", description="GitHub access token, for open_pr")
+
+
+class CreateReview(BaseModel):
+    repo_id: str = Field(min_length=8)
+    number: int = Field(ge=1)
+    # Per call and never stored, like open_pr's: the only credential this feature needs.
+    token: str = Field("", description="GitHub access token, for reading the pull request")
 
 
 class CreateJob(BaseModel):
@@ -508,6 +517,51 @@ def jobs_create(body: CreateJob, background: BackgroundTasks, owner: OwnerDep) -
     return out
 
 
+@app.get("/api/repos/{repo_id}/pulls")
+def repo_pulls(repo_id: str, owner: OwnerDep, token: str = "") -> list[dict[str, Any]]:
+    """Open pull requests, for the review picker. The token is per call and never stored."""
+    repo = _ready_repo(repo_id, owner)
+    if repo.source != "github":
+        raise HTTPException(409, "Only a GitHub-imported repository has pull requests.")
+    if not token:
+        raise HTTPException(409, "Connect GitHub to list pull requests.")
+    try:
+        return github_pr.list_pull_requests(repo.slug, token)
+    except github.PullRequestError as e:
+        # Already a sentence for the user and already free of credentials.
+        raise HTTPException(502, str(e)) from e
+
+
+@app.post("/api/reviews")
+def reviews_create(
+    body: CreateReview, background: BackgroundTasks, owner: OwnerDep
+) -> dict[str, Any]:
+    """Review one pull request. A sibling of jobs_create, not an action: a review is a
+    session in its own right and owns the post_review action underneath it."""
+    repo = _ready_repo(body.repo_id, owner)
+    if repo.source != "github":
+        raise HTTPException(409, "Only a GitHub-imported repository has pull requests.")
+    if not body.token:
+        raise HTTPException(409, "Connect GitHub before reviewing a pull request.")
+    with session() as s:
+        job = Job(
+            repo_id=repo.id,
+            owner=owner,
+            kind=REVIEW,
+            issue=f"Review pull request #{body.number}",
+            client="web",
+            status=QUEUED,
+            result={"target": {"number": body.number, "slug": repo.slug}},
+        )
+        s.add(job)
+        s.flush()
+        out, job_id = _job_json(job, repo.slug), job.id
+    # In memory only, never on the row: `result` is echoed back to the caller.
+    stash_token(job_id, body.token)
+    background.add_task(POOL.submit, run_review, job_id)
+    return out
+
+
 @app.post("/api/jobs/{job_id}/actions")
 def actions_create(
     job_id: str, body: CreateAction, background: BackgroundTasks, owner: OwnerDep
@@ -518,7 +572,10 @@ def actions_create(
         parent = s.scalars(
             select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
         ).first()
-        if not parent or parent.kind != "localize":
+        # Both kinds, because a review session owns the post_review action. Kept as an
+        # explicit tuple rather than dropping the check: a child action job must never be
+        # able to parent another one.
+        if not parent or parent.kind not in (LOCALIZE, REVIEW):
             raise HTTPException(404, "That session no longer exists.")
         _claim(owner, parent)
         fix = (parent.result or {}).get("fix") or {}
@@ -540,6 +597,14 @@ def actions_create(
                 raise HTTPException(409, "Only a GitHub-imported repository has somewhere to push.")
             if not body.token:
                 raise HTTPException(409, "Connect GitHub before opening a pull request.")
+        if body.kind == "post_review":
+            repo = s.get(Repo, parent.repo_id)
+            if not (parent.result or {}).get("findings"):
+                raise HTTPException(409, "There are no findings to post.")
+            if not repo or repo.source != "github":
+                raise HTTPException(409, "Only a GitHub-imported repository has a pull request.")
+            if not body.token:
+                raise HTTPException(409, "Connect GitHub before posting a review.")
         meta: dict[str, Any] = {"parent": str(parent.id)}
         if body.symbol:
             meta["symbol"] = body.symbol
@@ -560,7 +625,7 @@ def actions_create(
 
     # Handed to the worker in memory, never through the job row: `result` is echoed straight
     # back to the caller by _job_json and persisted in Postgres.
-    if body.kind == "open_pr":
+    if body.kind in ("open_pr", "post_review"):
         stash_token(action_id, body.token)
     background.add_task(POOL.submit, run_action, action_id)
     return out
