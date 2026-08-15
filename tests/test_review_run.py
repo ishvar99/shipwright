@@ -178,3 +178,50 @@ def test_surviving_findings_carry_their_hunk(tmp_path):
     out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=model)
     assert out["findings"], "expected the line-2 finding to survive the gate"
     assert "import subprocess" in out["findings"][0]["hunk"]
+
+
+def test_progress_is_notified_per_chunk(tmp_path):
+    events = []
+    files = [
+        {
+            "path": f"f{i}.py",
+            "status": "modified",
+            "reviewable": True,
+            "patch": f"@@ -1,1 +1,2 @@\n x\n+y{i}",
+        }
+        for i in range(3)
+    ]
+    for f in files:
+        (tmp_path / f["path"]).write_text("x = 1\n")
+    review_diff(
+        root=tmp_path,
+        files=files,
+        intent="",
+        model=FakeModel(),
+        notify=lambda t, p: events.append((t, p)),
+    )
+    progress = [p for t, p in events if t == "review.progress"]
+    assert progress == [
+        {"done": 1, "total": 3},
+        {"done": 2, "total": 3},
+        {"done": 3, "total": 3},
+    ]
+
+
+def test_progress_is_not_emitted_without_a_notify(tmp_path):
+    # notify=None is the eval harness's path; it must not crash or cost anything.
+    (tmp_path / "a.py").write_text("x = 1\n")
+    out = review_diff(
+        root=tmp_path,
+        files=[
+            {
+                "path": "a.py",
+                "status": "modified",
+                "reviewable": True,
+                "patch": "@@ -1,1 +1,2 @@\n x\n+y",
+            }
+        ],
+        intent="",
+        model=FakeModel(),
+    )
+    assert isinstance(out["findings"], list)

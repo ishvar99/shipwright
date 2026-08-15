@@ -79,7 +79,7 @@ def review_diff(
             degraded.add("graph")
 
     grounded = False
-    for fd in chunks:
+    for chunk_index, fd in enumerate(chunks):
         context = ""
         if graph is not None:
             blocks = [assemble(graph, sid) for sid in changed_symbols(graph, fd)]
@@ -103,6 +103,9 @@ def review_diff(
             usage.output_tokens += used.output_tokens
             usage.parse_failures += used.parse_failures
             usage.provider_failures += used.provider_failures
+
+        if notify:
+            notify("review.progress", {"done": chunk_index + 1, "total": len(chunks)})
 
     kept = merge(findings, chunks)
     by_path = {fd.path: fd for fd in chunks}

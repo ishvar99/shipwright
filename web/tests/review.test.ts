@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { FindingSchema, JobEventSchema, JobResultSchema } from "@/lib/contracts";
 import { repoReview } from "@/lib/repo-routes";
+import { narrate } from "@/lib/stream/narrative";
+import { initialState, type TimelineEntry } from "@/lib/stream/reduce";
 import { severityLabel, severityTone } from "@/lib/review";
 
 describe("review wire contract", () => {
@@ -28,6 +30,18 @@ describe("review wire contract", () => {
     });
     expect("input_tokens" in r).toBe(false);
   });
+
+  it("accepts a progress frame", () => {
+    const r = JobEventSchema.safeParse({ seq: 9, type: "review.progress", done: 4, total: 9 });
+    expect(r.success).toBe(true);
+  });
+
+  it("strips undeclared fields from a progress frame", () => {
+    const r = JobEventSchema.parse({
+      seq: 9, type: "review.progress", done: 4, total: 9, model: "qwen",
+    });
+    expect("model" in r).toBe(false);
+  });
 });
 
 describe("JobResultSchema", () => {
@@ -49,6 +63,16 @@ describe("JobResultSchema", () => {
     expect(r.findings).toHaveLength(1);
     expect(r.coverage?.tier).toBe("graph");
     expect(r.coverage?.degraded).toEqual([]);
+  });
+
+  it("parses triage and supersede bookkeeping", () => {
+    const r = JobResultSchema.parse({
+      triage: { "a.py:2:security": { state: "kept" } },
+      superseded_by: "job-2",
+    });
+    expect(r.triage?.["a.py:2:security"].state).toBe("kept");
+    expect(r.triage?.["a.py:2:security"].reason).toBe("");
+    expect(r.superseded_by).toBe("job-2");
   });
 
   it("parses a finding with its anchor", () => {
@@ -96,5 +120,63 @@ describe("severity presentation", () => {
     for (const s of ["high", "medium", "low"] as const) {
       expect(severityLabel(s)).not.toMatch(/\d|%|confiden/i);
     }
+  });
+});
+
+describe("review narration over the real event sequence", () => {
+  // The production order: service.py emits review.fetched, then review_diff emits
+  // review.chunked, per-chunk review.progress, and review.ready.
+  const frames = [
+    { seq: 1, type: "review.fetched", files: 9, truncated: false },
+    { seq: 2, type: "review.chunked", units: 9, skipped: 0 },
+    { seq: 3, type: "review.progress", done: 4, total: 9 },
+    { seq: 4, type: "review.ready", findings: 3 },
+  ];
+
+  function narrateFrames(upTo: number) {
+    const state = {
+      ...initialState("j", { mode: "network" }),
+      timeline: frames.slice(0, upTo).map((f) => ({
+        type: f.type,
+        at: 0,
+        data: Object.fromEntries(
+          Object.entries(f).filter(([k]) => k !== "seq" && k !== "type"),
+        ),
+      })) as TimelineEntry[],
+    };
+    return narrate(state);
+  }
+
+  it("opens the checking beat on the same event that closes the reading beat", () => {
+    // review.chunked is both review-read's close and review-check's open. Handling only
+    // the close left the checking line nonexistent and its progress suffix unreachable.
+    const lines = narrateFrames(2);
+    expect(lines.map((l) => l.key)).toEqual(["review-read", "review-check"]);
+    expect(lines[0].state).toBe("done");
+    expect(lines[1].state).toBe("active");
+  });
+
+  it("reports the file count from the closing event's own payload", () => {
+    // The fact is computed at close time from review.chunked, which carries `units` —
+    // reading review.fetched's `files` here silently yielded undefined.
+    expect(narrateFrames(2)[0].fact).toBe("9 files");
+  });
+
+  it("names skipped files rather than hiding them", () => {
+    const state = {
+      ...initialState("j", { mode: "network" }),
+      timeline: [
+        { type: "review.fetched", at: 0, data: { files: 9 } },
+        { type: "review.chunked", at: 0, data: { units: 7, skipped: 2 } },
+      ] as TimelineEntry[],
+    };
+    expect(narrate(state)[0].fact).toBe("7 files, 2 skipped");
+  });
+
+  it("closes the checking beat with its finding count", () => {
+    const lines = narrateFrames(4);
+    const check = lines.find((l) => l.key === "review-check");
+    expect(check?.state).toBe("done");
+    expect(check?.fact).toBe("3 findings");
   });
 });

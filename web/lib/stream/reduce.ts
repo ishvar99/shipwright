@@ -71,6 +71,7 @@ export type ActivityState = {
   graph?: { files: number; symbols: number; callEdges?: number; importEdges?: number };
   locationCount?: number;
   candidateCount?: number;
+  reviewProgress?: { done: number; total: number };
   /** Raw REST status. `outcome` only distinguishes terminal from pending, so queued vs running
    * would otherwise be unreportable. */
   restStatus?: Job["status"];
@@ -318,6 +319,8 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
       return { ...s, candidateCount: e.files };
     case "review.chunked":
       return s;
+    case "review.progress":
+      return { ...s, reviewProgress: { done: e.done, total: e.total } };
     case "review.stage.started":
     case "review.stage.finished":
     case "review.stage.retried":
