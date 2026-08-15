@@ -33,6 +33,11 @@ class LocTask:
     problem_statement: str
     edit_functions: list[str]
     category: str
+    # The gold fix diff. Loc-Bench does not need it — localization scores against
+    # edit_functions alone — but reviewbench builds its diffs from it, forward for the
+    # noise split and reversed for the detection split. Defaulted so nothing that
+    # constructs a LocTask positionally has to change.
+    patch: str = ""
 
     @property
     def gt_files(self) -> set[str]:
@@ -62,6 +67,7 @@ def fetch(limit: int | None = None) -> list[LocTask]:
                     problem_statement=r["problem_statement"],
                     edit_functions=list(r.get("edit_functions") or []),
                     category=r.get("category", ""),
+                    patch=r.get("patch") or "",
                 )
             )
     tasks = [t for t in tasks if t.edit_functions]
