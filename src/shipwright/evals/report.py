@@ -187,3 +187,69 @@ def compare_loc_runs(limit: int = 12) -> None:
             "[dim]Acc@k is strict: every ground-truth location inside top k. "
             "any-hit is diagnostic only.[/]"
         )
+
+
+def _rate(rows: list[TaskResult], key: str) -> str:
+    """Percentage over the rows that actually carry the key, or an em dash.
+
+    Deliberately not `_pct` above: that one divides by the caller's `n`, which for a metric
+    no row recorded would render a measured-looking 0.0%. A number nobody computed is
+    exactly what this module refuses to print.
+    """
+    seen = [r for r in rows if key in (r.metrics or {})]
+    if not seen:
+        return "—"
+    return f"{100 * sum(1 for r in seen if (r.metrics or {})[key]) / len(seen):.1f}%"
+
+
+def show_review_run(run_id: str) -> None:
+    """One reviewbench run."""
+    with session() as s:
+        run = s.scalars(select(Run).where(cast(Run.id, String).like(f"{run_id}%"))).first()
+        if run is None:
+            console.print(f"[red]no run matching[/] {run_id}")
+            return
+        rows = s.scalars(select(TaskResult).where(TaskResult.run_id == run.id)).all()
+
+    att = [r for r in rows if r.status != SKIPPED]
+    console.print(f"\n[bold]{run.suite}[/] {run.scaffold} · {run.model} · split={run.split}")
+    if run.split == "forward":
+        console.print(
+            "[yellow]noise control: the diff under review is the fix the maintainers merged, "
+            "so every finding here is a false positive candidate.[/]"
+        )
+    # The attempted denominator is printed on every suite: a shrinking denominator must
+    # never be able to inflate a rate (ADR-0003).
+    console.print(f"attempted {len(att)}/{len(rows)} ({len(rows) - len(att)} skipped)")
+    if not att:
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("metric")
+    table.add_column("value", justify="right")
+
+    # On the forward split the diff under review IS the merged fix, so "landed inside the
+    # ground-truth function" is not a detection — it is a false positive on code the
+    # maintainers accepted. Printing it under a detect@ heading invites reading a noise
+    # measurement as a success.
+    noise_split = run.split == "forward"
+    for key, label in (
+        ("detected_func", "flagged the fixed function" if noise_split else "detect@func"),
+        ("detected_file", "flagged the fixed file" if noise_split else "detect@file"),
+        ("top1", "top finding was there" if noise_split else "precision@1"),
+    ):
+        table.add_row(label, _rate(att, key))
+
+    per100 = [r.metrics["findings_per_100"] for r in att if "findings_per_100" in (r.metrics or {})]
+    table.add_row("findings / 100 lines", f"{sum(per100) / len(per100):.2f}" if per100 else "—")
+    table.add_row("findings total", str(sum((r.metrics or {}).get("n_findings", 0) for r in att)))
+    table.add_row("runs degraded", str(sum(1 for r in att if (r.metrics or {}).get("degraded"))))
+    table.add_row(
+        "parse failures", str(sum((r.metrics or {}).get("parse_failures", 0) for r in att))
+    )
+    console.print(table)
+    console.print(
+        f"[dim]tokens in {sum(r.input_tokens for r in att):,} · "
+        f"out {sum(r.output_tokens for r in att):,} · "
+        f"calls {sum(r.tool_calls for r in att)} · commit {run.git_commit}[/]"
+    )

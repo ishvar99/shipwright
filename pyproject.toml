@@ -17,6 +17,11 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.18",
+    # Production, not dev: the reviewer's deterministic layer runs it over user repositories.
+    # A single Rust binary with no Python dependency chain, which is what makes it affordable
+    # on the 512MB host — and it already carries the flake8-bandit ruleset, so the reviewer
+    # needs no separate security scanner.
+    "ruff>=0.9",
 ]
 
 [project.scripts]
@@ -25,7 +30,6 @@ sw = "shipwright.cli:app"
 [dependency-groups]
 dev = [
     "mlx-lm>=0.31",
-    "ruff>=0.9",
     "pytest>=8.3",
 ]
 evals = [
