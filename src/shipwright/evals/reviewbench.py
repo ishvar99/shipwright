@@ -99,6 +99,35 @@ def score(findings: list[dict], spans: dict[str, tuple[int, int]], diff_lines: i
     }
 
 
+def materialize_head(dest: Path, patch: str, direction: str) -> bool:
+    """Put the worktree into the state the reviewer should actually see.
+
+    A pull request has a base B and a head H, the diff is B->H, and the reviewer reads H's
+    content next to that diff. base_commit is the pre-fix state, so:
+
+      reverse  B = fixed, H = buggy  -> base_commit already IS the head; leave it alone
+      forward  B = buggy, H = fixed  -> apply the patch, or the reviewer reads buggy code
+                                        while the diff claims to fix it
+
+    Getting this wrong is not cosmetic. Measured on Bears-R-Us__arkouda-1969, only 52% of the
+    forward diff's added lines existed on disk against 100% for reverse, and the resulting
+    findings — real problems in the pre-fix code — were all scored as false positives.
+    """
+    if direction != "forward":
+        return True
+    if not patch.strip():
+        return False
+    applied = subprocess.run(
+        ["git", "apply", "-"],
+        input=patch if patch.endswith("\n") else patch + "\n",
+        cwd=dest,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return applied.returncode == 0
+
+
 def _spans(root: Path, edit_functions: list[str]) -> dict[str, tuple[int, int]]:
     graph = build(root)
     out = {}
@@ -186,6 +215,10 @@ def run_reviewbench(
                 raise RuntimeError("worktree failed")
 
             patch = task.patch if direction == "forward" else invert(task.patch)
+            if not materialize_head(dest, task.patch, direction):
+                result.status = SKIPPED
+                result.skip_reason = "head_state_unbuildable"
+                raise RuntimeError("could not build the head state")
             out = review_diff(
                 root=dest,
                 files=files_from(patch),

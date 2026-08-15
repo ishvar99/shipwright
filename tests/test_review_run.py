@@ -160,3 +160,14 @@ def test_findings_are_gated_to_the_diff(tmp_path):
     )
     out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=model)
     assert out["findings"] == []
+
+
+def test_ruff_failure_degrades_the_review_instead_of_looking_clean(tmp_path, monkeypatch):
+    # run_ruff now raises when it cannot run, so the stage runner must catch it and name the
+    # gap. A review that quietly lost its deterministic layer must not report itself complete.
+    import shipwright.review.deterministic as det
+
+    monkeypatch.setattr(det, "_ruff_cmd", lambda: ["definitely-not-a-real-binary"])
+    out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=FakeModel())
+    assert "deterministic" in out["coverage"]["degraded"]
+    assert out["complete"] is False
