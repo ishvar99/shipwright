@@ -131,6 +131,9 @@ def review_diff(
             # it cannot parse rather than failing, so "graph is not None" is not evidence
             # that any context was actually assembled.
             "tier": ("graph" if grounded else "window") if checkers else "none",
+            # Names what actually ran, not what was configured — a ruff-only pass names
+            # only "static analysis", never the model checkers it skipped.
+            "checks": [*checkers, "static analysis"] if checkers else ["static analysis"],
         },
         "usage": {
             "calls": usage.calls,

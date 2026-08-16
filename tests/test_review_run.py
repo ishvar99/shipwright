@@ -208,6 +208,17 @@ def test_progress_is_notified_per_chunk(tmp_path):
     ]
 
 
+def test_coverage_names_the_checks_that_ran(tmp_path):
+    out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=FakeModel())
+    assert "static analysis" in out["coverage"]["checks"]
+    assert "security" in out["coverage"]["checks"]
+
+
+def test_ruff_only_coverage_names_only_static_analysis(tmp_path):
+    out = review_diff(root=_repo(tmp_path), files=FILES, intent="", model=FakeModel(), checkers=())
+    assert out["coverage"]["checks"] == ["static analysis"]
+
+
 def test_progress_is_not_emitted_without_a_notify(tmp_path):
     # notify=None is the eval harness's path; it must not crash or cost anything.
     (tmp_path / "a.py").write_text("x = 1\n")

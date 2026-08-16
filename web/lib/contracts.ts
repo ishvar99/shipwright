@@ -85,6 +85,8 @@ export const ReviewCoverageSchema = z.object({
   degraded: z.array(z.string()).default([]),
   /** graph = call-graph grounded · window = changed files only · none = static checks only. */
   tier: z.enum(["graph", "window", "none"]).default("none"),
+  /** What actually ran, named — "static analysis" plus whichever model checkers were on. */
+  checks: z.array(z.string()).default([]),
 });
 
 export const PullRequestSchema = z.object({
@@ -118,6 +120,17 @@ export const JobResultSchema = z.object({
     )
     .optional(),
   superseded_by: z.string().optional(),
+  /** The pull request a review session read, and the sha it read it at — stamped at
+   * creation and refreshed with the fetched title once the run finishes. Optional like
+   * `findings`/`coverage`: a localize session has no target at all. */
+  target: z
+    .object({
+      number: z.number().optional(),
+      head_sha: z.string().optional(),
+      slug: z.string().optional(),
+      title: z.string().optional(),
+    })
+    .optional(),
   graph: GraphStatsSchema.default({}),
   fix: FixSchema.nullish(),
   /** change | question | other — absent on sessions recorded before routing existed. */

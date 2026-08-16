@@ -10,7 +10,7 @@ import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { AnswerCard, NoWorkCard } from "@/components/workspace/answer-card";
 import { CodePane } from "@/components/workspace/code-pane";
 import { FixCard } from "@/components/workspace/fix-card";
-import { ReviewFindings } from "@/components/workspace/review-view";
+import { ReviewFindings } from "@/components/workspace/review-findings";
 import { ResultsList } from "@/components/workspace/results-list";
 import { Splitter } from "@/components/workspace/splitter";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
@@ -26,6 +26,7 @@ import {
   type Location,
   type ReviewCoverage,
 } from "@/lib/contracts";
+import type { TriageMap } from "@/lib/review";
 import { demoJob, demoRun } from "@/lib/fixtures";
 import { localEvents } from "@/lib/local/run";
 import { getLocalFile, isLocalJob } from "@/lib/local/store";
@@ -108,6 +109,7 @@ export function SessionView({
   const review: ReviewData | null =
     shown?.kind === "review"
       ? {
+          jobId: shown.id,
           findings: shown.result.findings ?? [],
           coverage: shown.result.coverage ?? {
             files: 0,
@@ -115,8 +117,18 @@ export function SessionView({
             unreviewed: [],
             degraded: [],
             tier: "none",
+            checks: [],
           },
+          triage: shown.result.triage ?? {},
           reviewUrl: shown.result.review_url ?? "",
+          // A review is pinned to the head_sha it read; the pull request's own title (not
+          // this session's generic "Review pull request #N" issue line) is the receipt's
+          // byline. Both come from `target`, stamped at creation and refreshed once the run
+          // finishes — absent on a session recorded before the field existed.
+          number: shown.result.target?.number ?? 0,
+          headSha: shown.result.target?.head_sha ?? "",
+          title: shown.result.target?.title ?? "",
+          supersededBy: shown.result.superseded_by ?? "",
         }
       : null;
 
@@ -294,9 +306,19 @@ type ActionKind = "apply" | "test" | "fix_retry" | "open_pr" | "post_review";
 
 /** A finished review's payload, present only on kind="review" sessions. */
 type ReviewData = {
+  jobId: string;
   findings: Finding[];
   coverage: ReviewCoverage;
+  triage: TriageMap;
   reviewUrl: string;
+  /** The pull request this review is pinned to, and the sha it read — for the moved banner
+   * and the receipt. Zero/empty on a session recorded before `target` existed. */
+  number: number;
+  headSha: string;
+  /** The pull request's own title, for the receipt. */
+  title: string;
+  /** The id of the review that superseded this one, if any — a record, never deleted. */
+  supersededBy: string;
 };
 
 /** The follow-up input: the composer's card and grammar, none of its chrome — the repository
@@ -487,7 +509,16 @@ function SessionBody({
               <span className="sw-truncate">{repoName}</span>
             </Link>
           )}
-          <h2 className="text-head font-semibold text-fg">{title}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-head font-semibold text-fg">{title}</h2>
+            {/* A superseded session is a record, not hidden — its findings still render
+                below unchanged; this only flags that a newer review exists. */}
+            {review?.supersededBy && (
+              <span className="rounded-full bg-soft px-2 py-0.5 text-xs text-subtle">
+                superseded by a newer review
+              </span>
+            )}
+          </div>
         </header>
 
         <ActivityFeed state={state} onRetry={onRetry} />
@@ -531,12 +562,25 @@ function SessionBody({
             open_pr, so the ActionFeed below narrates it and the refetch brings review_url. */}
         {review && state.outcome.kind === "done" && (
           <ReviewFindings
+            jobId={review.jobId}
             findings={review.findings}
             coverage={review.coverage}
+            initialTriage={review.triage}
+            repoId={repoId}
+            number={review.number}
+            headSha={review.headSha}
+            title={review.title}
+            live={live}
             reviewUrl={review.reviewUrl || undefined}
             posting={pendingAction === "post_review"}
             onPost={
-              live && review.findings.length > 0 && !review.reviewUrl
+              // A superseded session is a record, not a draft: its findings stay readable,
+              // but offering to post them contradicts the badge in the header above — and
+              // they are pinned to a head GitHub has since moved past.
+              live &&
+              review.findings.length > 0 &&
+              !review.reviewUrl &&
+              !review.supersededBy
                 ? () => onAction("post_review")
                 : undefined
             }
