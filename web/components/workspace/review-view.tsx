@@ -4,13 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { FindingRow } from "@/components/workspace/finding-row";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
 import { apiGet, apiPost, messageFor } from "@/lib/client/api";
 import { JobSchema, PullRequestListSchema } from "@/lib/contracts";
 import type { PullRequest } from "@/lib/contracts";
 import { repoSession } from "@/lib/repo-routes";
-import { coverageSentence } from "@/lib/review";
 
 /**
  * Pick one of the repository's open pull requests and review it.
@@ -122,65 +120,5 @@ export function ReviewView({ repoId }: { repoId: string }) {
         </ul>
       )}
     </div>
-  );
-}
-
-/** The findings panel, rendered inside a finished review session. */
-export function ReviewFindings({
-  findings,
-  coverage,
-  onPost,
-  posting,
-  reviewUrl,
-}: {
-  findings: import("@/lib/contracts").Finding[];
-  coverage: import("@/lib/contracts").ReviewCoverage;
-  onPost?: () => void;
-  posting?: boolean;
-  reviewUrl?: string;
-}) {
-  return (
-    <section className="grid gap-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="sw-section-label">
-          {findings.length === 0
-            ? "No blocking findings"
-            : `${findings.length} finding${findings.length === 1 ? "" : "s"}`}
-        </h3>
-        {reviewUrl ? (
-          <a
-            href={reviewUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent"
-          >
-            Posted to GitHub ↗
-          </a>
-        ) : (
-          findings.length > 0 &&
-          onPost && (
-            <Button
-              variant="primary"
-              aria-disabled={posting || undefined}
-              onClick={onPost}
-              title="Posts one review with every finding as an inline comment. Never approves or requests changes."
-            >
-              {posting ? "Posting…" : "Post to GitHub"}
-            </Button>
-          )
-        )}
-      </div>
-
-      {/* Silence has to be evidence: say what was checked, not just that nothing was found. */}
-      <p className="text-subtle">{coverageSentence(coverage)}</p>
-
-      {findings.length > 0 && (
-        <ul className="grid gap-2">
-          {findings.map((f, i) => (
-            <FindingRow key={`${f.path}:${f.line}:${f.category}`} finding={f} index={i} />
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
