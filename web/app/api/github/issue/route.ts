@@ -75,7 +75,14 @@ export async function POST(request: NextRequest) {
     };
     // The issues endpoint also serves pull requests; a PR's body is a change description,
     // not a bug report, and silently ingesting one would mislead.
-    if (issue.pull_request) return bad(400, `#${number} is a pull request, not an issue.`);
+    if (issue.pull_request) {
+      // Not an error the user should act on — the composer turns this into an offer to
+      // review the pull request instead, so the flag matters more than the sentence.
+      return NextResponse.json(
+        { detail: `#${number} is a pull request, not an issue.`, pull_request: true },
+        { status: 400 },
+      );
+    }
     return NextResponse.json(
       {
         title: issue.title ?? "",

@@ -1,7 +1,7 @@
-.PHONY: bootstrap up down doctor db-init model models mem vm-light vm-agent preflight api web report fmt logs nuke
+.PHONY: bootstrap up down doctor db-init model models mem vm-light vm-agent preflight api web report fmt test logs nuke
 
 bootstrap:
-	uv sync
+	uv sync --all-groups
 	cp -n .env.example .env || true
 	@echo "next: make up && make db-init && make doctor"
 
@@ -59,8 +59,11 @@ report:
 	uv run sw loc publish
 
 fmt:
-	uv run ruff check --fix src
-	uv run ruff format src
+	uv run ruff check --fix src tests
+	uv run ruff format src tests
+
+test:
+	uv run pytest tests -v
 
 logs:
 	docker compose logs -f --tail=50

@@ -54,6 +54,43 @@ def _fmt(v: float | None) -> str:
     return "—" if v is None else f"{v:.1f}%"
 
 
+def _review_pct(rows: list[TaskResult], key: str) -> float | None:
+    """Percentage over the rows that actually recorded the key, or None.
+
+    Deliberately not `_pct`: that divides by every attempted row, which is right for
+    Loc-Bench where every row carries those keys, and wrong here — a reviewbench run whose
+    rows never recorded a metric would render a confident 0.0%. A number nobody computed is
+    precisely what this module exists not to print.
+    """
+    seen = [r for r in rows if r.status != SKIPPED and key in (r.metrics or {})]
+    if not seen:
+        return None
+    return round(100 * sum(1 for r in seen if (r.metrics or {})[key]) / len(seen), 1)
+
+
+def review_table(items: list[dict]) -> str:
+    head = (
+        "<tr><th>configuration</th><th>split</th><th>n</th><th>detect@func</th>"
+        "<th>precision@1</th><th>findings/100 lines</th><th>commit</th><th>date</th></tr>"
+    )
+    body = ""
+    for d in items:
+        r = d["run"]
+        # On the forward split detect@ is a noise measurement, not a success, so the split
+        # is a column rather than a footnote.
+        body += (
+            f"<tr><td>{html.escape(r.scaffold.removeprefix('review_'))}</td>"
+            f"<td>{html.escape(r.split)}</td>"
+            f'<td class="n">{d["n"]}</td>'
+            f'<td class="n">{_fmt(d["detect"])}</td>'
+            f'<td class="n">{_fmt(d["top1"])}</td>'
+            f'<td class="n">{"—" if d["per100"] is None else f"{d['per100']:.2f}"}</td>'
+            f"<td><code>{html.escape(r.git_commit or '?')}</code></td>"
+            f'<td class="n">{r.started_at:%Y-%m-%d}</td></tr>'
+        )
+    return f'<div class="scroll"><table>{head}{body}</table></div>'
+
+
 def build(out_dir: Path = OUT) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     with session() as s:
@@ -76,11 +113,23 @@ def build(out_dir: Path = OUT) -> Path:
                     "calls": sum(r.tool_calls for r in att),
                     "tin": sum(r.input_tokens for r in att),
                     "parse": sum((r.metrics or {}).get("parse_failures", 0) for r in att),
+                    "detect": _review_pct(rows, "detected_func"),
+                    "top1": _review_pct(rows, "top1"),
+                    "per100": (
+                        round(
+                            sum((r.metrics or {}).get("findings_per_100", 0) for r in att)
+                            / len(att),
+                            2,
+                        )
+                        if any("findings_per_100" in (r.metrics or {}) for r in att)
+                        else None
+                    ),
                 }
             )
 
     loc = [d for d in data if d["run"].suite == "locbench"]
     swe = [d for d in data if d["run"].suite == "swebench_live"]
+    rev = [d for d in data if d["run"].suite == "reviewbench"]
     best = max((d for d in loc if d["n"] >= 100), key=lambda d: d["func10"] or 0, default=None)
 
     def loc_table(items: list[dict]) -> str:
@@ -134,6 +183,22 @@ def build(out_dir: Path = OUT) -> Path:
 not resolve these tasks, and the reasons are characterised rather than guessed: one task lost
 to context truncation, one to a greedy-decoding repetition loop.</p>"""
 
+    review_html = ""
+    if rev:
+        review_html = f"""<h2>Code review (reviewbench)</h2>
+<p class="note">Positives are <strong>reversed</strong> gold patches — a diff that
+re-introduces a real historical bug — scored at function level against the same ground truth
+Loc-Bench uses. Negatives are the <strong>forward</strong> patch, the fix maintainers merged,
+where every finding is a false-positive candidate rather than a detection.</p>
+{review_table(rev)}
+<p class="note">Two asymmetries belong next to these numbers. A reversed diff reads as
+"someone deleted a guard", which is plausibly easier to spot than a naturally written bug;
+and a forward diff <em>adds</em> the fix, which is more new logic to complain about. Sampled
+diffs have a median of 18 changed lines, so findings-per-100-lines may not transfer to real
+pull requests, and the chunker is barely exercised by this corpus. An earlier version of this
+harness reviewed the pre-fix file on the forward split and overstated the noise by roughly
+45%; the correction is recorded in the local failure log.</p>"""
+
     page = f"""<!doctype html><meta charset="utf-8">
 <title>Shipwright — evaluation results</title>
 <style>{CSS}</style>
@@ -147,6 +212,7 @@ to context truncation, one to a greedy-decoding repetition loop.</p>"""
 <code>any-hit</code> is a diagnostic only and is not an accuracy metric.</p>
 {loc_table(loc)}
 {swe_html}
+{review_html}
 
 <h2>How to read this</h2>
 <ul class="note">

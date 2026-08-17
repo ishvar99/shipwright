@@ -323,3 +323,58 @@ def loc_publish() -> None:
 
     path = build()
     console.print(f"[green]written[/] {path}")
+
+
+review = typer.Typer(help="Code review benchmark (reviewbench)", no_args_is_help=True)
+app.add_typer(review, name="review")
+
+
+@review.command("run")
+def review_run(
+    n: int = typer.Option(10, help="how many tasks"),
+    direction: str = typer.Option(
+        "reverse", help="reverse (bug re-introduced) | forward (the merged fix)"
+    ),
+    checkers: str = typer.Option("", help="comma-separated subset; empty means all"),
+    ruff_only: bool = typer.Option(False, help="null hypothesis: no model calls at all"),
+    model: str = typer.Option("", help="ollama model; defaults to LOC_MODEL"),
+    notes: str = "",
+) -> None:
+    """Score the reviewer against historical bugs. --ruff-only is the null hypothesis."""
+    from .config import settings
+    from .evals.locbench import fetch
+    from .evals.report import show_review_run
+    from .evals.reviewbench import run_reviewbench
+    from .gateway.ollama import OllamaProvider
+    from .review.run import ALL_CHECKERS
+
+    picked: tuple[str, ...] = ()
+    provider = None
+    model_id = "none"
+    if not ruff_only:
+        picked = tuple(c.strip() for c in checkers.split(",") if c.strip()) or ALL_CHECKERS
+        model_id = model or settings.loc_model
+        provider = OllamaProvider(model=model_id)
+
+    tasks = fetch(n)
+    console.print(
+        f"reviewing {len(tasks)} task(s) · {direction} · "
+        f"{'ruff only' if ruff_only else '+'.join(picked)}"
+    )
+    run_id = run_reviewbench(
+        tasks,
+        model_name=model_id,
+        provider=provider,
+        checkers=picked,
+        direction=direction,
+        notes=notes,
+    )
+    show_review_run(run_id[:8])
+
+
+@review.command("show")
+def review_show(run_id: str) -> None:
+    """Show one reviewbench run."""
+    from .evals.report import show_review_run
+
+    show_review_run(run_id)

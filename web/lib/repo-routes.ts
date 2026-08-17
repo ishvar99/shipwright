@@ -10,6 +10,8 @@ const seg = (v: string) => encodeURIComponent(v);
 
 export const repoHome = (repoId: string) => `/app/repo/${seg(repoId)}`;
 
+export const repoReview = (repoId: string) => `/app/repo/${seg(repoId)}/review`;
+
 export const repoSession = (repoId: string, jobId: string) =>
   `/app/repo/${seg(repoId)}/s/${seg(jobId)}`;
 

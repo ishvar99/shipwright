@@ -33,7 +33,19 @@ export async function backendHeaders(
  * up takes up to 30s to be preferred again. */
 let health: { up: boolean; at: number } | null = null;
 const HEALTH_TTL_MS = 30_000;
-const HEALTH_TIMEOUT_MS = 1_500;
+/** 5s, not 1.5s: the probe is a fresh cross-region TLS connection to a sync endpoint on
+ * 0.1 CPU, and a running localize job starves it — 1.5s failed exactly when a visitor was
+ * mid-job, falsely flipping the app into lite mode for the 30s cache window. */
+const HEALTH_TIMEOUT_MS = 5_000;
+
+/** A sleeping or suspended host serves an HTML page with a 2xx — res.ok alone latched
+ * `up=true` on it, which disabled lite mode while every real call failed. Only the
+ * backend's own JSON counts. */
+export function healthBodyOk(body: unknown): boolean {
+  return Boolean(
+    body && typeof body === "object" && (body as { ok?: unknown }).ok === true,
+  );
+}
 
 export async function backendUp(): Promise<boolean> {
   // Unset means "this deployment has no backend", which is a configuration fact, not a probe.
@@ -46,7 +58,7 @@ export async function backendUp(): Promise<boolean> {
       cache: "no-store",
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
-    up = res.ok;
+    up = res.ok && healthBodyOk(await res.json().catch(() => null));
   } catch {
     up = false;
   }

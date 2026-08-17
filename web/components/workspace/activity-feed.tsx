@@ -53,6 +53,11 @@ export function ActivityFeed({
                   {Math.round(elapsed / 1000)}s
                 </span>
               )}
+              {line.state === "active" && line.key === "review-check" && state.reviewProgress && (
+                <span className="ml-2 text-xs tabular-nums text-subtle">
+                  · checked {state.reviewProgress.done} of {state.reviewProgress.total} files
+                </span>
+              )}
             </span>
             {line.fact && <span className="text-subtle">· {line.fact}</span>}
           </li>

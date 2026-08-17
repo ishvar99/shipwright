@@ -229,6 +229,15 @@ export function RepositoriesView({
           on this machine. Search works; applying and testing fixes needs the local engine.
         </p>
       )}
+      {/* Only true, and only worth saying, on the hosted public deploy — a build-time flag
+          rather than a `demo`/`local` inference, since neither distinguishes "real backend,
+          but shared with strangers" from a developer's own backendful local run. */}
+      {!local && !demo && process.env.NEXT_PUBLIC_PUBLIC_SANDBOX === "1" && (
+        <p className="text-xs text-subtle">
+          Public sandbox — imports are shared with other visitors and reset when the free host
+          restarts. Demo repositories restore themselves.
+        </p>
+      )}
 
       <ul className="grid gap-2">
         {!state.repos.length && !state.loading && (

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -22,8 +23,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 
 from ..config import settings
-from ..db import init_schema, session
-from ..models import QUEUED, SKIPPED, Event, Job, Repo, Run, TaskResult
+from ..db import session
+from ..models import DONE, LOCALIZE, QUEUED, REVIEW, SKIPPED, Event, Job, Repo, Run, TaskResult
+from . import github, github_pr
 from .service import (
     MAX_COMPRESSED_UPLOAD,
     WORKSPACES,
@@ -39,21 +41,37 @@ from .service import (
     reindex_repo,
     run_action,
     run_localize,
+    run_review,
     save_file,
     stash_token,
 )
 
+# The app's own loggers (shipwright.boot, shipwright.jobs) emit INFO for boot
+# reconciliation counts and ERROR w/ tracebacks for job failures. Nothing else
+# configures logging (uvicorn only configures its own), so without this the INFO
+# lines never reach Render's log capture.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Bring the schema up to date on boot.
+    """Bring the schema up to date on boot, then reconcile state the previous process left
+    behind.
 
-    This project uses `create_all` rather than migrations, which only ever CREATEs — so pulling
-    a change that adds a column left the API answering 500s until somebody remembered to run
-    `sw db-init` by hand. Both steps are idempotent, so doing it here costs a few milliseconds
-    and removes the manual step entirely.
+    This project uses `create_all` rather than migrations, which only ever CREATEs — so
+    pulling a change that adds a column left the API answering 500s until somebody
+    remembered to run `sw db-init` by hand. On the hosted free tier, restarts also wipe
+    the disk and kill mid-flight jobs, so boot is where the database is made honest
+    again. All steps are idempotent, so doing this here costs a few milliseconds and
+    removes every manual step.
     """
-    init_schema()
+    from . import boot
+
+    boot.guarded_init_schema()
+    boot.reap_stale_jobs()
+    boot.heal_eventless_terminals()
+    boot.reconcile_repos()
+    boot.seed_demos()
     yield
 
 
@@ -80,6 +98,7 @@ async def require_key(request: Request, call_next):
     if (
         settings.shipwright_api_key
         and request.method != "OPTIONS"  # a preflight carries no custom headers to check
+        and request.url.path != "/api/health"  # keepalive monitors; returns liveness only
         and request.headers.get("x-shipwright-key") != settings.shipwright_api_key
     ):
         return JSONResponse({"detail": "Not authorised."}, status_code=401)
@@ -88,7 +107,7 @@ async def require_key(request: Request, call_next):
 
 # Graph builds are CPU-bound; keep them off the event loop and bounded so two heavy
 # imports cannot exhaust a 16GB machine.
-POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sw-job")
+POOL = ThreadPoolExecutor(max_workers=settings.job_workers, thread_name_prefix="sw-job")
 # Imports get a separate single worker so a zip extraction never queues behind two
 # inference sessions on POOL (extraction is zlib-bound and releases the GIL).
 IMPORT_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sw-import")
@@ -102,11 +121,27 @@ class ImportRepo(BaseModel):
 
 
 class CreateAction(BaseModel):
-    kind: str = Field(pattern="^(apply|test|fix_retry|open_pr)$")
+    kind: str = Field(pattern="^(apply|test|fix_retry|open_pr|post_review)$")
     symbol: str = ""
     # Supplied per call by the BFF for `open_pr` only, and never stored: the one action that
     # writes to somebody else's account is the one action that needs a credential.
     token: str = Field("", description="GitHub access token, for open_pr")
+
+
+class CreateReview(BaseModel):
+    repo_id: str = Field(min_length=8)
+    number: int = Field(ge=1)
+    # Per call and never stored, like open_pr's: the only credential this feature needs.
+    token: str = Field("", description="GitHub access token, for reading the pull request")
+
+
+class TriageDecision(BaseModel):
+    state: str = Field(pattern="^(kept|dismissed)$")
+    reason: str = Field("", pattern="^(|not_real|not_worth_posting|duplicate|pre_existing)$")
+
+
+class SaveTriage(BaseModel):
+    decisions: dict[str, TriageDecision] = Field(default_factory=dict)
 
 
 class CreateJob(BaseModel):
@@ -114,8 +149,10 @@ class CreateJob(BaseModel):
     # prefix hit on somebody else's repository.
     repo_id: str = Field(min_length=8)
     issue: str = Field(min_length=8, max_length=20000)
-    mode: str = "extract_rerank"
-    base_mode: str = "hybrid"
+    mode: str = Field(
+        "extract_rerank", pattern="^(bm25|graph|path|hybrid|extract|rerank|extract_rerank)$"
+    )
+    base_mode: str = Field("hybrid", pattern="^(bm25|graph|path|hybrid)$")
     client: str = ""
 
 
@@ -215,9 +252,12 @@ def _job_json(j: Job, slug: str = "") -> dict[str, Any]:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
+    """Key-exempt (see require_key) and deliberately blank about what runs behind it:
+    the engine name stays off open endpoints. The DB probe is load-bearing — it is what
+    makes an external keepalive count as Supabase activity."""
     with session() as s:
         s.execute(select(func.count()).select_from(Repo))
-    return {"ok": True, "loc_model": settings.loc_model}
+    return {"ok": True}
 
 
 @app.post("/api/repos/import")
@@ -248,9 +288,7 @@ def repos_import(body: ImportRepo, background: BackgroundTasks, owner: OwnerDep)
     with session() as s:
         # Scoped to the caller. Globally, this returned whoever imported it first — handing the
         # second person that workspace, private clone and all.
-        existing = s.scalars(
-            select(Repo).where(Repo.owner == owner, Repo.slug == slug)
-        ).first()
+        existing = s.scalars(select(Repo).where(Repo.owner == owner, Repo.slug == slug)).first()
         if existing and existing.status != "failed":
             return _repo_json(existing)
         repo = existing or Repo(owner=owner, slug=slug, source=source, url=url, path=path)
@@ -302,9 +340,7 @@ def repos_upload(background: BackgroundTasks, file: UploadFile, owner: OwnerDep)
     base = f"zip:{name[:-4][:80] or 'project'}"
 
     with session() as s:
-        existing = s.scalars(
-            select(Repo).where(Repo.owner == owner, Repo.slug == base)
-        ).first()
+        existing = s.scalars(select(Repo).where(Repo.owner == owner, Repo.slug == base)).first()
         if existing and existing.status == "importing":
             return _repo_json(existing)
         repo = Repo(
@@ -372,6 +408,15 @@ def repo_delete(repo_id: str, owner: OwnerDep) -> dict[str, Any]:
         ).first()
         if not repo:
             raise HTTPException(404, "That repository no longer exists.")
+        # Seeded demos are shared by every anonymous visitor; deleting one would remove the
+        # default experience for everyone until the next boot reseeds it. Checked before
+        # _claim, which rewrites repo.owner from "" to a signed-in caller in memory — after
+        # that rewrite this check would see the claimed owner, not the true stored one, and
+        # a signed-in user could claim-and-delete a demo.
+        from . import boot
+
+        if repo.owner == "" and repo.slug in boot.DEMO_SLUGS:
+            raise HTTPException(403, "This demo repository is part of the public deployment.")
         _claim(owner, repo)
         # Sessions go with it: a job whose repository is gone can neither open its source nor
         # be re-run, and its rows would keep appearing in every list.
@@ -481,6 +526,110 @@ def jobs_create(body: CreateJob, background: BackgroundTasks, owner: OwnerDep) -
     return out
 
 
+@app.get("/api/repos/{repo_id}/pulls")
+def repo_pulls(repo_id: str, owner: OwnerDep, token: str = "") -> list[dict[str, Any]]:
+    """Open pull requests, for the review picker. The token is per call and never stored."""
+    repo = _ready_repo(repo_id, owner)
+    if repo.source != "github":
+        raise HTTPException(409, "Only a GitHub-imported repository has pull requests.")
+    if not token:
+        raise HTTPException(409, "Connect GitHub to list pull requests.")
+    try:
+        return github_pr.list_pull_requests(repo.slug, token)
+    except github.PullRequestError as e:
+        # Already a sentence for the user and already free of credentials.
+        raise HTTPException(502, str(e)) from e
+
+
+@app.post("/api/reviews")
+def reviews_create(
+    body: CreateReview, background: BackgroundTasks, owner: OwnerDep
+) -> dict[str, Any]:
+    """Review one pull request. A sibling of jobs_create, not an action: a review is a
+    session in its own right and owns the post_review action underneath it."""
+    repo = _ready_repo(body.repo_id, owner)
+    if repo.source != "github":
+        raise HTTPException(409, "Only a GitHub-imported repository has pull requests.")
+    if not body.token:
+        raise HTTPException(409, "Connect GitHub before reviewing a pull request.")
+    with session() as s:
+        job = Job(
+            repo_id=repo.id,
+            owner=owner,
+            kind=REVIEW,
+            issue=f"Review pull request #{body.number}",
+            client="web",
+            status=QUEUED,
+            result={"target": {"number": body.number, "slug": repo.slug}},
+        )
+        s.add(job)
+        s.flush()
+        # A re-review makes the old session a record, not a draft: stamp it so the UI can
+        # badge it, and never delete it.
+        prior = s.scalars(
+            select(Job).where(
+                Job.repo_id == repo.id,
+                Job.kind == REVIEW,
+                Job.id != job.id,
+                _owned(Job.owner, owner),
+                Job.result["target"]["number"].as_integer() == body.number,
+            )
+        ).all()
+        for p in prior:
+            # Stamped once, never re-pointed: this records "B replaced A", a historical
+            # fact, rather than a mutable "latest" pointer. Re-pointing every prior row on
+            # every re-review would also turn one write into N. Nothing is lost — the
+            # newest review of a PR is resolvable by `created_at`, so a consumer that
+            # needs "current" should order rather than follow the chain.
+            if not (p.result or {}).get("superseded_by"):
+                p.result = {**(p.result or {}), "superseded_by": str(job.id)}
+        out, job_id = _job_json(job, repo.slug), job.id
+    # In memory only, never on the row: `result` is echoed back to the caller.
+    stash_token(job_id, body.token)
+    background.add_task(POOL.submit, run_review, job_id)
+    return out
+
+
+@app.post("/api/jobs/{job_id}/triage")
+def triage_save(job_id: str, body: SaveTriage, owner: OwnerDep) -> dict[str, Any]:
+    """The human verdicts on a review's findings. Whole-map replace, last write wins —
+    review rows are single-owner, so merge semantics would be machinery without a user.
+
+    This is the ONLY writer of result.triage, and it validates every entry against the
+    stored findings — which is what lets kept_findings assume well-shaped entries."""
+    from ..review.merge import MAX_FINDINGS
+    from ..review.render import finding_key
+
+    with session() as s:
+        job = s.scalars(
+            select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
+        ).first()
+        if not job or job.kind != REVIEW:
+            raise HTTPException(404, "That review no longer exists.")
+        _claim(owner, job)
+        if job.status != DONE:
+            raise HTTPException(409, "The review hasn't finished yet.")
+
+        # Checked here rather than as Field(max_length=MAX_FINDINGS) so the refusal is a
+        # curated 400 like its neighbours, not pydantic's generic 422.
+        if len(body.decisions) > MAX_FINDINGS:
+            raise HTTPException(400, "That's more decisions than this review has findings.")
+
+        valid = {finding_key(f) for f in (job.result or {}).get("findings") or []}
+        decisions: dict[str, dict[str, str]] = {}
+        for key, d in body.decisions.items():
+            if key not in valid:
+                raise HTTPException(400, "That finding isn't part of this review.")
+            if d.state == "dismissed" and not d.reason:
+                raise HTTPException(400, "Dismissing a finding needs a reason.")
+            if d.state == "kept" and d.reason:
+                raise HTTPException(400, "A kept finding carries no reason.")
+            decisions[key] = {"state": d.state, "reason": d.reason}
+        job.result = {**(job.result or {}), "triage": decisions}
+        kept = sum(1 for v in decisions.values() if v["state"] == "kept")
+    return {"ok": True, "kept": kept}
+
+
 @app.post("/api/jobs/{job_id}/actions")
 def actions_create(
     job_id: str, body: CreateAction, background: BackgroundTasks, owner: OwnerDep
@@ -491,10 +640,19 @@ def actions_create(
         parent = s.scalars(
             select(Job).where(Job.id == _uuid_or_404(job_id), _owned(Job.owner, owner))
         ).first()
-        if not parent or parent.kind != "localize":
+        # Both kinds, because a review session owns the post_review action. Kept as an
+        # explicit tuple rather than dropping the check: a child action job must never be
+        # able to parent another one.
+        if not parent or parent.kind not in (LOCALIZE, REVIEW):
             raise HTTPException(404, "That session no longer exists.")
         _claim(owner, parent)
         fix = (parent.result or {}).get("fix") or {}
+        if body.kind == "test" and not settings.enable_test_action:
+            raise HTTPException(
+                409,
+                "Running the repo's test suite is disabled on this hosted demo — "
+                "run Shipwright locally for that.",
+            )
         if body.kind in ("apply", "test") and not fix.get("patch"):
             raise HTTPException(409, "There is no fix to apply yet.")
         if body.kind == "test" and not fix.get("applied_branch"):
@@ -507,6 +665,19 @@ def actions_create(
                 raise HTTPException(409, "Only a GitHub-imported repository has somewhere to push.")
             if not body.token:
                 raise HTTPException(409, "Connect GitHub before opening a pull request.")
+        if body.kind == "post_review":
+            from ..review.render import kept_findings
+
+            repo = s.get(Repo, parent.repo_id)
+            findings = (parent.result or {}).get("findings") or []
+            if not findings:
+                raise HTTPException(409, "There are no findings to post.")
+            if not kept_findings(parent.result or {}):
+                raise HTTPException(409, "Keep at least one finding before posting.")
+            if not repo or repo.source != "github":
+                raise HTTPException(409, "Only a GitHub-imported repository has a pull request.")
+            if not body.token:
+                raise HTTPException(409, "Connect GitHub before posting a review.")
         meta: dict[str, Any] = {"parent": str(parent.id)}
         if body.symbol:
             meta["symbol"] = body.symbol
@@ -527,7 +698,7 @@ def actions_create(
 
     # Handed to the worker in memory, never through the job row: `result` is echoed straight
     # back to the caller by _job_json and persisted in Postgres.
-    if body.kind == "open_pr":
+    if body.kind in ("open_pr", "post_review"):
         stash_token(action_id, body.token)
     background.add_task(POOL.submit, run_action, action_id)
     return out
@@ -542,7 +713,9 @@ def jobs_list(
     with session() as s:
         q = select(Job).where(_owned(Job.owner, owner))
         if kind:
-            q = q.where(Job.kind == kind)
+            # Comma-separated, so the sidebar can ask for localize+review in one SQL filter
+            # instead of filtering after the limit (which pushed real sessions off the page).
+            q = q.where(Job.kind.in_([k.strip() for k in kind.split(",") if k.strip()]))
         if client:
             q = q.where(Job.client == client)
         rows = s.scalars(q.order_by(Job.created_at.desc()).limit(limit)).all()
@@ -657,7 +830,7 @@ async def jobs_events(job_id: str, request: Request, owner: OwnerDep) -> Streami
                 # and keeps the connection off undici's 300s body-inactivity timeout.
                 # No id:, or it would clobber the client's Last-Event-ID.
                 yield ":\n\n"
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(settings.sse_poll_seconds)
                 continue
             for seq, type_, payload, created in batch:
                 cursor = seq
@@ -666,7 +839,7 @@ async def jobs_events(job_id: str, request: Request, owner: OwnerDep) -> Streami
                 yield f"id: {seq}\nevent: {type_}\ndata: {data}\n\n"
                 if type_ in terminal:
                     return
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(settings.sse_poll_seconds)
 
     return StreamingResponse(
         stream(),

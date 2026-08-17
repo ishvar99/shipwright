@@ -71,6 +71,7 @@ export type ActivityState = {
   graph?: { files: number; symbols: number; callEdges?: number; importEdges?: number };
   locationCount?: number;
   candidateCount?: number;
+  reviewProgress?: { done: number; total: number };
   /** Raw REST status. `outcome` only distinguishes terminal from pending, so queued vs running
    * would otherwise be unreportable. */
   restStatus?: Job["status"];
@@ -312,6 +313,27 @@ function fold(s: ActivityState, e: JobEvent, at: number): ActivityState {
         startedAt: at,
       });
     }
+    // Review. The stage beats are narrated only; the reducer tracks the two counts the
+    // header shows and lets `narrate` do the rest.
+    case "review.fetched":
+      return { ...s, candidateCount: e.files };
+    case "review.chunked":
+      return s;
+    case "review.progress":
+      return { ...s, reviewProgress: { done: e.done, total: e.total } };
+    case "review.stage.started":
+    case "review.stage.finished":
+    case "review.stage.retried":
+    case "review.stage.degraded":
+    case "review.post.started":
+    case "review.post.ready":
+    case "review.post.failed":
+      return s; // narrated only
+    case "review.ready":
+      return stage({ ...s, locationCount: e.findings }, "results", {
+        state: "done",
+        endedTs: ts,
+      });
     case "localization.ready": {
       // Retrieval-only mode never emits model.finished, so this is what closes `search`.
       const searchClosed =

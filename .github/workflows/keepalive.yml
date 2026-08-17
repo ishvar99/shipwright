@@ -1,0 +1,31 @@
+# Scheduled smoke test of the deployed backend. Side effects we rely on: the request
+# keeps Render's free service from its 15-minute spin-down, and the health handler's DB
+# probe counts as Supabase activity. UptimeRobot (5-min keyword monitor on "ok":true) is
+# the PRIMARY keepalive; this is the second leg — and the one that alerts via CI status.
+name: keepalive
+on:
+  schedule:
+    # Offset from :00 — GitHub warns that scheduled jobs queued at high-load times
+    # (top of the hour) may be DROPPED entirely, not just delayed.
+    - cron: "7,17,27,37,47,57 * * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: probe /api/health
+        run: |
+          set -euo pipefail
+          # --max-time 90 rides out a ~60s cold wake if the other keepalive leg lapsed.
+          body=$(curl -fsS --max-time 90 \
+            -H "x-shipwright-key: ${SHIPWRIGHT_API_KEY}" \
+            "${RENDER_HEALTH_URL}")
+          echo "response: ${body}"
+          echo "${body}" | grep -q '"ok":true'
+        env:
+          RENDER_HEALTH_URL: ${{ secrets.RENDER_HEALTH_URL }}
+          SHIPWRIGHT_API_KEY: ${{ secrets.SHIPWRIGHT_API_KEY }}

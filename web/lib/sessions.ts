@@ -28,6 +28,12 @@ export function sessionFact(job: Job): string {
   const secs = job.wall_ms >= 1000 ? ` · ${Math.round(job.wall_ms / 1000)}s` : "";
   if (job.result.intent === "question") return `answered${secs}`;
   if (job.result.intent === "other") return "no code work needed";
+  // A review's outcome is its findings; "0 places found" would misread a clean review as a
+  // failed search.
+  if (job.kind === "review") {
+    const f = job.result.findings?.length ?? 0;
+    return f > 0 ? `${f} finding${f === 1 ? "" : "s"}${secs}` : `no findings${secs}`;
+  }
   const n = job.result.locations.length;
   return n > 0 ? `${n} places found${secs}` : "done";
 }

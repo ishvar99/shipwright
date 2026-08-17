@@ -112,6 +112,29 @@ different: one prompt, a short answer, scored against known file and function la
 containers and no test suites. So the free local tier measures retrieval quality, and
 anything that needs real resolve rates moves to a cheap API later.
 
+## The public demo
+
+There's a hosted deployment for clicking around without installing anything. It is the
+same code with different economics, and the differences are stated rather than hidden:
+
+- **The model is not the one the benchmarks measure.** The demo answers with a hosted
+  free-tier model behind the same provider interface; the numbers on the results page
+  came from `qwen2.5-coder-7b-16k` running locally, and every row names its model. The
+  fine-tuned 1.5B is not serving the demo either.
+- **It cannot run your test suite or open PRs.** Executing an imported repo's own pytest
+  is exactly the kind of thing a shared free host shouldn't do; `make up && make api`
+  plus `npm run dev` in `web/` gets you the full engine locally.
+- **Imports are shared and ephemeral.** There are no accounts; anyone can see what you
+  import, and the free host wipes its disk when it restarts. The seeded demo repos come
+  back on their own; your imports show "re-import to continue".
+- **It may take a minute to wake.** Two keepalives try to prevent that; if both lapse,
+  the first visitor pays ~60 seconds while the free container starts.
+- **It has a daily budget.** The hosted model tier allows roughly 250 jobs a day across
+  all visitors. When it's exhausted, jobs degrade to retrieval-only results rather than
+  erroring.
+- **Live streams cap at ~45 minutes.** Longer jobs keep running server-side; a reload
+  picks up the finished result.
+
 ## Layout
 
 ```

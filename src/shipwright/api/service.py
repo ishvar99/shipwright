@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -34,6 +36,8 @@ from ..models import DONE, ERRORED, RUNNING, Event, Job, Repo
 from . import github
 
 WORKSPACES = Path("workspaces")
+
+log = logging.getLogger("shipwright.jobs")
 
 # One lock per repo id serialises every git-mutating operation (apply, test, save) so they
 # never collide on .git/index.lock and a save's read-hash→write→commit stays atomic.
@@ -173,6 +177,7 @@ def import_repo(repo_id, token: str = "") -> None:
                 ok, err = _clone(url, dest, token)
                 if not ok:
                     raise RuntimeError(f"clone failed: {_scrub_creds(err)}")
+                _enforce_clone_bound(dest)
             ok, import_sha = _run_git(["rev-parse", "HEAD"], cwd=dest, timeout=60)
             import_sha = import_sha.strip() if ok else ""
 
@@ -274,6 +279,22 @@ def _clone(url: str, dest: Path, token: str) -> tuple[bool, str]:
     return ok, err
 
 
+def _enforce_clone_bound(dest: Path) -> None:
+    """Reject working trees above the hosted size cap, removing what was cloned.
+
+    lstat, not stat: a symlink's cost on disk is the link itself — following it would
+    let a malicious repo inflate the sum (or point at /dev/zero-sized targets)."""
+    if not settings.max_clone_mb:
+        return
+    used = sum(f.lstat().st_size for f in dest.rglob("*") if f.is_file())
+    if used > settings.max_clone_mb * 1024 * 1024:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise RuntimeError(
+            f"repository is larger than the hosted limit "
+            f"({settings.max_clone_mb} MB) — run Shipwright locally for big repos"
+        )
+
+
 def run_localize(job_id) -> None:
     """The measured pipeline, wired to the activity stream."""
     started = time.perf_counter()
@@ -297,9 +318,9 @@ def run_localize(job_id) -> None:
         model_name = settings.loc_model
         provider = None
         if mode in ("extract", "rerank", "extract_rerank"):
-            from ..gateway.ollama import OllamaProvider
+            from ..gateway.factory import make_provider
 
-            provider = OllamaProvider(model=model_name)
+            provider = make_provider(model_name)
 
         # Route before working. Retrieval always returns its top-k and the fused score is
         # rank-derived, so nothing downstream can tell a question from a change request —
@@ -398,16 +419,93 @@ def run_localize(job_id) -> None:
         emit(job_id, "job.done", wall_ms=wall, locations=len(results))
 
     except Exception as e:
-        # The row keeps the full repr for our own debugging; the WIRE carries the exception
-        # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`
-        # identifies the provider as plainly as the `model` field every JSON route blanks —
-        # and the events endpoint is a byte pass-through with nowhere else to scrub. The
-        # client classifies on the name alone (web/lib/errors.ts), so nothing regresses.
-        msg = f"{type(e).__name__}: {e}"
+        # NAME only on the row and the wire (web/lib/errors.ts classifies on it); the full
+        # repr can embed the provider URL via httpx, so it goes to server logs instead.
+        log.exception("job %s failed", job_id)
+        msg = type(e).__name__
         with session() as s:
             j = s.get(Job, job_id)
             j.status = ERRORED
             j.error = msg[:1000]
+            j.wall_ms = int((time.perf_counter() - started) * 1000)
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "job.failed", error=type(e).__name__)
+
+
+def run_review(job_id) -> None:
+    """Review one pull request.
+
+    Same terminal contract as run_localize: set the status and finished_at, then emit a
+    terminal event — SSE detection reads Event types and never Job.status, so a kind that
+    never emits one leaves every client polling keepalives forever.
+    """
+    started = time.perf_counter()
+    # First statement, before any row lookup: an exception in the prelude would otherwise
+    # strand a live GitHub token in _TOKENS for the life of the process.
+    token = _take_token(job_id)
+    with session() as s:
+        job = s.get(Job, job_id)
+        job.status = RUNNING
+        target = dict((job.result or {}).get("target") or {})
+        repo = s.get(Repo, job.repo_id)
+        repo_path, slug = repo.path, repo.slug
+
+    try:
+        from ..gateway.factory import make_provider
+        from ..review.run import review_diff
+        from . import github_pr
+
+        emit(job_id, "job.started", repo=slug, mode="review", base="")
+        if not token:
+            raise github.PullRequestError("Connect GitHub before reviewing a pull request.")
+
+        pr = github_pr.fetch_pull_request(slug, int(target["number"]), token)
+        emit(job_id, "review.fetched", files=len(pr["files"]), truncated=bool(pr["truncated"]))
+
+        out = review_diff(
+            root=Path(repo_path),
+            files=pr["files"],
+            intent=f"{pr['title']}\n\n{pr['body']}"[:4000],
+            model=make_provider(settings.loc_model),
+            notify=lambda t, p: emit(job_id, t, **p),
+        )
+
+        wall = int((time.perf_counter() - started) * 1000)
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = DONE
+            j.model = settings.loc_model
+            j.result = {
+                **(j.result or {}),
+                "target": {**target, "head_sha": pr["head_sha"], "title": pr["title"]},
+                "findings": out["findings"],
+                "coverage": out["coverage"],
+                "complete": out["complete"],
+            }
+            j.input_tokens = out["usage"]["input_tokens"]
+            j.output_tokens = out["usage"]["output_tokens"]
+            j.wall_ms = wall
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "job.done", wall_ms=wall, locations=len(out["findings"]))
+
+    except github.PullRequestError as e:
+        # Already a sentence for the user and already free of credentials, so unlike the
+        # generic handler this one is safe on the wire verbatim.
+        msg = f"PullRequestError: {e}"
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = ERRORED
+            j.error = msg[:400]
+            j.wall_ms = int((time.perf_counter() - started) * 1000)
+            j.finished_at = datetime.now(UTC)
+        emit(job_id, "job.failed", error=msg[:400])
+    except Exception as e:  # noqa: BLE001 - NAME only, see run_localize
+        log.exception("review job %s failed", job_id)
+        with session() as s:
+            j = s.get(Job, job_id)
+            j.status = ERRORED
+            j.error = type(e).__name__[:1000]
+            j.wall_ms = int((time.perf_counter() - started) * 1000)
             j.finished_at = datetime.now(UTC)
         emit(job_id, "job.failed", error=type(e).__name__)
 
@@ -424,7 +522,7 @@ def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model
         except ValueError:
             continue
         body = "\n".join(window["lines"][:40])
-        context.append(f'--- {r["path"]}:{r["start_line"]} ({r["name"]})\n{body}')
+        context.append(f"--- {r['path']}:{r['start_line']} ({r['name']})\n{body}")
     if not context:
         return ""
 
@@ -447,6 +545,7 @@ def _answer_stage(job_id, repo_path: str, issue: str, results: list[dict], model
         emit(job_id, "answer.ready")
         return result.text.strip()[:2000]
     except Exception:  # noqa: BLE001 - the located results are still the product
+        log.exception("answer stage failed for job %s", job_id)
         emit(job_id, "answer.failed")
         return ""
 
@@ -479,6 +578,12 @@ def _fix_stage(job_id, repo_path: str, issue: str, results: list[dict], model) -
     except FixError as e:
         emit(job_id, "fix.failed", reason=str(e))
         return {"failed": str(e)}
+    except Exception as e:  # noqa: BLE001 - the located results are still the product
+        # Provider failures (429 after retries, timeouts) must not error the whole job:
+        # localization already succeeded and is worth showing.
+        log.exception("fix stage failed for job %s", job_id)
+        emit(job_id, "fix.failed", reason=type(e).__name__)
+        return {"failed": type(e).__name__}
 
 
 def _git_init_owned(dest: Path) -> str:
@@ -680,13 +785,13 @@ def run_action(job_id) -> None:
             feedback = "" if symbol else (fix.get("tests") or {}).get("tail", "")
             attempt = int(fix.get("attempt") or 1) + 1
             emit(job_id, "fix.started", attempt=attempt)
-            from ..gateway.ollama import OllamaProvider
+            from ..gateway.factory import make_provider
 
             new_fix, _ = generate_fix(
                 repo_path=repo_path,
                 issue=issue,
                 target=target,
-                model=OllamaProvider(model=settings.loc_model),
+                model=make_provider(settings.loc_model),
                 on_delta=lambda t: emit(job_id, "fix.delta", text=t),
                 feedback=feedback,
             )
@@ -719,6 +824,39 @@ def run_action(job_id) -> None:
             write_back(fix)
             emit(job_id, "pr.ready", url=pr["url"], number=pr["number"])
 
+        elif kind == "post_review":
+            from ..review.render import kept_findings, to_github_review
+            from . import github_pr
+
+            target = parent_result.get("target") or {}
+            with session() as s:
+                slug = s.get(Repo, repo_id).slug
+            # Its own events, not pr.*: the narrator's copy for pr.started is "Opening a
+            # pull request", which would be a lie here.
+            #
+            # Emitted before every guard below, deliberately: the narrator marks a beat
+            # failed only if that beat is open, so a `review.post.failed` with no preceding
+            # `started` renders no feed line at all — the job would fail silently.
+            emit(job_id, "review.post.started", slug=slug)
+            # Kept only, re-checked here rather than trusted from the precondition: the
+            # action runs later, and dismissing every finding between the request and this
+            # worker is exactly the race the re-check exists for.
+            findings = kept_findings(parent_result)
+            if not findings:
+                raise github.PullRequestError("Keep at least one finding before posting.")
+            if not token:
+                raise github.PullRequestError("Connect GitHub before posting a review.")
+            payload = to_github_review(
+                findings, target.get("head_sha", ""), parent_result.get("coverage") or {}
+            )
+            posted = github_pr.post_review(
+                target.get("slug") or slug, int(target["number"]), payload, token
+            )
+            with session() as s:
+                p = s.get(Job, parent_id)
+                p.result = {**(p.result or {}), "review_url": posted["url"]}
+            emit(job_id, "review.post.ready", url=posted["url"], number=int(target["number"]))
+
         else:
             raise RuntimeError(f"unknown action: {kind}")
 
@@ -748,15 +886,18 @@ def run_action(job_id) -> None:
             j.status = ERRORED
             j.error = msg[:400]
             j.finished_at = datetime.now(UTC)
-        emit(job_id, "pr.failed", reason=str(e))
+        # The failure event matches the kind so the narrator's copy stays truthful:
+        # "Couldn't post the review" is not "Couldn't open the pull request".
+        emit(
+            job_id,
+            "review.post.failed" if kind == "post_review" else "pr.failed",
+            reason=str(e),
+        )
         emit(job_id, "job.failed", error=msg[:400])
     except Exception as e:
-        # The row keeps the full repr for our own debugging; the WIRE carries the exception
-        # NAME only. httpx prints the URL it called, and `http://localhost:11434/api/chat`
-        # identifies the provider as plainly as the `model` field every JSON route blanks —
-        # and the events endpoint is a byte pass-through with nowhere else to scrub. The
-        # client classifies on the name alone (web/lib/errors.ts), so nothing regresses.
-        msg = f"{type(e).__name__}: {e}"
+        # NAME only — see run_localize's handler.
+        log.exception("job %s failed", job_id)
+        msg = type(e).__name__
         with session() as s:
             j = s.get(Job, job_id)
             j.status = ERRORED

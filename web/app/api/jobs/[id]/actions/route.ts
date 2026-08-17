@@ -10,12 +10,15 @@ function scrub(job: Job): Job {
   return { ...job, model: "", input_tokens: 0, output_tokens: 0 };
 }
 
+/** The two action kinds that write to GitHub; only these get a token attached. */
+const NEEDS_TOKEN = new Set(["open_pr", "post_review"]);
+
 async function accessToken(): Promise<string> {
   const result = await auth.api
     .getAccessToken({ body: { providerId: "github" }, headers: await headers() })
     .catch(() => null);
   const token = result?.accessToken;
-  if (!token) throw new ApiError("validation", "Connect GitHub to open a pull request.");
+  if (!token) throw new ApiError("validation", "Connect GitHub first.");
   return token;
 }
 
@@ -26,7 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // The browser never holds the token, so a `token` arriving from it is either a mistake or
     // an attempt to relay someone else's credential through us. Only this side supplies one.
     const kind = String(body.kind ?? "");
-    const payload = { ...body, token: kind === "open_pr" ? await accessToken() : "" };
+    const payload = { ...body, token: NEEDS_TOKEN.has(kind) ? await accessToken() : "" };
     return ok(
       scrub(
         await callBackend(JobSchema, `/api/jobs/${encodeURIComponent(id)}/actions`, {

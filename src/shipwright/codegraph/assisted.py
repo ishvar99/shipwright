@@ -14,14 +14,16 @@ schema-constrained output fail far more visibly.
 
 from __future__ import annotations
 
-import json
-import re
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..gateway.base import ModelProvider
+from ..parsing import parse_json
 from .build import CodeGraph
 from .retrieve import Localizer, Ranked
+
+log = logging.getLogger("shipwright.assisted")
 
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -30,6 +32,8 @@ EXTRACT_SCHEMA = {
         "keywords": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["symbols", "keywords"],
+    # additionalProperties: strict structured-output modes require it; Ollama ignores it.
+    "additionalProperties": False,
 }
 
 # Indices, not ids: small models mangle long strings but handle integers reliably.
@@ -37,34 +41,11 @@ RERANK_SCHEMA = {
     "type": "object",
     "properties": {"ranked": {"type": "array", "items": {"type": "integer"}}},
     "required": ["ranked"],
+    "additionalProperties": False,
 }
 
 MAX_ISSUE_CHARS = 3000
 RERANK_CANDIDATES = 30
-_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
-
-
-def _parse_json(text: str) -> dict | None:
-    """Models wrap JSON in markdown fences and trailing chat tokens. A bare json.loads
-    fails on that and the caller silently falls back to retrieval order — which would make
-    a fine-tune look like it changed nothing. Parse failures must be rare and visible."""
-    if not text:
-        return None
-    raw = text.strip()
-    for token in ("<|im_end|>", "<|endoftext|>", "</s>"):
-        raw = raw.replace(token, "")
-    m = _FENCE.search(raw)
-    if m:
-        raw = m.group(1).strip()
-    else:
-        start, end = raw.find("{"), raw.rfind("}")
-        if start != -1 and end > start:
-            raw = raw[start : end + 1]
-    try:
-        out = json.loads(raw)
-        return out if isinstance(out, dict) else None
-    except json.JSONDecodeError:
-        return None
 
 
 @dataclass
@@ -90,7 +71,7 @@ def _extract_query(model: ModelProvider, issue: str, usage: Usage) -> str:
     )
     r = model.generate([{"role": "user", "content": prompt}], schema=EXTRACT_SCHEMA, max_tokens=300)
     usage.add(r)
-    data = _parse_json(r.text)
+    data = parse_json(r.text)
     if data is None:
         usage.parse_failures += 1
         return ""
@@ -116,7 +97,7 @@ def _rerank(
     )
     r = model.generate([{"role": "user", "content": prompt}], schema=RERANK_SCHEMA, max_tokens=300)
     usage.add(r)
-    data = _parse_json(r.text)
+    data = parse_json(r.text)
     if data is None:
         usage.parse_failures += 1
         return candidates
@@ -162,7 +143,15 @@ def localize_assisted(
     query = issue
     if mode in ("extract", "extract_rerank"):
         note("understand.started")
-        extracted = _extract_query(model, issue, usage)
+        try:
+            extracted = _extract_query(model, issue, usage)
+        except Exception:
+            # A provider failure (sustained 429, auth) that survives the gateway's own
+            # retries must not cost the whole job — the located results are still the
+            # product. Degrade exactly like a parse failure: raw issue text as the query.
+            log.exception("extract call failed; falling back to raw issue text")
+            note("understand.failed")
+            extracted = ""
         # Fall back to raw issue text if extraction produced nothing usable.
         query = f"{extracted} {issue[:500]}" if extracted else issue
         note("understand.done", terms=len(extracted.split()) if extracted else 0)
@@ -172,7 +161,15 @@ def localize_assisted(
         wide = loc.localize(query, mode=base_mode, top_k=rerank_candidates)
         note("candidates.found", count=len(wide))
         note("rank.started", pool=len(wide))
-        return _rerank(model, issue, wide, graph, usage)[:top_k], usage
+        try:
+            ranked = _rerank(model, issue, wide, graph, usage)
+        except Exception:
+            # Same principle: a reranker call that raises degrades to retrieval order,
+            # exactly like a parse failure, instead of erroring the whole job.
+            log.exception("rerank call failed; falling back to retrieval order")
+            note("rank.failed")
+            ranked = wide
+        return ranked[:top_k], usage
 
     note("search.started", channels=base_mode)
     res = loc.localize(query, mode=base_mode, top_k=top_k)

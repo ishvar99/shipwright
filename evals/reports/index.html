@@ -24,8 +24,8 @@ code { font-size:13px; background:rgba(127,127,127,.13); padding:.1rem .3rem; bo
 .scroll { overflow-x:auto; }
 </style>
 <h1>Shipwright — evaluation results</h1>
-<p class="sub">Generated 2026-07-29 19:40 UTC from
-35 recorded runs. Every figure is computed from stored rows, not transcribed.</p>
+<p class="sub">Generated 2026-08-15 18:20 UTC from
+40 recorded runs. Every figure is computed from stored rows, not transcribed.</p>
 <p class="sub">Best recorded localization configuration: <strong>extract_rerank</strong> — <strong>73.0%</strong> file-level Acc@5 and <strong>35.0%</strong> function-level Acc@10 over n=100 tasks.</p>
 
 <h2>Loc-Bench localization</h2>
@@ -38,6 +38,19 @@ code { font-size:13px; background:rgba(127,127,127,.13); padding:.1rem .3rem; bo
 <p class="note">Unevaluated patches count as unresolved, never as unknown. The local 7B does
 not resolve these tasks, and the reasons are characterised rather than guessed: one task lost
 to context truncation, one to a greedy-decoding repetition loop.</p>
+<h2>Code review (reviewbench)</h2>
+<p class="note">Positives are <strong>reversed</strong> gold patches — a diff that
+re-introduces a real historical bug — scored at function level against the same ground truth
+Loc-Bench uses. Negatives are the <strong>forward</strong> patch, the fix maintainers merged,
+where every finding is a false-positive candidate rather than a detection.</p>
+<div class="scroll"><table><tr><th>configuration</th><th>split</th><th>n</th><th>detect@func</th><th>precision@1</th><th>findings/100 lines</th><th>commit</th><th>date</th></tr><tr><td>ruff_only</td><td>reverse</td><td class="n">8</td><td class="n">12.5%</td><td class="n">12.5%</td><td class="n">0.17</td><td><code>7a74335</code></td><td class="n">2026-08-15</td></tr><tr><td>security+error_handling+test_coverage+quality</td><td>reverse</td><td class="n">8</td><td class="n">37.5%</td><td class="n">37.5%</td><td class="n">1.03</td><td><code>7a74335</code></td><td class="n">2026-08-15</td></tr><tr><td>security+error_handling+test_coverage+quality</td><td>forward</td><td class="n">8</td><td class="n">62.5%</td><td class="n">62.5%</td><td class="n">4.49</td><td><code>7a74335</code></td><td class="n">2026-08-15</td></tr><tr><td>security+error_handling+test_coverage+quality</td><td>forward</td><td class="n">8</td><td class="n">37.5%</td><td class="n">37.5%</td><td class="n">2.45</td><td><code>f38b24a</code></td><td class="n">2026-08-15</td></tr><tr><td>security+error_handling+test_coverage+quality</td><td>reverse</td><td class="n">8</td><td class="n">37.5%</td><td class="n">37.5%</td><td class="n">1.03</td><td><code>f38b24a</code></td><td class="n">2026-08-15</td></tr></table></div>
+<p class="note">Two asymmetries belong next to these numbers. A reversed diff reads as
+"someone deleted a guard", which is plausibly easier to spot than a naturally written bug;
+and a forward diff <em>adds</em> the fix, which is more new logic to complain about. Sampled
+diffs have a median of 18 changed lines, so findings-per-100-lines may not transfer to real
+pull requests, and the chunker is barely exercised by this corpus. An earlier version of this
+harness reviewed the pre-fix file on the forward split and overstated the noise by roughly
+45%; the correction is recorded in the local failure log.</p>
 
 <h2>How to read this</h2>
 <ul class="note">

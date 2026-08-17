@@ -132,6 +132,42 @@ const BEATS: readonly Beat[] = [
     active: "Running the tests…",
     done: "Tests finished",
   },
+  {
+    key: "review-post",
+    opens: ["review.post.started"],
+    closes: ["review.post.ready"],
+    active: "Posting the review to GitHub…",
+    done: "Posted the review to GitHub",
+    fact: (d) => (typeof d.number === "number" ? `PR #${d.number}` : undefined),
+  },
+  {
+    key: "review-read",
+    opens: ["review.fetched"],
+    closes: ["review.chunked"],
+    active: "Reading the pull request…",
+    done: "Read the pull request",
+    // `fact` is computed from the CLOSING event, which is review.chunked — so it reads
+    // `units`/`skipped`, not review.fetched's `files`. Reading `files` here silently
+    // produced undefined and the count never rendered.
+    fact: (d) => {
+      if (typeof d.units !== "number") return undefined;
+      const skipped = typeof d.skipped === "number" ? d.skipped : 0;
+      return skipped ? `${d.units} files, ${skipped} skipped` : `${d.units} files`;
+    },
+  },
+  {
+    key: "review-check",
+    opens: ["review.chunked"],
+    closes: ["review.ready"],
+    active: "Checking the changes…",
+    done: "Checked the changes",
+    fact: (d) =>
+      typeof d.findings === "number"
+        ? d.findings === 1
+          ? "1 finding"
+          : `${d.findings} findings`
+        : undefined,
+  },
 ];
 
 export function narrate(state: ActivityState): FeedLine[] {
@@ -148,11 +184,29 @@ export function narrate(state: ActivityState): FeedLine[] {
 
   for (const entry of state.timeline) {
     const opens = BEATS.find((b) => b.opens.includes(entry.type));
-    const closesOpen =
-      open && BEATS.find((b) => b.key === open!.key && b.closes.includes(entry.type));
+    // The open beat's key is captured as a plain string before anything below reassigns
+    // `open`. Reading `open` directly here while also assigning it in the close branch
+    // makes each one's inference depend on the other, which TS reports as an implicit any.
+    const openKey: string | null = open ? open.key : null;
+    const closesOpen: Beat | undefined = openKey
+      ? BEATS.find((b) => b.key === openKey && b.closes.includes(entry.type))
+      : undefined;
 
     if (closesOpen) {
       close(closesOpen.done, closesOpen.fact?.(entry.data ?? {}));
+      // One event can end one beat and begin the next — `review.chunked` closes
+      // "Read the pull request" and opens "Checking the changes…". Returning here without
+      // this made the second beat unreachable: its line never existed, so its own close
+      // event matched nothing and the live progress suffix was dead code.
+      if (opens && opens.key !== closesOpen.key) {
+        open = {
+          key: opens.key,
+          id: `${opens.key}#${lines.length}`,
+          state: "active",
+          label: opens.active,
+        };
+        lines.push(open);
+      }
       continue;
     }
     if (opens) {
@@ -188,6 +242,15 @@ export function narrate(state: ActivityState): FeedLine[] {
       if (open && open.key === "pr") {
         open.state = "failed";
         open.label = "Couldn't open the pull request";
+        open.fact = typeof entry.data?.reason === "string" ? entry.data.reason : undefined;
+        open = null;
+      }
+      continue;
+    }
+    if (entry.type === "review.post.failed") {
+      if (open && open.key === "review-post") {
+        open.state = "failed";
+        open.label = "Couldn't post the review";
         open.fact = typeof entry.data?.reason === "string" ? entry.data.reason : undefined;
         open = null;
       }

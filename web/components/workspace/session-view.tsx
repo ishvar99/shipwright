@@ -10,6 +10,7 @@ import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { AnswerCard, NoWorkCard } from "@/components/workspace/answer-card";
 import { CodePane } from "@/components/workspace/code-pane";
 import { FixCard } from "@/components/workspace/fix-card";
+import { ReviewFindings } from "@/components/workspace/review-findings";
 import { ResultsList } from "@/components/workspace/results-list";
 import { Splitter } from "@/components/workspace/splitter";
 import { useWorkspace } from "@/components/workspace/workspace-provider";
@@ -17,7 +18,15 @@ import { apiPost, messageFor } from "@/lib/client/api";
 import { useJobResult } from "@/lib/client/use-job-result";
 import { repoDisplayName } from "@/lib/repo-name";
 import { repoHome } from "@/lib/repo-routes";
-import { JobSchema, type Fix, type Job, type Location } from "@/lib/contracts";
+import {
+  JobSchema,
+  type Finding,
+  type Fix,
+  type Job,
+  type Location,
+  type ReviewCoverage,
+} from "@/lib/contracts";
+import type { TriageMap } from "@/lib/review";
 import { demoJob, demoRun } from "@/lib/fixtures";
 import { localEvents } from "@/lib/local/run";
 import { getLocalFile, isLocalJob } from "@/lib/local/store";
@@ -95,6 +104,34 @@ export function SessionView({
           applied_branch: demoStage === "proposed" ? undefined : demoJob.result.fix.applied_branch,
           tests: demoStage === "tested" ? demoJob.result.fix.tests : undefined,
         };
+  // Review payload, only for kind="review" rows. Built here rather than defaulted in the
+  // schema: a localize session has no review, and absent is a different claim from empty.
+  const review: ReviewData | null =
+    shown?.kind === "review"
+      ? {
+          jobId: shown.id,
+          findings: shown.result.findings ?? [],
+          coverage: shown.result.coverage ?? {
+            files: 0,
+            reviewed: 0,
+            unreviewed: [],
+            degraded: [],
+            tier: "none",
+            checks: [],
+          },
+          triage: shown.result.triage ?? {},
+          reviewUrl: shown.result.review_url ?? "",
+          // A review is pinned to the head_sha it read; the pull request's own title (not
+          // this session's generic "Review pull request #N" issue line) is the receipt's
+          // byline. Both come from `target`, stamped at creation and refreshed once the run
+          // finishes — absent on a session recorded before the field existed.
+          number: shown.result.target?.number ?? 0,
+          headSha: shown.result.target?.head_sha ?? "",
+          title: shown.result.target?.title ?? "",
+          supersededBy: shown.result.superseded_by ?? "",
+        }
+      : null;
+
   // Memoised: the sources effect below keys on this, and a fresh [] per render would re-read
   // IndexedDB on every frame of the stream.
   const shownLocations = shown?.result.locations;
@@ -226,6 +263,7 @@ export function SessionView({
         repoSlug={shown?.repo_slug ?? session?.repo_slug ?? ""}
         onOpenInEditor={onOpenInEditor}
         fix={fix ?? null}
+        review={review}
         actions={actions}
         pendingAction={pendingAction}
         actionError={actionError}
@@ -264,7 +302,24 @@ export function SessionView({
   );
 }
 
-type ActionKind = "apply" | "test" | "fix_retry" | "open_pr";
+type ActionKind = "apply" | "test" | "fix_retry" | "open_pr" | "post_review";
+
+/** A finished review's payload, present only on kind="review" sessions. */
+type ReviewData = {
+  jobId: string;
+  findings: Finding[];
+  coverage: ReviewCoverage;
+  triage: TriageMap;
+  reviewUrl: string;
+  /** The pull request this review is pinned to, and the sha it read — for the moved banner
+   * and the receipt. Zero/empty on a session recorded before `target` existed. */
+  number: number;
+  headSha: string;
+  /** The pull request's own title, for the receipt. */
+  title: string;
+  /** The id of the review that superseded this one, if any — a record, never deleted. */
+  supersededBy: string;
+};
 
 /** The follow-up input: the composer's card and grammar, none of its chrome — the repository
  * and the session are already decided, so the only control left is the question. */
@@ -368,6 +423,7 @@ function SessionBody({
   repoSlug,
   onOpenInEditor,
   fix,
+  review,
   actions,
   pendingAction,
   actionError,
@@ -409,6 +465,8 @@ function SessionBody({
   repoSlug: string;
   onOpenInEditor: (location: Location, repoId: string, slug: string) => void;
   fix: Fix | null;
+  /** Findings + coverage for kind="review" sessions; null on every other kind. */
+  review: ReviewData | null;
   actions: { id: string; kind: string }[];
   pendingAction: ActionKind | null;
   actionError: string | null;
@@ -451,7 +509,16 @@ function SessionBody({
               <span className="sw-truncate">{repoName}</span>
             </Link>
           )}
-          <h2 className="text-head font-semibold text-fg">{title}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-head font-semibold text-fg">{title}</h2>
+            {/* A superseded session is a record, not hidden — its findings still render
+                below unchanged; this only flags that a newer review exists. */}
+            {review?.supersededBy && (
+              <span className="rounded-full bg-soft px-2 py-0.5 text-xs text-subtle">
+                superseded by a newer review
+              </span>
+            )}
+          </div>
         </header>
 
         <ActivityFeed state={state} onRetry={onRetry} />
@@ -490,6 +557,36 @@ function SessionBody({
           <NoWorkCard reason={noWorkReason} onNewSession={onNewSession} />
         )}
 
+        {/* A review's findings render once the run settles; while it streams, the activity
+            feed above carries the narration. Posting goes through the same action path as
+            open_pr, so the ActionFeed below narrates it and the refetch brings review_url. */}
+        {review && state.outcome.kind === "done" && (
+          <ReviewFindings
+            jobId={review.jobId}
+            findings={review.findings}
+            coverage={review.coverage}
+            initialTriage={review.triage}
+            repoId={repoId}
+            number={review.number}
+            headSha={review.headSha}
+            title={review.title}
+            live={live}
+            reviewUrl={review.reviewUrl || undefined}
+            posting={pendingAction === "post_review"}
+            onPost={
+              // A superseded session is a record, not a draft: its findings stay readable,
+              // but offering to post them contradicts the badge in the header above — and
+              // they are pinned to a head GitHub has since moved past.
+              live &&
+              review.findings.length > 0 &&
+              !review.reviewUrl &&
+              !review.supersededBy
+                ? () => onAction("post_review")
+                : undefined
+            }
+          />
+        )}
+
         {(writing || Boolean(fix?.patch)) && (
           <div data-tour-ring={tourTarget === "fix" || undefined}>
             <FixCard
@@ -497,7 +594,9 @@ function SessionBody({
               fixText={state.fixText}
               writing={writing}
               busy={actionBusy}
-              pendingKind={pendingAction}
+              // Narrowed: FixCard only labels its own four actions, and a review session
+              // never renders one, so post_review can't reach it anyway.
+              pendingKind={pendingAction === "post_review" ? null : pendingAction}
               live={live}
               repoSlug={repoSlug}
               onApply={() => onAction("apply")}
@@ -518,7 +617,9 @@ function SessionBody({
           <ActionFeed key={a.id} id={a.id} kind={a.kind} live={live} onFinished={onActionFinished} />
         ))}
 
-        {state.outcome.kind === "done" && locations.length === 0 && intent !== "other" && (
+        {/* Not for reviews: an empty review is "no blocking findings", already said above —
+            "no matches found" would misread it as a failed search. */}
+        {state.outcome.kind === "done" && locations.length === 0 && intent !== "other" && !review && (
           <p className="text-subtle" role="status">
             No matches found. Adding a function name or an error message usually helps.
           </p>

@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { StatusDot } from "@/components/ui/status-dot";
 import { RepoPicker } from "@/components/workspace/repo-picker";
+import { apiPost, messageFor } from "@/lib/client/api";
 import type { Repo } from "@/lib/contracts";
+import { JobSchema } from "@/lib/contracts";
 import { issueToQuestion, resolveIssueRef } from "@/lib/github-ref";
 import { repoDisplayName } from "@/lib/repo-name";
+import { repoSession } from "@/lib/repo-routes";
+import { offerTargetsOpenRepo } from "@/lib/review";
 import { cn } from "@/lib/cn";
 import { readDraft, setDraft as saveDraft } from "@/lib/ui-prefs";
 
@@ -93,18 +98,58 @@ export function Composer({
   const ref = resolveIssueRef(issue, repo);
   const [loadingIssue, setLoadingIssue] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
+  // Set when the issue route reports the number is actually a pull request — turns the
+  // rejection into an offer instead of a dead end. Cleared whenever the textarea changes so a
+  // stale offer can never fire against different text.
+  const [prOffer, setPrOffer] = useState<number | null>(null);
+  const [startingReview, setStartingReview] = useState(false);
+  const router = useRouter();
+
+  // `resolveIssueRef` resolves cross-repo references — `owner/name#12` and a full URL both
+  // name a repository that may not be the open one. The review POST can only ever target the
+  // open repo, so offering there would review a *different* PR that happens to share the
+  // number. Only the matching case gets the button.
+  const offerIsForOpenRepo = offerTargetsOpenRepo(ref, repo);
+
+  const startReview = async () => {
+    if (prOffer === null || !repo) return;
+    setStartingReview(true);
+    setIssueError(null);
+    try {
+      const job = await apiPost(JobSchema, "/api/reviews", {
+        repo_id: repo.id,
+        number: prOffer,
+      });
+      router.push(repoSession(repo.id, job.id));
+    } catch (e) {
+      setIssueError(messageFor(e));
+      setStartingReview(false); // success navigates away, so only failure resets
+    }
+  };
 
   const loadIssue = async () => {
     if (!ref) return;
     setLoadingIssue(true);
     setIssueError(null);
+    setPrOffer(null);
+    setStartingReview(false);
     try {
       const res = await fetch("/api/github/issue", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(ref),
       });
-      const data = (await res.json()) as { detail?: string; title?: string; body?: string; html_url?: string };
+      const data = (await res.json()) as {
+        detail?: string;
+        title?: string;
+        body?: string;
+        html_url?: string;
+        pull_request?: boolean;
+      };
+      if (!res.ok && data.pull_request) {
+        setPrOffer(ref.number);
+        return; // a door, not a dead end
+      }
       if (!res.ok) throw new Error(data.detail ?? "Could not load that issue.");
       const text = issueToQuestion({ title: data.title ?? "", body: data.body, html_url: data.html_url });
       setIssue(text);
@@ -133,6 +178,15 @@ export function Composer({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
     if (draftKey) setIssue(readDraft(draftKey));
   }, [draftKey]);
+
+  // A bare `#42` derives its owner/name from the OPEN repo, so switching repositories
+  // without editing the text would silently retarget the offer at a repo where #42 was
+  // never confirmed to be a pull request.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing on identity change
+    setPrOffer(null);
+    setStartingReview(false);
+  }, [repo?.id]);
 
   if (replay) {
     return (
@@ -192,6 +246,10 @@ export function Composer({
         value={issue}
         onChange={(e) => {
           setIssue(e.target.value);
+          setPrOffer(null);
+          // Reset with the offer: otherwise a re-offer renders already labelled
+          // "Starting review…" and disabled until the old request settles.
+          setStartingReview(false);
           if (draftKey) saveDraft(draftKey, e.target.value);
         }}
         onKeyDown={(e) => {
@@ -273,6 +331,22 @@ export function Composer({
             {loadingIssue ? "Loading…" : `Load issue #${ref.number} from ${ref.owner}/${ref.name}`}
           </Button>
           <span className="text-xs text-subtle">its title and body become your question</span>
+          {prOffer !== null && offerIsForOpenRepo && (
+            <Button
+              type="button"
+              aria-disabled={startingReview || undefined}
+              onClick={() => void startReview()}
+            >
+              {startingReview ? "Starting review…" : `Review pull request #${prOffer} instead`}
+            </Button>
+          )}
+          {prOffer !== null && !offerIsForOpenRepo && (
+            <span className="text-xs text-subtle">
+              {repo?.source === "github"
+                ? `#${prOffer} is a pull request in another repository — open it here to review it.`
+                : `#${prOffer} is a pull request. Import its repository from GitHub to review it.`}
+            </span>
+          )}
         </div>
       )}
       {issueError && (
