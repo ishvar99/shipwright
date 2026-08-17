@@ -2,12 +2,18 @@
 # keeps Render's free service from its 15-minute spin-down, and the health handler's DB
 # probe counts as Supabase activity. UptimeRobot (5-min keyword monitor on "ok":true) is
 # the PRIMARY keepalive; this is the second leg — and the one that alerts via CI status.
+#
+# The cron is OFF until the backend is actually deployed. GitHub passes an unset secret as
+# an empty string, so a scheduled run with no RENDER_HEALTH_URL called curl with a blank
+# URL and failed in seconds, six times an hour, forever. Restore the schedule below in the
+# same change that adds the secrets:
+#
+#   schedule:
+#     # Offset from :00 — GitHub warns that scheduled jobs queued at high-load times
+#     # (top of the hour) may be DROPPED entirely, not just delayed.
+#     - cron: "7,17,27,37,47,57 * * * *"
 name: keepalive
 on:
-  schedule:
-    # Offset from :00 — GitHub warns that scheduled jobs queued at high-load times
-    # (top of the hour) may be DROPPED entirely, not just delayed.
-    - cron: "7,17,27,37,47,57 * * * *"
   workflow_dispatch: {}
 
 permissions: {}
@@ -20,6 +26,15 @@ jobs:
       - name: probe /api/health
         run: |
           set -euo pipefail
+          # Checked explicitly: `set -u` does not catch these, because an unset repository
+          # secret arrives DEFINED and empty. Without the guard the failure surfaced as a
+          # curl usage error, which says nothing about the actual cause.
+          if [ -z "${RENDER_HEALTH_URL}" ] || [ -z "${SHIPWRIGHT_API_KEY}" ]; then
+            echo "RENDER_HEALTH_URL / SHIPWRIGHT_API_KEY are not set." >&2
+            echo "Add them under Settings > Secrets and variables > Actions once the" >&2
+            echo "backend is deployed, then restore the cron at the top of this file." >&2
+            exit 1
+          fi
           # --max-time 90 rides out a ~60s cold wake if the other keepalive leg lapsed.
           body=$(curl -fsS --max-time 90 \
             -H "x-shipwright-key: ${SHIPWRIGHT_API_KEY}" \
